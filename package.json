@@ -1,0 +1,73 @@
+{
+    "name": "gym-manager-pro",
+    "version": "1.0.0",
+    "description": "High-performance Gym Management System",
+    "main": "src/main/main.js",
+    "scripts": {
+        "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
+        "build": "vite build && electron-builder",
+        "postinstall": "electron-rebuild",
+        "rebuild": "electron-rebuild"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/salinas2000/gym-manager-updates.git"
+    },
+    "build": {
+        "appId": "com.gymmanager.pro",
+        "productName": "Gym Manager Pro",
+        "publish": [
+            {
+                "provider": "github",
+                "owner": "salinas2000",
+                "repo": "gym-manager-updates"
+            }
+        ],
+        "extraResources": [
+            {
+                "from": "src/main/db/seeds",
+                "to": "seeds"
+            }
+        ]
+    },
+    "keywords": [
+        "gym",
+        "electron",
+        "react",
+        "sqlite"
+    ],
+    "author": "Antigravity",
+    "license": "MIT",
+    "dependencies": {
+        "@supabase/supabase-js": "^2.91.1",
+        "@tanstack/react-query": "^5.90.20",
+        "better-sqlite3": "^11.8.1",
+        "clsx": "^2.1.1",
+        "dotenv": "^17.2.3",
+        "electron-log": "^5.4.3",
+        "electron-squirrel-startup": "^1.0.1",
+        "electron-store": "^6.0.1",
+        "electron-updater": "^6.7.3",
+        "exceljs": "^4.4.0",
+        "googleapis": "^170.1.0",
+        "lucide-react": "^0.473.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "recharts": "^3.7.0",
+        "tailwind-merge": "^2.6.0",
+        "zod": "^3.24.1"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-react": "^4.3.4",
+        "autoprefixer": "^10.4.20",
+        "class-variance-authority": "^0.7.1",
+        "concurrently": "^9.1.2",
+        "electron": "^34.0.0",
+        "electron-builder": "^25.1.8",
+        "electron-rebuild": "^3.2.9",
+        "postcss": "^8.5.1",
+        "tailwindcss": "^3.4.17",
+        "vite": "^6.0.7",
+        "wait-on": "^8.0.2"
+    }
+}

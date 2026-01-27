@@ -1,0 +1,13 @@
+node_modules
+dist
+release
+build
+.env
+*.log
+*.db
+*.sqlite
+*.sqlite3
+.DS_Store
+thumbs.db
+src/main/db/seeds/*.json
+!src/main/db/seeds/example.json
