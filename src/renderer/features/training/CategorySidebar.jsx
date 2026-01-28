@@ -4,6 +4,8 @@ import {
     ChevronDown, ChevronRight, Plus, X, Trash2
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '../../context/ToastContext';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 // Shared Icon Map
 export const ICON_MAP = {
@@ -18,8 +20,10 @@ export default function CategorySidebar({
     onSelectSubcategory,  // (id) => void
     onReset               // () => void
 }) {
+    const toast = useToast();
     const queryClient = useQueryClient();
     const [expandedCats, setExpandedCats] = useState({});
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
 
     // Creation State
     const [isCreatingCat, setIsCreatingCat] = useState(false);
@@ -62,6 +66,10 @@ export default function CategorySidebar({
         onSuccess: () => {
             queryClient.invalidateQueries(['categories']);
             if (activeCategory) onReset();
+            toast.success('Categoría eliminada con éxito');
+        },
+        onError: () => {
+            toast.error('Error al eliminar la categoría');
         }
     });
 
@@ -70,6 +78,10 @@ export default function CategorySidebar({
         onSuccess: () => {
             queryClient.invalidateQueries(['categories']);
             if (activeSubcategory) onSelectCategory(activeCategory); // Go back to cat
+            toast.success('Subcategoría eliminada con éxito');
+        },
+        onError: () => {
+            toast.error('Error al eliminar la subcategoría');
         }
     });
 
@@ -89,160 +101,189 @@ export default function CategorySidebar({
     };
 
     const handleDeleteCategory = (catId, catName) => {
-        if (confirm(`⚠️ PELIGRO ⚠️\n\n¿Estás seguro de eliminar la categoría "${catName}"?\n\nAl hacerlo SE ELIMINARÁN TODOS LOS EJERCICIOS que pertenezcan a esta categoría. Esta acción no se puede deshacer.`)) {
-            deleteCategory.mutate(catId);
-        }
+        setConfirmModal({
+            isOpen: true,
+            title: 'Eliminar Categoría',
+            children: (
+                <div className="space-y-2">
+                    <p className="font-bold text-red-500">⚠️ PELIGRO ⚠️</p>
+                    <p>¿Estás seguro de eliminar la categoría <span className="text-white font-bold">"{catName}"</span>?</p>
+                    <p className="text-xs text-slate-400">Al hacerlo SE ELIMINARÁN TODOS LOS EJERCICIOS que pertenezcan a esta categoría. Esta acción no se puede deshacer.</p>
+                </div>
+            ),
+            type: 'danger',
+            confirmText: 'Eliminar Absolutamente Todo',
+            onConfirm: () => deleteCategory.mutate(catId)
+        });
     };
 
     const handleDeleteSubcategory = (subId, subName) => {
-        if (confirm(`¿Eliminar subcategoría "${subName}"?\nSe eliminarán todos los ejercicios asociados.`)) {
-            deleteSubcategory.mutate(subId);
-        }
+        setConfirmModal({
+            isOpen: true,
+            title: 'Eliminar Subcategoría',
+            children: `¿Eliminar subcategoría "${subName}"? Se eliminarán todos los ejercicios asociados.`,
+            type: 'danger',
+            confirmText: 'Eliminar',
+            onConfirm: () => deleteSubcategory.mutate(subId)
+        });
     };
 
     return (
-        <div className="flex flex-col h-full bg-slate-900/50 border-r border-white/5 w-72 flex-shrink-0">
-            {/* HEADER */}
-            <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Explorador</h3>
-                <button
-                    onClick={() => setIsCreatingCat(true)}
-                    className="p-1 hover:bg-blue-600/20 hover:text-blue-400 rounded transition-colors text-slate-500"
-                    title="Nueva Categoría"
-                >
-                    <Plus size={16} />
-                </button>
-            </div>
+        <>
+            <div className="flex flex-col h-full bg-slate-900/50 border-r border-white/5 w-72 flex-shrink-0">
+                {/* HEADER */}
+                <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Explorador</h3>
+                    <button
+                        onClick={() => setIsCreatingCat(true)}
+                        className="p-1 hover:bg-blue-600/20 hover:text-blue-400 rounded transition-colors text-slate-500"
+                        title="Nueva Categoría"
+                    >
+                        <Plus size={16} />
+                    </button>
+                </div>
 
 
 
-            {/* NEW CAT FORM (Isolated Component) */}
-            {
-                isCreatingCat && (
-                    <CreateCategoryForm
-                        onCancel={() => setIsCreatingCat(false)}
-                        onSubmit={(data) => {
-                            createCategory.mutate(data);
-                        }}
-                    />
-                )
-            }
+                {/* NEW CAT FORM (Isolated Component) */}
+                {
+                    isCreatingCat && (
+                        <CreateCategoryForm
+                            onCancel={() => setIsCreatingCat(false)}
+                            onSubmit={(data) => {
+                                createCategory.mutate(data);
+                            }}
+                        />
+                    )
+                }
 
-            {/* TREE LIST */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                <button
-                    onClick={onReset}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors ${!activeCategory
-                        ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                        }`}
-                >
-                    <Dumbbell size={16} />
-                    Todos los Ejercicios
-                </button>
+                {/* TREE LIST */}
+                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                    <button
+                        onClick={onReset}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors ${!activeCategory
+                            ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
+                            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                            }`}
+                    >
+                        <Dumbbell size={16} />
+                        Todos los Ejercicios
+                    </button>
 
-                {categories.map(cat => {
-                    const Icon = ICON_MAP[cat.icon] || Folder;
-                    const isExpanded = expandedCats[cat.id];
-                    const isActive = activeCategory === cat.id;
+                    {categories.map(cat => {
+                        const Icon = ICON_MAP[cat.icon] || Folder;
+                        const isExpanded = expandedCats[cat.id];
+                        const isActive = activeCategory === cat.id;
 
-                    return (
-                        <div key={cat.id} className="select-none">
-                            {/* CATEGORY ROW */}
-                            <div
-                                className={`
+                        return (
+                            <div key={cat.id} className="select-none">
+                                {/* CATEGORY ROW */}
+                                <div
+                                    className={`
                                     group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer transition-colors
                                     ${isActive ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
                                 `}
-                            >
-                                <div
-                                    className="flex items-center gap-2 flex-1 overflow-hidden"
-                                    onClick={() => {
-                                        onSelectCategory(cat.id);
-                                        if (!isExpanded) toggleExpand(cat.id);
-                                    }}
                                 >
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); toggleExpand(cat.id); }}
-                                        className="text-slate-600 hover:text-white"
-                                    >
-                                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                    </button>
-                                    <Icon size={16} className={isActive ? 'text-blue-400' : 'text-slate-500'} />
-                                    <span className="text-sm font-medium truncate">{cat.name}</span>
-                                </div>
-
-                                <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setCreatingSubFor(cat.id); setExpandedCats(p => ({ ...p, [cat.id]: true })); }}
-                                        className="p-1 hover:text-blue-400 text-slate-500"
-                                        title="Agregar Subcategoría"
-                                    >
-                                        <Plus size={12} />
-                                    </button>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteCategory(cat.id, cat.name);
+                                    <div
+                                        className="flex items-center gap-2 flex-1 overflow-hidden"
+                                        onClick={() => {
+                                            onSelectCategory(cat.id);
+                                            if (!isExpanded) toggleExpand(cat.id);
                                         }}
-                                        className="p-1 hover:text-red-400 text-slate-500"
-                                        title="Eliminar Categoría"
                                     >
-                                        <Trash2 size={12} />
-                                    </button>
-                                </div>
-                            </div>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); toggleExpand(cat.id); }}
+                                            className="text-slate-600 hover:text-white"
+                                        >
+                                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                        </button>
+                                        <Icon size={16} className={isActive ? 'text-blue-400' : 'text-slate-500'} />
+                                        <span className="text-sm font-medium truncate">{cat.name}</span>
+                                    </div>
 
-                            {/* SUBCATEGORIES */}
-                            {isExpanded && (
-                                <div className="ml-6 pl-2 border-l border-white/5 mt-1 space-y-0.5">
-                                    {/* SUB LIST */}
-                                    {cat.subcategories && cat.subcategories.map(sub => (
-                                        <div
-                                            key={sub.id}
-                                            className={`
+                                    <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setCreatingSubFor(cat.id); setExpandedCats(p => ({ ...p, [cat.id]: true })); }}
+                                            className="p-1 hover:text-blue-400 text-slate-500"
+                                            title="Agregar Subcategoría"
+                                        >
+                                            <Plus size={12} />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteCategory(cat.id, cat.name);
+                                            }}
+                                            className="p-1 hover:text-red-400 text-slate-500"
+                                            title="Eliminar Categoría"
+                                        >
+                                            <Trash2 size={12} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* SUBCATEGORIES */}
+                                {isExpanded && (
+                                    <div className="ml-6 pl-2 border-l border-white/5 mt-1 space-y-0.5">
+                                        {/* SUB LIST */}
+                                        {cat.subcategories && cat.subcategories.map(sub => (
+                                            <div
+                                                key={sub.id}
+                                                className={`
                                                 group/sub flex items-center justify-between px-2 py-1 rounded text-sm cursor-pointer transition-colors
                                                 ${activeSubcategory === sub.id
-                                                    ? 'bg-blue-600/20 text-blue-400'
-                                                    : 'text-slate-500 hover:text-white hover:bg-slate-800/30'}
+                                                        ? 'bg-blue-600/20 text-blue-400'
+                                                        : 'text-slate-500 hover:text-white hover:bg-slate-800/30'}
                                             `}
-                                            onClick={() => onSelectSubcategory(sub.id)}
-                                        >
-                                            <span className="truncate">{sub.name}</span>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDeleteSubcategory(sub.id, sub.name);
-                                                }}
-                                                className="opacity-0 group-hover/sub:opacity-100 p-0.5 hover:text-red-400 text-slate-600"
-                                                title="Eliminar Subcategoría"
+                                                onClick={() => onSelectSubcategory(sub.id)}
                                             >
-                                                <X size={12} />
-                                            </button>
-                                        </div>
-                                    ))}
+                                                <span className="truncate">{sub.name}</span>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDeleteSubcategory(sub.id, sub.name);
+                                                    }}
+                                                    className="opacity-0 group-hover/sub:opacity-100 p-0.5 hover:text-red-400 text-slate-600"
+                                                    title="Eliminar Subcategoría"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
 
-                                    {/* CREATE SUB INPUT */}
-                                    {creatingSubFor === cat.id && (
-                                        <form onSubmit={handleCreateSub} className="px-2 py-1">
-                                            <input
-                                                autoFocus
-                                                type="text"
-                                                placeholder="Nombre Sub..."
-                                                value={newSubName}
-                                                onChange={e => setNewSubName(e.target.value)}
-                                                className="w-full bg-slate-950 border border-white/10 rounded px-2 py-0.5 text-xs text-white focus:border-blue-500 outline-none"
-                                                onBlur={() => !newSubName && setCreatingSubFor(null)} // Cancel on blur if empty
-                                            />
-                                        </form>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                                        {/* CREATE SUB INPUT */}
+                                        {creatingSubFor === cat.id && (
+                                            <form onSubmit={handleCreateSub} className="px-2 py-1">
+                                                <input
+                                                    autoFocus
+                                                    type="text"
+                                                    placeholder="Nombre Sub..."
+                                                    value={newSubName}
+                                                    onChange={e => setNewSubName(e.target.value)}
+                                                    className="w-full bg-slate-950 border border-white/10 rounded px-2 py-0.5 text-xs text-white focus:border-blue-500 outline-none"
+                                                    onBlur={() => !newSubName && setCreatingSubFor(null)} // Cancel on blur if empty
+                                                />
+                                            </form>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <ConfirmationModal
+                    isOpen={confirmModal.isOpen}
+                    title={confirmModal.title}
+                    onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                    onConfirm={confirmModal.onConfirm}
+                    type={confirmModal.type}
+                    confirmText={confirmModal.confirmText || 'Confirmar'}
+                >
+                    {confirmModal.children}
+                </ConfirmationModal>
             </div>
-        </div >
+        </>
     );
 }
 

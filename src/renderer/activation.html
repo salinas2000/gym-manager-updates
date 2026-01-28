@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Activar Gym Manager Pro</title>
+    <!-- Use the same Tailwind CSS from the main app -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #0f172a;
+            /* Slate 950 */
+            color: white;
+            user-select: none;
+            overflow: hidden;
+        }
+
+        .drag-region {
+            -webkit-app-region: drag;
+            height: 30px;
+            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .no-drag {
+            -webkit-app-region: no-drag;
+        }
+    </style>
+</head>
+
+<body class="h-screen w-screen flex flex-col items-center justify-center p-8">
+    <div class="drag-region"></div>
+
+    <div
+        class="w-full max-w-sm bg-slate-900/80 border border-slate-700 rounded-2xl p-8 shadow-2xl backdrop-blur-sm text-center">
+        <!-- Logo -->
+        <div class="mb-6 flex justify-center">
+            <div
+                class="w-16 h-16 bg-gradient-to-br from-emerald-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+            </div>
+        </div>
+
+        <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-500 mb-2">
+            Activación
+        </h1>
+        <p class="text-slate-400 text-sm mb-6">
+            Ingresa tu licencia para desbloquear Gym Manager Pro.
+        </p>
+
+        <form id="activationForm" class="space-y-4 no-drag">
+            <div class="relative">
+                <input type="text" id="licenseKey" placeholder="XXXX-XXXX-XXXX-XXXX"
+                    class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-center uppercase tracking-widest font-mono"
+                    required />
+            </div>
+
+            <button type="submit" id="activateBtn"
+                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                <span id="btnText">Activar Licencia</span>
+                <svg id="loadingSpinner" class="animate-spin h-5 w-5 text-white hidden"
+                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
+            </button>
+        </form>
+
+        <div id="statusMessage" class="mt-4 text-sm font-medium hidden"></div>
+
+        <div class="mt-8 pt-4 border-t border-slate-800">
+            <p class="text-xs text-slate-500">
+                Gym Manager Pro &copy; 2026<br>
+                ID Hardware: <span id="hardwareIdDisplay" class="font-mono text-slate-400 select-all cursor-pointer"
+                    title="Copiar ID">Cargando...</span>
+            </p>
+        </div>
+    </div>
+
+    <!-- Renderer Script -->
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        const form = document.getElementById('activationForm');
+        const input = document.getElementById('licenseKey');
+        const btn = document.getElementById('activateBtn');
+        const btnText = document.getElementById('btnText');
+        const spinner = document.getElementById('loadingSpinner');
+        const statusMsg = document.getElementById('statusMessage');
+        const hardwareIdSpan = document.getElementById('hardwareIdDisplay');
+
+        // Get hardware ID on load
+        ipcRenderer.invoke('license:getHardwareId').then(id => {
+            hardwareIdSpan.textContent = id;
+        });
+
+        // Copy ID on click
+        hardwareIdSpan.addEventListener('click', () => {
+            navigator.clipboard.writeText(hardwareIdSpan.textContent);
+            // Visual feedback could be added here
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const key = input.value.trim();
+            if (!key) return;
+
+            // UI Loading State
+            btn.disabled = true;
+            btnText.textContent = 'Verificando...';
+            spinner.classList.remove('hidden');
+            input.disabled = true;
+            statusMsg.classList.add('hidden');
+            statusMsg.className = 'mt-4 text-sm font-medium hidden';
+
+            try {
+                // Call Main Process
+                await ipcRenderer.invoke('license:activate', key);
+
+                // Success UI
+                statusMsg.textContent = '✅ ¡Licencia activada correctamente!';
+                statusMsg.classList.remove('text-red-400', 'hidden');
+                statusMsg.classList.add('text-emerald-400');
+                btnText.textContent = '¡Listo!';
+
+                // Main process will close this window shortly, but let's show success for 1s
+                setTimeout(() => {
+                    // Window closes automatically by main process
+                }, 1500);
+
+            } catch (error) {
+                // Error UI
+                console.error(error);
+                statusMsg.textContent = `❌ ${error.message}`;
+                statusMsg.classList.remove('text-emerald-400', 'hidden');
+                statusMsg.classList.add('text-red-400');
+
+                // Reset form state
+                btn.disabled = false;
+                btnText.textContent = 'Intentar de nuevo';
+                spinner.classList.add('hidden');
+                input.disabled = false;
+                input.focus();
+
+                // Shake animation
+                form.classList.add('animate-pulse');
+                setTimeout(() => form.classList.remove('animate-pulse'), 500);
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,11 +1,27 @@
 import React, { useState, useEffect } from 'react';
+import { useNotifications } from '../../context/NotificationContext';
 import { useGym } from '../../context/GymContext';
-import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle } from 'lucide-react';
+import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Cloud, HardDrive, Database } from 'lucide-react';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
-export default function SettingsPage() {
+export default function SettingsPage({ initialTab = 'general' }) {
     const { settings, updateSettings, refreshData } = useGym();
 
-    const [activeTab, setActiveTab] = useState('general'); // general, security, license
+    const [activeTab, setActiveTab] = useState(initialTab || 'general');
+    const [licenseData, setLicenseData] = useState(null);
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
+
+    // Request Confirm Helper
+    const requestConfirm = ({ title, message, type = 'info', confirmText, onConfirm }) => {
+        setConfirmModal({
+            isOpen: true,
+            title,
+            children: message,
+            type,
+            confirmText,
+            onConfirm
+        });
+    };
 
     // Identity Data
     const [formData, setFormData] = useState({
@@ -25,16 +41,34 @@ export default function SettingsPage() {
     const [message, setMessage] = useState(null);
     const [unlockError, setUnlockError] = useState(null);
 
-    // Status
-    const isActivated = settings?.is_activated === 'true';
+    // Status (Derived from both local settings and license service)
+    const isActivated = !!licenseData;
 
     useEffect(() => {
-        if (settings) {
-            setFormData({
-                gym_name: settings.gym_name || '',
-                role: settings.role || ''
-            });
-        }
+        // Load settings and license data
+        const loadData = async () => {
+            if (settings) {
+                setFormData(prev => ({
+                    ...prev,
+                    gym_name: settings.gym_name || prev.gym_name,
+                    role: settings.role || prev.role
+                }));
+            }
+
+            try {
+                if (window.api.license && window.api.license.getData) {
+                    const lic = await window.api.license.getData();
+                    setLicenseData(lic);
+                    // Standardize gym name from license if local settings are empty
+                    if (lic && lic.gym_name && !settings?.gym_name) {
+                        setFormData(prev => ({ ...prev, gym_name: lic.gym_name }));
+                    }
+                }
+            } catch (e) {
+                console.error("Error fetching license:", e);
+            }
+        };
+        loadData();
     }, [settings]);
 
     const handleChange = (e) => {
@@ -60,15 +94,13 @@ export default function SettingsPage() {
 
     const handleSaveGeneral = async (e) => {
         e.preventDefault();
-
-        // If locked (and supposedly bypass check failed or UI lagging), re-lock
         if (isLocked) return;
 
         setIsSaving(true);
         const success = await updateSettings(formData);
         if (success) {
             showMsg('success', 'Información actualizada.');
-            setIsLocked(true); // Auto-lock after save
+            setIsLocked(true);
         } else {
             showMsg('error', 'Error al guardar.');
         }
@@ -84,7 +116,7 @@ export default function SettingsPage() {
         if (success) {
             showMsg('success', 'Contraseña de administrador actualizada.');
             setNewPassword('');
-            setIsLocked(true); // Require unlock with new pass
+            setIsLocked(true);
         } else {
             showMsg('error', 'Error al cambiar contraseña.');
         }
@@ -97,15 +129,16 @@ export default function SettingsPage() {
 
         setIsSaving(true);
         try {
-            const res = await window.api.settings.activate(licenseKey);
-            if (res.success) {
+            // Use NEW License API
+            const res = await window.api.license.activate(licenseKey);
+            if (res) {
+                setLicenseData(res);
                 showMsg('success', '¡Aplicación activada correctamente!');
-                refreshData(); // Reload settings context
-            } else {
-                showMsg('error', res.error || 'Clave inválida.');
+                refreshData();
             }
         } catch (e) {
-            showMsg('error', 'Error de conexión o clave inválida.');
+            console.error(e);
+            showMsg('error', e.message || 'Error al activar.');
         }
         setIsSaving(false);
     };
@@ -125,7 +158,9 @@ export default function SettingsPage() {
                 {/* Activation Badge */}
                 <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 font-mono text-sm ${isActivated ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'}`}>
                     {isActivated ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-                    {isActivated ? 'LICENCIA ACTIVA' : 'MODO PRUEBA (NO ACTIVADO)'}
+                    {isActivated ?
+                        <span>PRODUCTO ACTIVADO <span className="text-slate-500 text-xs ml-2">({licenseData?.gym_name})</span></span>
+                        : 'MODO PRUEBA (NO ACTIVADO)'}
                 </div>
             </header>
 
@@ -134,11 +169,14 @@ export default function SettingsPage() {
                 <button onClick={() => setActiveTab('general')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 ${activeTab === 'general' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     General e Identidad
                 </button>
-                <button onClick={() => setActiveTab('license')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 ${activeTab === 'license' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
-                    Licencia
+                <button onClick={() => setActiveTab('license')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'license' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
+                    <Key size={16} /> Licencia
                 </button>
-                <button onClick={() => setActiveTab('updates')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 ${activeTab === 'updates' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
-                    Actualizaciones
+                <button onClick={() => setActiveTab('integrations')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'integrations' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
+                    <Cloud size={16} /> Integraciones
+                </button>
+                <button onClick={() => setActiveTab('updates')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'updates' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
+                    <ShieldCheck size={16} /> Actualizaciones
                 </button>
             </div>
 
@@ -222,6 +260,55 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
+                            <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
+                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                    <Database className="text-amber-400" /> Gestión de Datos
+                                </h3>
+                                <div className="space-y-4">
+                                    <p className="text-sm text-slate-400">Funciones para importar o exportar manualmente la base de datos local.</p>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const res = await window.api.cloud.exportLocal();
+                                                if (res.success) {
+                                                    alert('Backup exportado exitosamente');
+                                                }
+                                            }}
+                                            className="flex items-center justify-center gap-2 p-4 bg-slate-800 hover:bg-slate-700 rounded-xl text-white font-medium transition-colors border border-white/5"
+                                        >
+                                            <Save size={18} /> Exportar Backup (.db)
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                requestConfirm({
+                                                    title: '¡ADVERTENCIA CRÍTICA!',
+                                                    message: 'Estás a punto de IMPORTAR una base de datos externa. Esto SOBREESCRIBIRÁ todos los datos actuales del gimnasio (socios, pagos, rutinas). Esta acción es irreversible.',
+                                                    type: 'danger',
+                                                    confirmText: 'Entiendo, importar ahora',
+                                                    onConfirm: async () => {
+                                                        const res = await window.api.cloud.importLocal();
+                                                        if (res.success) {
+                                                            alert('Base de datos importada exitosamente. La aplicación se reiniciará.');
+                                                            window.location.reload();
+                                                        } else if (res.error) {
+                                                            alert('Error al importar: ' + res.error);
+                                                        }
+                                                    }
+                                                });
+                                            }}
+                                            className="flex items-center justify-center gap-2 p-4 bg-red-900/20 hover:bg-red-900/40 border border-red-500/30 rounded-xl text-red-100 font-medium transition-colors"
+                                        >
+                                            <HardDrive size={18} /> Importar Backup (.db)
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 italic text-center">Usa la importación con cuidado. Asegúrate de que el archivo .db sea una copia válida generada por esta misma aplicación.</p>
+                                </div>
+                            </div>
+
                             <div className="flex justify-end pt-4">
                                 <button type="submit" disabled={isSaving} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-blue-500/20 transition-all">
                                     <Save size={20} /> Guardar Cambios
@@ -244,17 +331,61 @@ export default function SettingsPage() {
                         <form onSubmit={handleActivate} className="max-w-lg space-y-4">
                             <div>
                                 <label className="text-sm font-medium text-slate-400 block mb-2">Clave de Licencia</label>
-                                <input
-                                    type="text"
-                                    value={licenseKey}
-                                    onChange={e => setLicenseKey(e.target.value)}
-                                    placeholder="XXXX-XXXX-XXXX-XXXX"
-                                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white font-mono tracking-widest focus:border-amber-500 outline-none uppercase"
-                                />
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={isActivated ? '••••-••••-••••-••••' : licenseKey}
+                                        onChange={e => setLicenseKey(e.target.value)}
+                                        placeholder="XXXX-XXXX-XXXX-XXXX"
+                                        disabled={isActivated}
+                                        className={`w-full bg-slate-950 border rounded-xl px-4 py-3 text-white font-mono tracking-widest outline-none uppercase transition-colors ${isActivated
+                                            ? 'border-emerald-500/30 text-emerald-400 cursor-not-allowed opacity-75'
+                                            : 'border-white/10 focus:border-amber-500'
+                                            }`}
+                                    />
+                                    {isActivated && (
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                            <CheckCircle size={20} className="text-emerald-500" />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            <button type="submit" disabled={!licenseKey || isSaving} className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white px-6 py-3 rounded-xl font-bold w-full transition-all shadow-lg shadow-amber-900/20 disabled:opacity-50">
-                                {isActivated ? 'Actualizar Licencia' : 'Activar Aplicación'}
-                            </button>
+
+                            {!isActivated ? (
+                                <button type="submit" disabled={!licenseKey || isSaving} className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white px-6 py-3 rounded-xl font-bold w-full transition-all shadow-lg shadow-amber-900/20 disabled:opacity-50">
+                                    Activar Aplicación
+                                </button>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
+                                        <ShieldCheck className="text-emerald-400 flex-shrink-0" size={24} />
+                                        <div>
+                                            <p className="text-emerald-400 font-bold">Licencia Verificada y Segura</p>
+                                            <p className="text-emerald-500/70 text-xs">Tu copia de Gym Manager Pro está autenticada con nuestros servidores.</p>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            requestConfirm({
+                                                title: 'Desactivar Licencia',
+                                                message: '¿Estás seguro de que quieres desactivar la licencia? La aplicación se cerrará y tendrás que volver a activarla.',
+                                                type: 'danger',
+                                                confirmText: 'Desactivar',
+                                                onConfirm: () => {
+                                                    window.api.license.deactivate().then(() => {
+                                                        window.location.reload();
+                                                    });
+                                                }
+                                            });
+                                        }}
+                                        className="w-full border border-red-500/20 text-red-400 hover:bg-red-500/10 px-6 py-3 rounded-xl font-bold transition-all text-sm"
+                                    >
+                                        Desactivar Licencia (Reset)
+                                    </button>
+                                </div>
+                            )}
                         </form>
 
                         {isActivated && (
@@ -268,23 +399,166 @@ export default function SettingsPage() {
                         )}
                     </div>
                 </div>
-            )}
+            )
+            }
+
+            {/* TAB CONTENT: INTEGRATIONS */}
+            {
+                activeTab === 'integrations' && (
+                    <IntegrationsTab confirmAction={requestConfirm} />
+                )
+            }
 
             {/* TAB CONTENT: UPDATES */}
-            {activeTab === 'updates' && (
-                <UpdateTab />
-            )}
+            {
+                activeTab === 'updates' && (
+                    <UpdateTab />
+                )
+            }
 
             {/* Global Message Toast */}
-            {message && (
-                <div className={`fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-bottom-5 fade-in duration-300 z-50 ${message.type === 'success' ? 'bg-slate-900 border-emerald-500/50 text-emerald-400' : 'bg-slate-900 border-red-500/50 text-red-400'}`}>
-                    {message.type === 'success' ? <CheckCircle /> : <AlertCircle />}
-                    <span className="font-bold">{message.text}</span>
+            {
+                message && (
+                    <div className={`fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-bottom-5 fade-in duration-300 z-50 ${message.type === 'success' ? 'bg-slate-900 border-emerald-500/50 text-emerald-400' : 'bg-slate-900 border-red-500/50 text-red-400'}`}>
+                        {message.type === 'success' ? <CheckCircle /> : <AlertCircle />}
+                        <span className="font-bold">{message.text}</span>
+                    </div>
+                )
+            }
+
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                onConfirm={async () => {
+                    await confirmModal.onConfirm();
+                }}
+                onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText}
+            >
+                {confirmModal.children}
+            </ConfirmationModal>
+        </div >
+    );
+}
+
+function IntegrationsTab({ confirmAction }) {
+    const [status, setStatus] = useState({ connected: false, user: null });
+    const [isLoading, setIsLoading] = useState(false);
+
+    useEffect(() => {
+        checkStatus();
+    }, []);
+
+    const checkStatus = async () => {
+        if (!window.api.google) return;
+        try {
+            const res = await window.api.google.getStatus();
+            if (res.success) {
+                setStatus(res.data);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const { addNotification, removeNotification } = useNotifications();
+
+    const handleConnect = async () => {
+        setIsLoading(true);
+        try {
+            const res = await window.api.google.startAuth();
+            if (res.success) {
+                setStatus({ connected: true, user: res.user });
+                // Update Notification Center
+                addNotification({
+                    id: 'google-status',
+                    type: 'status',
+                    title: 'Google Drive Conectado',
+                    message: `Sincronizando con ${res.user?.email || 'Tu Cuenta'}`,
+                    userEmail: res.user?.email,
+                    priority: 'low',
+                    persistent: true,
+                    action: {
+                        label: 'Configurar',
+                        view: 'settings',
+                        data: 'integrations'
+                    }
+                });
+            } else {
+                alert('Error al conectar: ' + res.error);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error inesperado al conectar')
+        }
+        setIsLoading(false);
+    };
+
+    const handleDisconnect = async () => {
+        confirmAction({
+            title: 'Desconectar Google Drive',
+            message: '¿Estás seguro de que quieres desconectar tu cuenta de Google Drive? Tendrás que volver a autorizar el acceso para subir archivos.',
+            type: 'warning',
+            confirmText: 'Desconectar',
+            onConfirm: async () => {
+                await window.api.google.signOut();
+                setStatus({ connected: false, user: null });
+                removeNotification('google-status');
+            }
+        });
+    };
+
+    return (
+        <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-slate-900/50 rounded-2xl p-8 border border-white/5 shadow-xl">
+                <div className="flex items-start gap-6">
+                    <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg p-3">
+                        <HardDrive size={32} className="text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                        <h3 className="text-xl font-bold text-white mb-2">Google Drive</h3>
+                        <p className="text-slate-400 text-sm mb-6 max-w-xl">
+                            Conecta tu cuenta de Google para subir automáticamente las rutinas y entrenamientos. Los archivos se guardarán en una carpeta "GIMNASIO" y se generará un enlace público para compartir con tus clientes.
+                        </p>
+
+                        {status.connected ? (
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    {status.user?.picture ? (
+                                        <img src={status.user.picture} className="w-10 h-10 rounded-full border border-emerald-500/30" />
+                                    ) : (
+                                        <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold">
+                                            {status.user?.name?.charAt(0) || 'U'}
+                                        </div>
+                                    )}
+                                    <div>
+                                        <p className="text-white font-bold">{status.user?.name || 'Usuario Conectado'}</p>
+                                        <p className="text-emerald-400 text-xs">{status.user?.email}</p>
+                                    </div>
+                                </div>
+                                <button onClick={handleDisconnect} className="text-red-400 hover:text-red-300 text-sm font-medium hover:underline">
+                                    Desconectar
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={handleConnect}
+                                disabled={isLoading}
+                                className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg hover:shadow-blue-500/20 disabled:opacity-50 disabled:cursor-wait"
+                            >
+                                {isLoading ? 'Conectando...' : 'Conectar Cuenta de Google'}
+                            </button>
+                        )}
+                    </div>
                 </div>
-            )}
+            </div>
         </div>
     );
 }
+
+
 
 function UpdateTab() {
     const [status, setStatus] = useState('idle');

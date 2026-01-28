@@ -2,11 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { X, Save, Trash2, Clock, Calendar } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useGym } from '../../context/GymContext';
+import { useToast } from '../../context/ToastContext';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 export default function CustomerHistoryModal({ isOpen, onClose, customer }) {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
     const { refreshData } = useGym();
+    const toast = useToast();
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
 
     // Load initial history
     useEffect(() => {
@@ -46,17 +50,28 @@ export default function CustomerHistoryModal({ isOpen, onClose, customer }) {
     };
 
     const handleDelete = async (id) => {
-        if (!confirm("¿Estás seguro de que quieres eliminar este periodo? Esto podría cambiar el estado del usuario.")) return;
-
-        try {
-            const res = await window.api.memberships.delete(id);
-            if (res.success) {
-                loadHistory();
-                refreshData(); // Refresh global list to reflect status changes
+        setConfirmModal({
+            isOpen: true,
+            title: 'Eliminar Periodo',
+            children: '¿Estás seguro de que quieres eliminar este periodo? Esto podría cambiar el estado del usuario.',
+            type: 'danger',
+            confirmText: 'Eliminar',
+            onConfirm: async () => {
+                try {
+                    const res = await window.api.memberships.delete(id);
+                    if (res.success) {
+                        loadHistory();
+                        refreshData();
+                        toast.success('Periodo eliminado correctamente');
+                    } else {
+                        toast.error('Error al eliminar el periodo');
+                    }
+                } catch (error) {
+                    console.error("Failed to delete membership", error);
+                    toast.error('Error inesperado al eliminar');
+                }
             }
-        } catch (error) {
-            console.error("Failed to delete membership", error);
-        }
+        });
     };
 
     if (!isOpen || !customer) return null;
@@ -102,6 +117,17 @@ export default function CustomerHistoryModal({ isOpen, onClose, customer }) {
                         ))
                     )}
                 </div>
+
+                <ConfirmationModal
+                    isOpen={confirmModal.isOpen}
+                    title={confirmModal.title}
+                    onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                    onConfirm={confirmModal.onConfirm}
+                    type={confirmModal.type}
+                    confirmText={confirmModal.confirmText || 'Confirmar'}
+                >
+                    {confirmModal.children}
+                </ConfirmationModal>
             </div>
         </div>
     );

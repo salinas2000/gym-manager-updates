@@ -4,7 +4,7 @@ import CustomerTrainingTab from './CustomerTrainingTab';
 import MesocycleEditor from './MesocycleEditor';
 import { Search, User, Dumbbell, ChevronRight } from 'lucide-react';
 
-export default function TrainingHistory({ initialCustomer }) {
+export default function TrainingHistory({ initialCustomer, onNavigate }) {
     const { customers } = useGym();
     const [selectedCustomer, setSelectedCustomer] = useState(initialCustomer || null);
     const [search, setSearch] = useState('');
@@ -20,6 +20,13 @@ export default function TrainingHistory({ initialCustomer }) {
             setSelectedCustomer(initialCustomer);
         }
     }, [initialCustomer]);
+
+    // Auto-select first customer if none selected
+    useEffect(() => {
+        if (!selectedCustomer && customers.length > 0) {
+            setSelectedCustomer(customers[0]);
+        }
+    }, [customers, selectedCustomer]);
 
     // Filtering
     const filteredCustomers = customers.filter(c =>
@@ -89,7 +96,7 @@ export default function TrainingHistory({ initialCustomer }) {
                         >
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${selectedCustomer?.id === c.id ? 'bg-blue-600' : 'bg-slate-800'
                                 }`}>
-                                {c.first_name[0]}
+                                {c.first_name?.[0] || 'U'}
                             </div>
                             <div className="text-left flex-1 min-w-0">
                                 <p className="font-medium truncate">{c.first_name} {c.last_name}</p>
@@ -106,7 +113,7 @@ export default function TrainingHistory({ initialCustomer }) {
                     <div className="h-full flex flex-col p-6">
                         <div className="flex items-center gap-4 mb-6 pb-4 border-b border-white/5">
                             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center text-xl font-bold text-white shadow-lg">
-                                {selectedCustomer.first_name[0]}
+                                {selectedCustomer.first_name?.[0] || 'U'}
                             </div>
                             <div>
                                 <h2 className="text-2xl font-bold text-white leading-none">
@@ -124,6 +131,7 @@ export default function TrainingHistory({ initialCustomer }) {
                                 onNewMesocycle={handleNewPlan}
                                 onSelectMesocycle={handleEditPlan}
                                 readOnly={false}
+                                onNavigate={onNavigate}
                             />
                         </div>
                     </div>

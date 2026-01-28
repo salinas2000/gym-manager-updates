@@ -3,7 +3,15 @@ const customerService = require('../services/customer.service');
 const paymentService = require('../services/payment.service');
 const tariffService = require('../services/tariff.service');
 
+let handlersRegistered = false;
+
 function registerHandlers() {
+    if (handlersRegistered) {
+        console.log('[IPC] Handlers already registered, skipping...');
+        return;
+    }
+    handlersRegistered = true;
+
     // Helper to wrap service calls with error handling
     const handle = (channel, callback) => {
         ipcMain.handle(channel, async (event, ...args) => {
@@ -23,6 +31,7 @@ function registerHandlers() {
     handle('customers:update', (id, data) => customerService.update(id, data));
     handle('customers:toggleActive', (id, mode) => customerService.toggleActive(id, mode));
     handle('customers:getHistory', (id) => customerService.getMembershipHistory(id));
+    handle('customers:delete', (id) => customerService.delete(id));
 
     // Tariffs
     handle('tariffs:getAll', () => tariffService.getAll());
@@ -68,6 +77,21 @@ function registerHandlers() {
         if (canceled || !filePath) return { success: false, cancelled: true };
 
         return cloudService.exportDatabase(filePath);
+    });
+
+    handle('cloud:importLocal', async () => {
+        const { dialog } = require('electron');
+        const cloudService = require('../services/cloud.service');
+
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Importar Backup Local',
+            properties: ['openFile'],
+            filters: [{ name: 'Database Files', extensions: ['db'] }]
+        });
+
+        if (canceled || !filePaths || filePaths.length === 0) return { success: false, cancelled: true };
+
+        return cloudService.importDatabase(filePaths[0]);
     });
 
     // --- TRAINING MODULE ---
@@ -151,54 +175,72 @@ function registerHandlers() {
     });
 
     handle('training:uploadToDrive', async (mesoId) => {
-        const fullMeso = trainingService.getMesocycle(mesoId);
-        if (!fullMeso) throw new Error('Mesociclo no encontrado');
+        console.log('━━━ IPC: UPLOAD TO DRIVE REQUEST ━━━');
+        console.log('📋 Mesocycle ID:', mesoId);
 
-        const { app } = require('electron');
-        const path = require('path');
-        const fs = require('fs');
+        try {
+            const fullMeso = trainingService.getMesocycle(mesoId);
+            if (!fullMeso) throw new Error('Mesociclo no encontrado');
 
-        // Generate Temp Excel
-        const tempDir = app.getPath('temp');
-        const safeName = fullMeso.name.replace(/[^a-z0-9]/gi, '_');
-        const fileName = `Rutina_${safeName}_${Date.now()}.xlsx`;
-        const tempPath = path.join(tempDir, fileName);
+            const { app } = require('electron');
+            const path = require('path');
+            const fs = require('fs');
 
-        await excelService.generateRoutineExcel(fullMeso, tempPath);
+            // Generate Temp Excel
+            const tempDir = app.getPath('temp');
+            const safeName = fullMeso.name.replace(/[^a-z0-9]/gi, '_');
+            const fileName = `Rutina_${safeName}_${Date.now()}.xlsx`;
+            const tempPath = path.join(tempDir, fileName);
 
-        const buffer = fs.readFileSync(tempPath);
+            console.log('📊 Generating Excel at:', tempPath);
+            await excelService.generateRoutineExcel(fullMeso, tempPath);
 
-        // Fetch Customer Details (Name & Email)
-        let customerName = 'Cliente';
-        let customerEmail = null;
+            const buffer = fs.readFileSync(tempPath);
+            console.log('✅ Excel generated, size:', buffer.length, 'bytes');
 
-        if (fullMeso.customer_id) {
-            const db = require('../db/database').getInstance();
-            const c = db.prepare('SELECT first_name, last_name, email FROM customers WHERE id = ?').get(fullMeso.customer_id);
-            if (c) {
-                customerName = `${c.first_name} ${c.last_name}`;
-                customerEmail = c.email;
+            // Fetch Customer Details (Name & Email)
+            let customerName = 'Cliente';
+            let customerEmail = null;
+
+            if (fullMeso.customer_id) {
+                const db = require('../db/database').getInstance();
+                const c = db.prepare('SELECT first_name, last_name, email FROM customers WHERE id = ?').get(fullMeso.customer_id);
+                if (c) {
+                    customerName = `${c.first_name} ${c.last_name}`;
+                    customerEmail = c.email;
+                    console.log('👤 Customer:', customerName, '|', customerEmail);
+                }
             }
+
+            console.log('☁️ Calling Google Service uploadFile...');
+            const publicUrl = await googleService.uploadFile(buffer, fileName, customerName, customerEmail, fullMeso.name);
+            console.log('✅ Upload successful! URL:', publicUrl);
+
+            // History & Persistence
+            if (publicUrl) {
+                trainingService.saveFileHistory(fullMeso.customer_id, fileName, publicUrl);
+                trainingService.updateMesocycleLink(mesoId, publicUrl);
+            }
+
+            // Cleanup
+            try { fs.unlinkSync(tempPath); } catch (e) { }
+
+            console.log('━━━ IPC: UPLOAD COMPLETE ━━━');
+            return publicUrl;
+        } catch (error) {
+            console.error('━━━ IPC: UPLOAD ERROR ━━━');
+            console.error('❌ Error in uploadToDrive handler:', error);
+            console.error('❌ Error stack:', error.stack);
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            throw error;
         }
-
-        const publicUrl = await googleService.uploadFile(buffer, fileName, customerName, customerEmail, fullMeso.name);
-
-        // History & Persistence
-        if (publicUrl) {
-            trainingService.saveFileHistory(fullMeso.customer_id, fileName, publicUrl);
-            trainingService.updateMesocycleLink(mesoId, publicUrl);
-        }
-
-        // Cleanup
-        try { fs.unlinkSync(tempPath); } catch (e) { }
-
-        return publicUrl;
     });
 
     ipcMain.handle('training:validateDriveLink', async (event, mesoId, url) => {
         const isValid = await googleService.checkFileExistsFromUrl(url);
-        if (!isValid) {
-            // Remove from DB if gone
+        // Only remove if explicitly false (Confirmed 404/Trash)
+        // If null (Disconnected/Network Error) or true (Exists), keep it.
+        if (isValid === false) {
             trainingService.updateMesocycleLink(mesoId, null);
         }
         return isValid;
@@ -215,6 +257,46 @@ function registerHandlers() {
     handle('settings:update', (data) => settingsService.updateSettings(data));
     handle('settings:verifyPassword', (pwd) => settingsService.verifyPassword(pwd));
     handle('settings:activate', (key) => settingsService.setActivation(key));
+
+    // License System
+    const licService = require('../services/license.service');
+    handle('license:getStatus', () => ({
+        authenticated: licService.isAuthenticated(),
+        data: licService.getLicenseData()
+    }));
+    handle('license:reportVersion', (version) => licService.updateVersion(version));
+    handle('license:deactivate', () => licService.deactivate());
+
+    // Google Integration
+    handle('google:startAuth', async () => {
+        try {
+            const userInfo = await googleService.authenticate();
+            return { success: true, user: userInfo };
+        } catch (error) {
+            console.error('Google Auth Failed:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    handle('google:getStatus', () => {
+        const isConnected = googleService.isAuthenticated();
+        const user = googleService.getStoredUser();
+        return { connected: isConnected, user };
+    });
+
+    handle('google:signOut', () => {
+        return googleService.signOut();
+    });
+
+    // Admin Panel (Master Only)
+    const adminService = require('../services/admin.service');
+    handle('admin:getStats', () => adminService.getGlobalStats());
+    handle('admin:listGyms', () => adminService.listGymsDetail());
+    handle('admin:createLicense', (gymName) => adminService.generateNewLicense(gymName));
+    handle('admin:revokeLicense', (gymId) => adminService.revokeLicense(gymId));
+    handle('admin:unbindHardware', (gymId) => adminService.unbindHardware(gymId));
+    handle('admin:getBroadcast', () => adminService.getGlobalBroadcast());
+    handle('admin:updateBroadcast', (data) => adminService.updateGlobalBroadcast(data));
 }
 
 module.exports = { registerHandlers };

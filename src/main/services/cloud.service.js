@@ -239,6 +239,34 @@ class CloudService {
             return { success: false, error: err.message };
         }
     }
+
+    async importDatabase(sourcePath) {
+        try {
+            if (!fs.existsSync(sourcePath)) {
+                throw new Error('Archivo de origen no encontrado');
+            }
+
+            const userDataPath = app.getPath('userData');
+            const dbPath = path.join(userDataPath, 'gym_manager.db');
+
+            // 1. Close current connection
+            dbManager.close();
+
+            // 2. Overwrite file
+            fs.copyFileSync(sourcePath, dbPath);
+            console.log('Database file overwritten successfully.');
+
+            // 3. Re-initialize
+            dbManager.init();
+
+            return { success: true };
+        } catch (err) {
+            console.error('Import Local DB Error:', err);
+            // Attempt to re-init if it failed mid-way
+            try { dbManager.init(); } catch (e) { }
+            return { success: false, error: err.message };
+        }
+    }
 }
 
 module.exports = new CloudService();

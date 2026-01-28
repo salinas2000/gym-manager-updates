@@ -3,16 +3,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Filter, Edit2, Trash2, Home, ChevronRight, Video, FileText, Dumbbell } from 'lucide-react';
 import CategorySidebar from './CategorySidebar';
 import ExerciseModal from './ExerciseModal';
+import { useToast } from '../../context/ToastContext';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 export default function ExerciseLibraryPage() {
+    const toast = useToast();
     const queryClient = useQueryClient();
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
 
     // View State
     const [activeCategory, setActiveCategory] = useState(null);
     const [activeSubcategory, setActiveSubcategory] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
-
     const [editingExercise, setEditingExercise] = useState(null);
 
     // --- QUERIES ---
@@ -38,9 +41,13 @@ export default function ExerciseLibraryPage() {
         onSuccess: (res) => {
             if (res.success) {
                 queryClient.invalidateQueries(['exercises']);
+                toast.success('Ejercicio eliminado correctamente');
             } else {
-                alert('No se pudo eliminar el ejercicio. Puede estar en uso en rutinas activas o hubo un error interno: ' + res.error);
+                toast.error('No se pudo eliminar el ejercicio. Puede estar en uso en rutinas activas.');
             }
+        },
+        onError: () => {
+            toast.error('Error inesperado al eliminar el ejercicio');
         }
     });
 
@@ -191,7 +198,16 @@ export default function ExerciseLibraryPage() {
                                                 <Edit2 size={14} />
                                             </button>
                                             <button
-                                                onClick={() => { if (confirm('¿Eliminar?')) deleteExercise.mutate(ex.id) }}
+                                                onClick={() => {
+                                                    setConfirmModal({
+                                                        isOpen: true,
+                                                        title: 'Eliminar Ejercicio',
+                                                        children: `¿Estás seguro de que quieres eliminar "${ex.name}"? Esta acción no se puede deshacer.`,
+                                                        type: 'danger',
+                                                        confirmText: 'Eliminar',
+                                                        onConfirm: () => deleteExercise.mutate(ex.id)
+                                                    });
+                                                }}
                                                 className="p-1.5 hover:bg-red-900/30 rounded text-slate-400 hover:text-red-400"
                                             >
                                                 <Trash2 size={14} />
@@ -240,6 +256,17 @@ export default function ExerciseLibraryPage() {
                 initialSubcategory={activeSubcategory}
                 exerciseToEdit={editingExercise}
             />
+
+            <ConfirmationModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmModal.onConfirm}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText || 'Confirmar'}
+            >
+                {confirmModal.children}
+            </ConfirmationModal>
         </div>
     );
 }

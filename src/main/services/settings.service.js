@@ -1,8 +1,8 @@
 const dbManager = require('../db/database');
 
 class SettingsService {
-    constructor() {
-        this.db = dbManager.getInstance();
+    get db() {
+        return dbManager.getInstance();
     }
 
     getAll() {

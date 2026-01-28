@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { X, Check } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
 import { cn } from '../../lib/utils';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
 export default function AddCustomerModal({ isOpen, onClose, customerToEdit = null }) {
     const { addCustomer, updateCustomer, tariffs = [] } = useGym();
     const { t } = useLanguage();
+    const toast = useToast();
 
     const initialForm = {
         first_name: '',
@@ -48,17 +51,27 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
             let success;
             if (customerToEdit) {
                 success = await updateCustomer(customerToEdit.id, formData);
+                if (success) {
+                    toast.success(`Cliente "${formData.first_name} ${formData.last_name}" actualizado correctamente`);
+                }
             } else {
                 success = await addCustomer(formData);
+                if (success) {
+                    toast.success(`Cliente "${formData.first_name} ${formData.last_name}" creado correctamente`);
+                }
             }
 
             if (success) {
                 onClose();
             } else {
-                setError('Operation failed. Email might be duplicate.');
+                const errorMsg = 'Error al guardar. El email podría estar duplicado.';
+                setError(errorMsg);
+                toast.error(errorMsg);
             }
         } catch (err) {
-            setError(err.message || 'An error occurred');
+            const errorMsg = err.message || 'Ocurrió un error inesperado';
+            setError(errorMsg);
+            toast.error(errorMsg);
         } finally {
             setLoading(false);
         }
@@ -168,9 +181,13 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                         <button
                             type="submit"
                             disabled={loading}
-                            className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-lg shadow-blue-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-lg shadow-blue-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[120px] justify-center"
                         >
-                            {loading ? 'Saving...' : <><Check size={18} /> {customerToEdit ? t('modals.update') : t('modals.save')}</>}
+                            {loading ? (
+                                <LoadingSpinner size="sm" color="white" />
+                            ) : (
+                                <><Check size={18} /> {customerToEdit ? t('modals.update') : t('modals.save')}</>
+                            )}
                         </button>
                     </div>
                 </form>

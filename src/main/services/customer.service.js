@@ -195,6 +195,12 @@ class CustomerService {
         `);
         return stmt.all(customerId);
     }
+
+    delete(id) {
+        const db = dbManager.getInstance();
+        const stmt = db.prepare('DELETE FROM customers WHERE id = ?');
+        return stmt.run(id);
+    }
 }
 
 module.exports = new CustomerService();

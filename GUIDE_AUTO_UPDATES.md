@@ -14,18 +14,27 @@ He modificado tu archivo `package.json`. Debes abrirlo y buscar donde dice `TU_U
 Ejemplo:
 ```json
 "repository": {
-    "url": "https://github.com/FrancGym/gym-manager-updates.git"
+    "url": "https://github.com/salinas2000/gym-manager-updates.git"
 },
 "build": {
+    "files": [
+        "dist/**/*",
+        "src/main/**/*",
+        "src/preload/**/*",
+        "package.json"
+    ],
     "publish": [
         {
             "provider": "github",
-            "owner": "FrancGym",
+            "owner": "salinas2000",
             "repo": "gym-manager-updates"
         }
     ]
 }
 ```
+
+> [!IMPORTANT]
+> **No toques la sección "files"**. Es vital para que el instalador incluya todo el código necesario.
 
 ## 3. Subir tu Código (Primera Vez)
 Abre una terminal en la carpeta de tu proyecto y ejecuta:
@@ -54,8 +63,13 @@ Cuando hagas mejoras y quieras lanzarlas a los usuarios:
 3. Ve a tu repositorio en GitHub > **Releases** > **Draft a new release**.
 4. Tag version: `v1.0.1` (Igual que en package.json pero con 'v').
 5. Título: "Mejoras de Velocidad" (o lo que sea).
-6. **Arrastra el archivo `.exe`** (que está en `dist/`) a la zona de adjuntos.
+6. **MUY IMPORTANTE:** Arrastra **DOS ARCHIVOS** de la carpeta `dist/`:
+   *   `Gym Manager Pro Setup 1.0.1.exe` (El instalador)
+   *   `latest.yml` (INFORMACIÓN CRÍTICA PARA EL UPDATER)
 7. Dale a **Publish release**.
+
+> [!WARNING]
+> Si no subes el archivo `latest.yml`, la app dará error 404 al buscar actualizaciones.
 
 ¡Listo! 🚀
 La próxima vez que tus usuarios abran la app, verán la alerta de "Nueva versión disponible" y podrán descargarla e instalarla automáticamente.

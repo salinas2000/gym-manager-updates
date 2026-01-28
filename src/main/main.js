@@ -1,9 +1,68 @@
-const { app, BrowserWindow } = require('electron');
-// Load environment variables immediately
-require('dotenv').config();
-
+// CRITICAL: Load .env BEFORE any other requires
+// This must happen first to ensure Google OAuth credentials are available
 const path = require('path');
 const fs = require('fs');
+
+// Determine environment path
+// In development: .env is in project root (../../.env from src/main/main.js)
+// In production: .env is copied to process.resourcesPath by electron-builder
+let envPath;
+const devEnvPath = path.join(__dirname, '../../.env');
+
+// Check if we're running from ASAR (production)
+if (__dirname.includes('app.asar')) {
+    // Production: Use process.resourcesPath which points to the resources folder
+    // This is where electron-builder copies extraResources
+    envPath = path.join(process.resourcesPath, '.env');
+    console.log('🏭 PRODUCTION MODE DETECTED');
+    console.log('📁 Resources path:', process.resourcesPath);
+} else {
+    // Development: .env is in project root
+    envPath = devEnvPath;
+    console.log('🛠️ DEVELOPMENT MODE DETECTED');
+}
+
+// Load environment variables
+require('dotenv').config({ path: envPath });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LOGGING CONFIGURATION - Redirect ALL console output to file
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const log = require('electron-log');
+
+// Configure log file location
+log.transports.file.level = 'debug';
+log.transports.console.level = 'debug';
+
+// Override console methods to use electron-log
+console.log = log.log.bind(log);
+console.info = log.info.bind(log);
+console.warn = log.warn.bind(log);
+console.error = log.error.bind(log);
+console.debug = log.debug.bind(log);
+
+// Catch-all for unhandled rejections to help debugging
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ UNHANDLED REJECTION:', reason);
+});
+
+console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+console.log('📝 LOGGING CONFIGURED');
+console.log('📁 Log file location:', log.transports.file.getFile().path);
+console.log('💡 To view logs, open this file in a text editor');
+console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+// Validate critical environment variables
+console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+console.log('🔧 Environment loaded from:', envPath);
+console.log('📁 File exists:', fs.existsSync(envPath) ? '✅' : '❌');
+console.log('🔑 GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? '✅ LOADED' : '❌ MISSING');
+console.log('🔐 GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? '✅ LOADED' : '❌ MISSING');
+console.log('☁️ SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ LOADED' : '❌ MISSING');
+console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+const { app, BrowserWindow } = require('electron');
+
 const dbManager = require('./db/database');
 const { registerHandlers } = require('./ipc/handlers');
 
@@ -24,15 +83,20 @@ function createWindow() {
     }
 
     mainWindow = new BrowserWindow({
-        width: 1200,
-        height: 800,
+        width: 1400,
+        height: 900,
+        minWidth: 1024,
+        minHeight: 768,
+        backgroundColor: '#0f172a',
+        show: false, // Wait until ready-to-show
+        icon: path.join(__dirname, '../../resources/icon.png'), // Icon for prod
         webPreferences: {
             preload: preloadPath,
             contextIsolation: true,
             nodeIntegration: false,
-            sandbox: false, // Important for better-sqlite3
-        },
-        backgroundColor: '#020617', // Match bg-slate-950
+            sandbox: false, // Required for some native modules
+            webSecurity: true
+        }
     });
 
     const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -41,47 +105,144 @@ function createWindow() {
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools();
     } else {
-        mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
+        // PRODUCTION DEBUGGING
+        const appPath = app.getAppPath();
+        const distIndex = path.join(appPath, 'dist/index.html');
+
+        console.log('--- DEBUG INFO ---');
+        console.log('App Path (ASAR root):', appPath);
+        console.log('Target Index:', distIndex);
+
+        try {
+            // Verify if dist exists
+            const distPath = path.join(appPath, 'dist');
+            if (fs.existsSync(distPath)) {
+                console.log('Contents of dist:', fs.readdirSync(distPath));
+            } else {
+                console.error('CRITICAL: dist folder NOT found in ASAR at', distPath);
+                // Fallback: List root of ASAR to see what IS there
+                console.log('Contents of ASAR root:', fs.readdirSync(appPath));
+            }
+        } catch (e) {
+            console.error('FS Error:', e);
+        }
+        console.log('------------------');
+
+        mainWindow.loadFile(distIndex).catch(e => {
+            console.error('FAILED to load index.html:', e);
+        });
+
+        // TEMPORARY: Enable DevTools in production for debugging
+        mainWindow.webContents.openDevTools();
     }
+
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+    });
 }
 
 app.whenReady().then(() => {
-    // 1. Initialize DB
-    try {
-        console.log('Initializing Database...');
-        dbManager.init();
-        console.log('Database initialized successfully.');
-    } catch (err) {
-        console.error('Failed to initialize database:', err);
+    const licenseService = require('./services/license.service');
+    const { ipcMain } = require('electron');
+
+    // 1. Initialize Licenser Handlers
+    ipcMain.handle('license:activate', async (event, key) => {
+        const result = await licenseService.activate(key);
+        // If successful, close activation window and open main window
+        const activationWin = BrowserWindow.fromWebContents(event.sender);
+        if (activationWin) activationWin.close();
+
+        // CRITICAL FIX: Must call startApp() to register handlers, NOT createWindow() directly
+        startApp();
+
+        return result;
+    });
+
+    ipcMain.handle('license:getData', () => licenseService.getLicenseData());
+
+    ipcMain.handle('license:getHardwareId', () => licenseService.hardwareId);
+
+    // 2. Check License
+    if (licenseService.isAuthenticated()) {
+        console.log('✅ License Verified. Starting App...');
+        startApp();
+    } else {
+        console.log('🔒 License Required. Opening Activation Window...');
+        createActivationWindow();
     }
 
-    // 2. Register IPC Handlers
-    registerHandlers();
-
-    // 3. Create Window
-    createWindow();
-
-    // 4. Initialize Updater
-    const { initUpdater, autoUpdater } = require('./services/updater.service');
-    // Wait a bit for window to load
-    setTimeout(() => {
-        if (mainWindow) initUpdater(mainWindow);
-
-        // Auto-check in dev or prod (usually only prod)
-        if (app.isPackaged) {
-            autoUpdater.checkForUpdatesAndNotify();
+    function startApp() {
+        // 1. Initialize DB
+        try {
+            console.log('Initializing Database...');
+            dbManager.init();
+            console.log('Database initialized successfully.');
+        } catch (err) {
+            console.error('Failed to initialize database:', err);
         }
-    }, 3000);
 
-    // Register Updater IPC
-    const { ipcMain } = require('electron');
+        // 2. Register IPC Handlers
+        registerHandlers();
+
+        // 3. Create Window
+        createWindow();
+
+        // 4. Initialize Updater
+        const { initUpdater, autoUpdater } = require('./services/updater.service');
+        // Wait a bit for window to load
+        setTimeout(() => {
+            if (mainWindow) initUpdater(mainWindow);
+
+            // Auto-check in dev or prod
+            if (app.isPackaged) {
+                autoUpdater.checkForUpdatesAndNotify().catch(err => {
+                    if (err.message.includes('latest.yml')) {
+                        console.log('ℹ️ No updates available (repo empty)');
+                    } else {
+                        console.error('Update check failed:', err);
+                    }
+                });
+            }
+        }, 3000);
+    }
+
+    function createActivationWindow() {
+        const win = new BrowserWindow({
+            width: 500,
+            height: 600,
+            frame: false, // Frameless for custom UI
+            resizable: false,
+            webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false // Simplifies communication for this specific window
+            },
+            icon: path.join(__dirname, '../../resources/icon.png'),
+            backgroundColor: '#0f172a'
+        });
+
+        win.loadFile(path.join(__dirname, '../renderer/activation.html'));
+    }
+
+    // Register Updater IPC (Moved here to ensure availability)
     ipcMain.handle('updater:getVersion', () => app.getVersion());
-    ipcMain.handle('updater:check', () => autoUpdater.checkForUpdates());
-    ipcMain.handle('updater:download', () => autoUpdater.downloadUpdate());
-    ipcMain.handle('updater:install', () => autoUpdater.quitAndInstall());
+    ipcMain.handle('updater:check', () => {
+        const { autoUpdater } = require('./services/updater.service');
+        return autoUpdater.checkForUpdates();
+    });
+    ipcMain.handle('updater:download', () => {
+        const { autoUpdater } = require('./services/updater.service');
+        return autoUpdater.downloadUpdate();
+    });
+    ipcMain.handle('updater:install', () => {
+        const { autoUpdater } = require('./services/updater.service');
+        return autoUpdater.quitAndInstall();
+    });
 
     app.on('activate', function () {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+        if (BrowserWindow.getAllWindows().length === 0) {
+            if (licenseService.isAuthenticated()) createWindow();
+            else createActivationWindow();
+        }
     });
 });
 

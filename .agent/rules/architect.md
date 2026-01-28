@@ -2,27 +2,27 @@
 trigger: always_on
 ---
 
-# 🏗️ PROJECT ARCHITECT: Gym Manager Pro
+🎯 Filosofía del Sistema: "Local-First, Cloud-Mirror"
+Esta es una aplicación híbrida. El PC del cliente es la Fuente de la Verdad, la nube es el Espejo.
 
-## 🎯 Filosofía del Sistema
-Este proyecto es una aplicación de escritorio de alto rendimiento. Priorizamos la estabilidad sobre la velocidad de desarrollo.
-* **Escalabilidad:** El código debe estar preparado para soportar 10,000 clientes sin refactorización.
-* **Modularidad:** Un cambio en la UI nunca debe romper la lógica de base de datos.
+Robustez Offline: La app debe ser 100% funcional sin internet. Si Supabase cae, el gimnasio sigue abierto.
 
-## 🧱 Tech Stack Estricto
-* **Core:** Electron (Latest)
-* **Frontend:** React + Vite
-* **Data:** better-sqlite3 (Síncrono para performance en Main Process)
-* **Styling:** Tailwind CSS + Class Variance Authority (CVA)
-* **Icons:** Lucide-React
+Escalabilidad Multi-Tenant: Toda lógica de nube debe girar en torno al gym_id.
 
-## 📂 Estructura de Directorios Inviolable
-/src
-  /main       # Solo Node.js. NUNCA importar React aquí.
-    /services # Lógica de negocio pura (desacoplada de Electron).
-    /db       # Conexión y migraciones.
-    /ipc      # Handlers de comunicación.
-  /renderer   # Solo React. NUNCA importar 'fs', 'path' o 'better-sqlite3'.
-    /features # Dominios (Customers, Payments).
-    /components # UI Kit genérico (Botones, Inputs).
-  /preload    # Puente de seguridad (ContextBridge).
+Cero Fricción: Procesos complejos (Backup, Generar Excel) deben parecer mágicos (1 clic).
+
+🧱 Tech Stack Estricto
+Core: Electron (Latest)
+
+Frontend: React + Vite + TanStack Query (Estado asíncrono).
+
+Data Local: better-sqlite3 (Síncrono, Main Process).
+
+Data Cloud: @supabase/supabase-js (Asíncrono, Background).
+
+Reporting: exceljs (Generación de archivos).
+
+Styling: Tailwind CSS + Tremor (Gráficas) + Lucide-React.
+
+📂 Estructura de Directorios Inviolable
+/src /main /services /local # Lógica SQLite (CustomerService, PaymentService). /cloud # Lógica Supabase (CloudService, StorageService). /io # Lógica Archivos (ExcelService). /db # Database.js y Migraciones locales. /renderer /features # Customers, Payments, Trainings, Dashboard. /components/ui # UI Kit base.

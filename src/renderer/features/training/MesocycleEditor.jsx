@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Save, Calendar, AlertTriangle } from 'lucide-react';
 import RoutineBuilder from './RoutineBuilder';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
 export default function MesocycleEditor({ customerId, customerName, initialData, onBack, onSave, templateMode = false, onViewHistory }) {
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
     const [step, setStep] = useState(initialData ? 2 : 1); // 1: Config, 2: Builder
 
     // Config State
@@ -501,11 +504,18 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                if (confirm('¿Eliminar día?')) {
-                                                    const newDays = days.filter(d => d.id !== day.id);
-                                                    setDays(newDays);
-                                                    if (currentDayId === day.id) setCurrentDayId(newDays[0].id);
-                                                }
+                                                setConfirmModal({
+                                                    isOpen: true,
+                                                    title: 'Eliminar Día',
+                                                    children: `¿Estás seguro de que quieres eliminar "${day.name}"? Se perderán todos los ejercicios de este día.`,
+                                                    type: 'danger',
+                                                    confirmText: 'Eliminar',
+                                                    onConfirm: () => {
+                                                        const newDays = days.filter(d => d.id !== day.id);
+                                                        setDays(newDays);
+                                                        if (currentDayId === day.id) setCurrentDayId(newDays[0].id);
+                                                    }
+                                                });
                                             }}
                                             className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
                                         >
@@ -559,13 +569,30 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                     <button
                         onClick={handleFinish}
                         disabled={isSaving}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px] justify-center"
                     >
-                        {isSaving ? 'Guardando...' : 'Guardar Entrenamiento'}
-                        {!isSaving && <Save size={18} />}
+                        {isSaving ? (
+                            <LoadingSpinner size="sm" color="white" />
+                        ) : (
+                            <>
+                                Guardar Entrenamiento
+                                <Save size={18} />
+                            </>
+                        )}
                     </button>
                 )}
             </div>
+
+            <ConfirmationModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmModal.onConfirm}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText || 'Confirmar'}
+            >
+                {confirmModal.children}
+            </ConfirmationModal>
         </div>
     );
 }

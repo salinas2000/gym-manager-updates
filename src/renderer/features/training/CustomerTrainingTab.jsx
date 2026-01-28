@@ -1,10 +1,35 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Download, Trash2, FileSpreadsheet, Cloud } from 'lucide-react';
+import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Download, Trash2, FileSpreadsheet, Cloud, CloudOff } from 'lucide-react';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
-export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false }) {
+export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false, onNavigate }) {
 
     const queryClient = useQueryClient();
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
+    const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+
+    // Check Google Status
+    // Check Google Status
+    React.useEffect(() => {
+        const checkStatus = async () => {
+            const res = await window.api.google.getStatus();
+            setIsGoogleConnected(res.success && res.data.connected);
+        };
+        checkStatus();
+    }, []);
+
+    // Helper to open modal
+    const requestConfirm = ({ title, message, type = 'info', confirmText, onConfirm }) => {
+        setConfirmModal({
+            isOpen: true,
+            title,
+            children: message,
+            type,
+            confirmText,
+            onConfirm
+        });
+    };
 
     // Fetch Mesocycles
     const { data: mesocycles = [], isLoading } = useQuery({
@@ -32,20 +57,20 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
     const driveLinksFingerprint = mesocycles.map(m => m.drive_link || '').join('|');
 
     React.useEffect(() => {
-        if (!customerId) return;
+        if (!customerId || !isGoogleConnected) return; // Don't sync if disconnected
         const toCheck = mesocycles.filter(m => m.drive_link);
         if (toCheck.length === 0) return;
 
         // Run checks in background
         Promise.all(toCheck.map(m => window.api.training.validateDriveLink(m.id, m.drive_link)))
             .then(results => {
-                // If any link was invalid (and thus removed from DB), refresh the list
-                if (results.some(isValid => !isValid)) {
+                // If any link was invalid (results[i] === false), refresh
+                if (results.some(res => res === false)) {
                     console.log('Sync: Found broken links. Refreshing...');
                     queryClient.invalidateQueries(['mesocycles', customerId]);
                 }
             });
-    }, [customerId, driveLinksFingerprint, queryClient]);
+    }, [customerId, driveLinksFingerprint, queryClient, isGoogleConnected]);
 
 
     const getStatusConfig = (status) => {
@@ -90,16 +115,21 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
         const activeMesocycle = mesocycles.find(m => m.status === 'active');
 
         if (activeMesocycle) {
-            const confirmCreate = window.confirm(
-                `⚠️ Ya existe un mesociclo activo: "${activeMesocycle.name}"\n\n` +
-                `Fecha: ${new Date(activeMesocycle.start_date).toLocaleDateString()} - ${activeMesocycle.end_date ? new Date(activeMesocycle.end_date).toLocaleDateString() : 'Indefinido'}\n\n` +
-                `¿Deseas crear un nuevo mesociclo de todas formas?\n\n` +
-                `Nota: Las fechas no pueden solaparse. El nuevo mesociclo debe empezar después de que termine el actual.`
-            );
-
-            if (!confirmCreate) {
-                return; // User cancelled
-            }
+            requestConfirm({
+                title: 'Nuevo Mesociclo',
+                message: (
+                    <div className="space-y-3">
+                        <p>⚠️ <strong>Ya existe un mesociclo activo:</strong> "{activeMesocycle.name}"</p>
+                        <p className="text-sm text-slate-400">
+                            Fecha: {new Date(activeMesocycle.start_date).toLocaleDateString()} - {activeMesocycle.end_date ? new Date(activeMesocycle.end_date).toLocaleDateString() : 'Indefinido'}
+                        </p>
+                        <p>¿Deseas crear uno nuevo? Las fechas no pueden solaparse.</p>
+                    </div>
+                ),
+                type: 'warning',
+                onConfirm: onNewMesocycle
+            });
+            return;
         }
 
         onNewMesocycle();
@@ -108,25 +138,26 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
     const handleDelete = async (meso, e) => {
         e.stopPropagation();
 
-        const confirmDelete = window.confirm(
-            `¿Estás seguro de que deseas eliminar el mesociclo "${meso.name}"?\n\n` +
-            `Esta acción no se puede deshacer y se eliminarán todas las rutinas y ejercicios asociados.`
-        );
-
-        if (!confirmDelete) return;
-
-        try {
-            await deleteMutation.mutateAsync(meso.id);
-        } catch (err) {
-            console.error('Error deleting mesocycle:', err);
-            alert('Error al eliminar el mesociclo. Por favor, intenta de nuevo.');
-        }
+        requestConfirm({
+            title: 'Eliminar Mesociclo',
+            message: `¿Estás seguro de que deseas eliminar "${meso.name}"? Esta acción borrará todas las rutinas y ejercicios asociados.`,
+            type: 'danger',
+            confirmText: 'Eliminar Definitivamente',
+            onConfirm: async () => {
+                try {
+                    await deleteMutation.mutateAsync(meso.id);
+                } catch (err) {
+                    console.error('Error deleting mesocycle:', err);
+                    alert('Error al eliminar el mesociclo. Por favor, intenta de nuevo.');
+                }
+            }
+        });
     };
 
     if (!customerId) return <div className="text-slate-500 p-4">Selecciona un cliente para ver su historial.</div>;
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full relative">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     <Calendar className="text-blue-400" />
@@ -201,9 +232,11 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                                     </button>
                                     <UploadButton
                                         meso={meso}
+                                        requestConfirm={requestConfirm} // Pass confirm handler
+                                        isGoogleConnected={isGoogleConnected}
+                                        onNavigate={onNavigate}
                                         onUpload={async () => {
-                                            const res = await window.api.training.uploadToDrive(meso.id); // Handler returns publicUrl string or throws?
-                                            // My handler wrapper returns { success: true, data: publicUrl }
+                                            const res = await window.api.training.uploadToDrive(meso.id);
                                             if (res.success) return res.data;
                                             throw new Error(res.error);
                                         }}
@@ -217,12 +250,23 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                     })
                 )}
             </div>
+
+            <ConfirmationModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmModal.onConfirm}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText || 'Confirmar'}
+            >
+                {confirmModal.children}
+            </ConfirmationModal>
         </div>
     );
 }
 
 // Subcomponent for handling upload state locally
-function UploadButton({ meso, onUpload }) {
+function UploadButton({ meso, onUpload, requestConfirm, isGoogleConnected, onNavigate }) {
     // Initialize state based on persisted link
     const [status, setStatus] = React.useState(meso.drive_link ? 'success' : 'idle');
     const [link, setLink] = React.useState(meso.drive_link || null);
@@ -230,6 +274,25 @@ function UploadButton({ meso, onUpload }) {
 
     const handleClick = async (e) => {
         e.stopPropagation();
+
+        // 0. CHECK CONNECTION (Always first)
+        if (!isGoogleConnected) {
+            requestConfirm({
+                title: 'Sincronización Desactivada',
+                message: (
+                    <div className="space-y-2">
+                        <p>No se puede verificar ni subir archivos porque Google Drive está desconectado.</p>
+                        <p className="text-sm text-slate-400">Ve a Configuración -&gt; Integraciones para activarlo.</p>
+                    </div>
+                ),
+                type: 'warning',
+                confirmText: 'Ir a Configuración',
+                onConfirm: () => {
+                    if (onNavigate) onNavigate('settings', 'integrations');
+                }
+            });
+            return;
+        }
 
         // --- VALIDATION AND OPEN LOGIC ---
         if (status === 'success' && link) {
@@ -247,7 +310,6 @@ function UploadButton({ meso, onUpload }) {
             } catch (err) {
                 console.error(err);
                 // On network error, maybe just try opening? 
-                // Let's assume valid to not block user in bad internet
                 window.open(link, '_blank');
                 setStatus('success');
             }
@@ -256,20 +318,27 @@ function UploadButton({ meso, onUpload }) {
 
         if (status === 'uploading') return;
 
-        if (!confirm(`¿Subir rutina de "${meso.name}" a Google Drive y compartir con el cliente?`)) return;
-
-        setStatus('uploading');
-        setErrorMessage('');
-        try {
-            const url = await onUpload();
-            setLink(url);
-            setStatus('success');
-        } catch (err) {
-            console.error(err);
-            setErrorMessage(err.message);
-            setStatus('error');
-            setTimeout(() => setStatus('idle'), 5000);
-        }
+        // Use the custom modal instead of window.confirm
+        requestConfirm({
+            title: 'Subir a Google Drive',
+            message: `¿Deseas subir la rutina de "${meso.name}" y generar un link para compartir?`,
+            type: 'info',
+            confirmText: 'Subir Rutina',
+            onConfirm: async () => {
+                setStatus('uploading');
+                setErrorMessage('');
+                try {
+                    const url = await onUpload();
+                    setLink(url);
+                    setStatus('success');
+                } catch (err) {
+                    console.error(err);
+                    setErrorMessage(err.message);
+                    setStatus('error');
+                    setTimeout(() => setStatus('idle'), 5000);
+                }
+            }
+        });
     };
 
     if (status === 'uploading') {
@@ -277,6 +346,19 @@ function UploadButton({ meso, onUpload }) {
             <div className="p-2 bg-slate-800/50 rounded-full border border-white/5 cursor-wait">
                 <div className="w-[18px] h-[18px] border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
             </div>
+        );
+    }
+
+    // DISCONNECTED STATE (Prioritize over Success)
+    if (!isGoogleConnected) {
+        return (
+            <button
+                onClick={handleClick}
+                className="p-2 bg-slate-800/30 text-slate-500 rounded-full border border-white/5 hover:bg-slate-800 hover:text-slate-300 transition-all"
+                title="Sin conexión a Drive (Click para activar)"
+            >
+                <CloudOff size={18} />
+            </button>
         );
     }
 

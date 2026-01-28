@@ -1,8 +1,12 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout, Plus, Edit2, Trash2, FileText } from 'lucide-react';
+import { useToast } from '../../context/ToastContext';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 export default function TemplateManager({ onEdit, onCreate }) {
+    const toast = useToast();
+    const [confirmModal, setConfirmModal] = React.useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
     const queryClient = useQueryClient();
     const [daysFilter, setDaysFilter] = React.useState('all');
 
@@ -11,9 +15,6 @@ export default function TemplateManager({ onEdit, onCreate }) {
         queryKey: ['templates'],
         queryFn: async () => {
             const res = await window.api.training.getTemplates();
-            // The service returns the raw array or wrapped data depending on IPC
-            // Based on previous checks, it seems to be returning the data directly or wrapped.
-            // Let's normalize it carefully.
             const data = res.success ? res.data : (Array.isArray(res) ? res : []);
             return data;
         }
@@ -25,6 +26,10 @@ export default function TemplateManager({ onEdit, onCreate }) {
         },
         onSuccess: () => {
             queryClient.invalidateQueries(['templates']);
+            toast.success('Plantilla eliminada correctamente');
+        },
+        onError: (error) => {
+            toast.error('Error al eliminar la plantilla');
         }
     });
 
@@ -112,7 +117,14 @@ export default function TemplateManager({ onEdit, onCreate }) {
                                 </button>
                                 <button
                                     onClick={() => {
-                                        if (confirm('¿Borrar esta plantilla?')) deleteMutation.mutate(tpl.id);
+                                        setConfirmModal({
+                                            isOpen: true,
+                                            title: 'Eliminar Plantilla',
+                                            children: `¿Estás seguro de que quieres eliminar la plantilla "${tpl.name}"? Esta acción no se puede deshacer.`,
+                                            type: 'danger',
+                                            confirmText: 'Eliminar',
+                                            onConfirm: () => deleteMutation.mutate(tpl.id)
+                                        });
                                     }}
                                     className="p-2 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400"
                                     title="Borrar"
@@ -124,6 +136,17 @@ export default function TemplateManager({ onEdit, onCreate }) {
                     ))
                 )}
             </div>
+
+            <ConfirmationModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmModal.onConfirm}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText || 'Confirmar'}
+            >
+                {confirmModal.children}
+            </ConfirmationModal>
         </div>
     );
 }

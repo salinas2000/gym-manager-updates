@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
         update: (id, data) => ipcRenderer.invoke('customers:update', id, data),
         toggleActive: (id, mode) => ipcRenderer.invoke('customers:toggleActive', id, mode),
         getHistory: (id) => ipcRenderer.invoke('customers:getHistory', id),
+        delete: (id) => ipcRenderer.invoke('customers:delete', id),
     },
     payments: {
         getByCustomer: (customerId) => ipcRenderer.invoke('payments:getByCustomer', customerId),
@@ -31,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
     cloud: {
         backup: (gymId) => ipcRenderer.invoke('cloud:backup', gymId),
         exportLocal: () => ipcRenderer.invoke('cloud:exportLocal'),
+        importLocal: () => ipcRenderer.invoke('cloud:importLocal'),
     },
     training: {
         getExercises: () => ipcRenderer.invoke('training:getExercises'),
@@ -53,12 +55,26 @@ contextBridge.exposeInMainWorld('api', {
         deleteMesocycle: (id) => ipcRenderer.invoke('training:deleteMesocycle', id),
         exportRoutine: (data) => ipcRenderer.invoke('training:exportRoutine', data),
         validateDriveLink: (mesoId, url) => ipcRenderer.invoke('training:validateDriveLink', mesoId, url),
+        uploadToDrive: (mesoId) => ipcRenderer.invoke('training:uploadToDrive', mesoId),
     },
     settings: {
         getAll: () => ipcRenderer.invoke('settings:getAll'),
         update: (data) => ipcRenderer.invoke('settings:update', data),
         verifyPassword: (pwd) => ipcRenderer.invoke('settings:verifyPassword', pwd),
         activate: (key) => ipcRenderer.invoke('settings:activate', key),
+    },
+    license: {
+        activate: (key) => ipcRenderer.invoke('license:activate', key),
+        deactivate: () => ipcRenderer.invoke('license:deactivate'),
+        getData: () => ipcRenderer.invoke('license:getData'),
+        getHardwareId: () => ipcRenderer.invoke('license:getHardwareId'),
+        getStatus: () => ipcRenderer.invoke('license:getStatus'),
+        reportVersion: (v) => ipcRenderer.invoke('license:reportVersion', v),
+    },
+    google: {
+        startAuth: () => ipcRenderer.invoke('google:startAuth'),
+        getStatus: () => ipcRenderer.invoke('google:getStatus'),
+        signOut: () => ipcRenderer.invoke('google:signOut'),
     },
     updater: {
         getVersion: () => ipcRenderer.invoke('updater:getVersion'),
@@ -67,5 +83,14 @@ contextBridge.exposeInMainWorld('api', {
         install: () => ipcRenderer.invoke('updater:install'),
         onStatus: (callback) => ipcRenderer.on('updater:status', (event, data) => callback(data)),
         removeListener: () => ipcRenderer.removeAllListeners('updater:status')
+    },
+    admin: {
+        getStats: () => ipcRenderer.invoke('admin:getStats'),
+        listGyms: () => ipcRenderer.invoke('admin:listGyms'),
+        createLicense: (gymName) => ipcRenderer.invoke('admin:createLicense', gymName),
+        revokeLicense: (gymId) => ipcRenderer.invoke('admin:revokeLicense', gymId),
+        unbindHardware: (gymId) => ipcRenderer.invoke('admin:unbindHardware', gymId),
+        getBroadcast: () => ipcRenderer.invoke('admin:getBroadcast'),
+        updateBroadcast: (data) => ipcRenderer.invoke('admin:updateBroadcast', data),
     }
 });

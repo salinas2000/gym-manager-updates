@@ -143,7 +143,7 @@ export default function DashboardHome() {
                 {/* Growth & Revenue (Line/Bar) - 3 Calls */}
                 <div className="lg:col-span-3 bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col min-h-[350px]">
                     <h3 className="text-lg font-semibold text-white mb-6">{t('dashboard.revenueHistory') || "Growth & Revenue"}</h3>
-                    <div className="flex-1">
+                    <div className="flex-1 min-h-[300px]">
                         <GrowthChart data={data} />
                     </div>
                 </div>
@@ -159,7 +159,7 @@ export default function DashboardHome() {
                 {/* New Members Acquisition (2 Cols) */}
                 <div className="lg:col-span-1 bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col min-h-[300px]">
                     <h3 className="text-lg font-semibold text-white mb-6">{t('dashboard.memberGrowth') || "New Members"}</h3>
-                    <div className="flex-1">
+                    <div className="flex-1 min-h-[300px]">
                         <AcquisitionChart data={data.newMembers || []} />
                     </div>
                 </div>

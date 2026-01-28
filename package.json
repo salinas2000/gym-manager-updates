@@ -1,6 +1,6 @@
 {
     "name": "gym-manager-pro",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "High-performance Gym Management System",
     "main": "src/main/main.js",
     "scripts": {
@@ -14,8 +14,15 @@
         "url": "https://github.com/salinas2000/gym-manager-updates.git"
     },
     "build": {
+        "files": [
+            "dist/**/*",
+            "src/main/**/*",
+            "src/preload/**/*",
+            "package.json"
+        ],
         "appId": "com.gymmanager.pro",
         "productName": "Gym Manager Pro",
+        "icon": "resources/icon.png",
         "publish": [
             {
                 "provider": "github",
@@ -27,6 +34,14 @@
             {
                 "from": "src/main/db/seeds",
                 "to": "seeds"
+            },
+            {
+                "from": ".env",
+                "to": "."
+            },
+            {
+                "from": "src/main/assets/templates",
+                "to": "templates"
             }
         ]
     },
@@ -51,6 +66,7 @@
         "exceljs": "^4.4.0",
         "googleapis": "^170.1.0",
         "lucide-react": "^0.473.0",
+        "node-machine-id": "^1.1.12",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "recharts": "^3.7.0",

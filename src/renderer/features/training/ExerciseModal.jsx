@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Video, FileText, Dumbbell } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '../../context/ToastContext';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
 export default function ExerciseModal({
     isOpen,
@@ -11,6 +13,7 @@ export default function ExerciseModal({
 }) {
     // if (!isOpen) return null; // Removed early return to fix Hook rule violation
 
+    const toast = useToast();
     const queryClient = useQueryClient();
     const [name, setName] = useState('');
     const [categoryId, setCategoryId] = useState(initialCategory || '');
@@ -37,10 +40,14 @@ export default function ExerciseModal({
         onSuccess: (res) => {
             if (res.success) {
                 queryClient.invalidateQueries(['exercises']);
+                toast.success('Ejercicio creado con éxito');
                 onCloseModal();
             } else {
-                alert('Error al crear: ' + res.error);
+                toast.error('Error al crear: ' + res.error);
             }
+        },
+        onError: (err) => {
+            toast.error('Error de red al crear ejercicio');
         }
     });
 
@@ -49,10 +56,14 @@ export default function ExerciseModal({
         onSuccess: (res) => {
             if (res.success) {
                 queryClient.invalidateQueries(['exercises']);
+                toast.success('Ejercicio actualizado');
                 onCloseModal();
             } else {
-                alert('Error al actualizar: ' + res.error);
+                toast.error('Error al actualizar: ' + res.error);
             }
+        },
+        onError: (err) => {
+            toast.error('Error de red al actualizar ejercicio');
         }
     });
 
@@ -61,14 +72,13 @@ export default function ExerciseModal({
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!name.trim() || !categoryId) {
-            alert('Nombre y Categoría son obligatorios');
+            toast.warning('Nombre y Categoría son obligatorios');
             return;
         }
 
         const payload = {
             name,
             categoryId: parseInt(categoryId),
-            subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
             subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
             videoUrl,
             notes,
@@ -284,10 +294,13 @@ export default function ExerciseModal({
                         <button
                             type="submit"
                             disabled={isPending}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-transform active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-transform active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[140px] justify-center"
                         >
-                            <Save size={18} />
-                            {isPending ? 'Guardando...' : (exerciseToEdit ? 'Actualizar' : 'Guardar Ejercicio')}
+                            {isPending ? (
+                                <LoadingSpinner size="sm" color="white" />
+                            ) : (
+                                <><Save size={18} /> {exerciseToEdit ? 'Actualizar' : 'Guardar Ejercicio'}</>
+                            )}
                         </button>
                     </div>
 

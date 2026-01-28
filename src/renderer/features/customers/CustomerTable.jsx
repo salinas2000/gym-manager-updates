@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell } from 'lucide-react';
+import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2 } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { cn } from '../../lib/utils';
@@ -15,14 +15,15 @@ const COLORS = [
 ];
 
 export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining }) {
-    const { customers, toggleCustomerStatus, tariffs } = useGym();
+    const { customers, toggleCustomerStatus, tariffs, deleteCustomer } = useGym();
     const { t } = useLanguage();
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all'); // all, active, inactive
+    const [statusFilter, setStatusFilter] = useState('active'); // Default to active
     const [tariffFilter, setTariffFilter] = useState('all'); // all, id...
 
-    // Deactivation Modal State
+    // Modals State
     const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
 
     const getTariffTheme = (tariff) => {
@@ -73,10 +74,23 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
         }
     };
 
+    const handleDeleteRequest = (customer) => {
+        setSelectedCustomer(customer);
+        setDeleteModalOpen(true);
+    };
+
+    const confirmDelete = async () => {
+        if (selectedCustomer) {
+            await deleteCustomer(selectedCustomer.id);
+            setDeleteModalOpen(false);
+            setSelectedCustomer(null);
+        }
+    };
+
     return (
         <div className="flex flex-col h-full bg-slate-950/50 backdrop-blur-sm rounded-3xl border border-white/5 overflow-hidden">
 
-            {/* Custom Modal for Deactivation Confirmation */}
+            {/* Deactivation Modal */}
             {deactivateModalOpen && selectedCustomer && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div
@@ -84,9 +98,10 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                         onClick={() => setDeactivateModalOpen(false)}
                     />
                     <div className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200">
-                        <h3 className="text-lg font-bold text-white mb-2">Confirmar Baja</h3>
-                        <p className="text-slate-400 text-sm mb-6">
+                        <h3 className="text-lg font-bold text-white mb-2">Refinar Estado</h3>
+                        <p className="text-slate-400 text-sm mb-6 leading-relaxed">
                             ¿Deseas finalizar la suscripción de <span className="text-white font-medium">{selectedCustomer.first_name}</span> ahora mismo o programarla para final de mes?
+                            <span className="block mt-2 text-xs text-amber-500/80 italic">Nota: El usuario quedará en estado "Inactivo" pero se conservará su historial.</span>
                         </p>
                         <div className="space-y-3">
                             <button
@@ -100,13 +115,62 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                                 onClick={() => confirmDeactivate('immediate')}
                                 className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium border border-white/5 text-sm"
                             >
-                                Finalizar Ahora
+                                Dar de Baja Ahora
                             </button>
                             <button
                                 onClick={() => setDeactivateModalOpen(false)}
                                 className="w-full py-2 text-xs text-slate-500 hover:text-white mt-2"
                             >
                                 Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Exhaustive Deletion Modal */}
+            {deleteModalOpen && selectedCustomer && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+                        onClick={() => setDeleteModalOpen(false)}
+                    />
+                    <div className="relative w-full max-w-md bg-slate-900 border border-red-500/30 rounded-2xl shadow-2xl p-8 animate-in fade-in zoom-in-95 duration-200 border-t-4 border-t-red-500">
+                        <div className="flex items-center gap-3 mb-4 text-red-500">
+                            <Users size={24} />
+                            <h3 className="text-xl font-bold">¿Eliminar Usuario Permanente?</h3>
+                        </div>
+
+                        <div className="space-y-4 text-slate-300 text-sm leading-relaxed mb-8">
+                            <p>Estás a punto de eliminar a <span className="text-white font-bold">{selectedCustomer.first_name} {selectedCustomer.last_name}</span>.</p>
+
+                            <div className="bg-red-500/5 border border-red-500/10 p-4 rounded-xl space-y-2">
+                                <p className="font-bold text-red-400 uppercase text-xs tracking-wider">⚠️ Advertencia Crítica:</p>
+                                <ul className="list-disc list-inside space-y-1 text-slate-400 text-xs">
+                                    <li>Se borrarán **TODOS** sus pagos registrados.</li>
+                                    <li>Se borrará su historial de membresías.</li>
+                                    <li>Se eliminarán sus rutinas y planes de entrenamiento.</li>
+                                    <li>**Esta acción no se puede deshacer.**</li>
+                                </ul>
+                            </div>
+
+                            <p className="text-xs italic text-slate-500 bg-slate-800/50 p-3 rounded-lg border border-white/5">
+                                Regla de Oro: Si el usuario fue un cliente real, usa **"Dar de Baja"** para conservar sus datos en las estadísticas. Usa **"Eliminar"** solo si creaste el usuario por error.
+                            </p>
+                        </div>
+
+                        <div className="flex flex-col gap-3">
+                            <button
+                                onClick={confirmDelete}
+                                className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold shadow-lg shadow-red-900/40 text-sm transition-all active:scale-[0.98]"
+                            >
+                                Entiendo los riesgos, eliminar permanentemente
+                            </button>
+                            <button
+                                onClick={() => setDeleteModalOpen(false)}
+                                className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium border border-white/5 text-sm transition-all"
+                            >
+                                Cancelar y volver
                             </button>
                         </div>
                     </div>
@@ -306,6 +370,16 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                                     title="Gestionar Entrenamientos"
                                 >
                                     <Dumbbell size={16} />
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteRequest(customer);
+                                    }}
+                                    className="p-1.5 rounded-lg hover:bg-red-500/10 text-slate-500 hover:text-red-500 transition-colors tooltip"
+                                    title="Eliminar Permanente"
+                                >
+                                    <Trash2 size={16} />
                                 </button>
                             </div>
                         </div>

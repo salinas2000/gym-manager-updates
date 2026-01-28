@@ -7,24 +7,32 @@ const { shell } = require('electron');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const store = new Store();
-
-// Credentials (loaded from .env)
-const CREDENTIALS = {
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    project_id: process.env.GOOGLE_PROJECT_ID,
-    auth_uri: "https://accounts.google.com/o/oauth2/auth",
-    token_uri: "https://oauth2.googleapis.com/token",
-    auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-    client_secret: process.env.GOOGLE_CLIENT_SECRET,
-    redirect_uris: ["http://localhost"]
-};
+const store = new Store({ name: 'google_data' });
 
 class GoogleDriveService {
     constructor() {
+        // Lazy-load credentials to ensure .env is loaded in production
+        // This prevents undefined values when module is first required
+        const credentials = {
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            project_id: process.env.GOOGLE_PROJECT_ID,
+            auth_uri: "https://accounts.google.com/o/oauth2/auth",
+            token_uri: "https://oauth2.googleapis.com/token",
+            auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            redirect_uris: ["http://localhost"]
+        };
+
+        // Validate credentials are loaded
+        if (!credentials.client_id || !credentials.client_secret) {
+            console.error('❌ CRITICAL: Google OAuth credentials not loaded!');
+            console.error('CLIENT_ID:', credentials.client_id ? 'OK' : 'MISSING');
+            console.error('CLIENT_SECRET:', credentials.client_secret ? 'OK' : 'MISSING');
+        }
+
         this.oauth2Client = new google.auth.OAuth2(
-            CREDENTIALS.client_id,
-            CREDENTIALS.client_secret,
+            credentials.client_id,
+            credentials.client_secret,
             'http://localhost'
         );
 
@@ -35,11 +43,21 @@ class GoogleDriveService {
     }
 
     async ensureAuth() {
+        console.log('━━━ GOOGLE AUTH CHECK ━━━');
+        console.log('📍 Environment:', __dirname.includes('app.asar') ? 'PRODUCTION' : 'DEVELOPMENT');
+        console.log('🔑 Client ID available:', !!this.oauth2Client._clientId);
+        console.log('🔐 Client Secret available:', !!this.oauth2Client._clientSecret);
+
         const tokens = store.get('google_tokens');
+        console.log('🎫 Stored tokens:', tokens ? 'FOUND' : 'NOT FOUND');
+
         if (!tokens) {
-            console.log('Google Service: No tokens found. Starting Auth...');
+            console.log('⚠️ No tokens found. Starting Auth...');
             await this.authenticate();
+        } else {
+            console.log('✅ Using existing tokens');
         }
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━');
     }
 
     authenticate() {
@@ -109,7 +127,11 @@ class GoogleDriveService {
                 const authorizeUrl = this.oauth2Client.generateAuthUrl({
                     access_type: 'offline',
                     prompt: 'consent',
-                    scope: ['https://www.googleapis.com/auth/drive.file'],
+                    scope: [
+                        'https://www.googleapis.com/auth/drive.file',
+                        'https://www.googleapis.com/auth/userinfo.email',
+                        'https://www.googleapis.com/auth/userinfo.profile'
+                    ],
                     state: state,
                     redirect_uri: localRedirect
                 });
@@ -119,7 +141,47 @@ class GoogleDriveService {
             });
 
             server.on('error', (err) => reject(err));
-        });
+        })
+            .then(async () => {
+                // Fetch user info after successful auth
+                try {
+                    const info = await this.getUserInfo();
+                    store.set('google_user', info);
+                    return info;
+                } catch (e) {
+                    console.error('Error fetching user info after auth:', e);
+                    return { email: 'Usuario', name: 'Desconocido' };
+                }
+            });
+    }
+
+    async getUserInfo() {
+        if (!this.oauth2Client.credentials) return null;
+        try {
+            const oauth2 = google.oauth2({ version: 'v2', auth: this.oauth2Client });
+            const { data } = await oauth2.userinfo.get();
+            return { email: data.email, name: data.name, picture: data.picture };
+        } catch (error) {
+            console.error('Error fetching Google User Info:', error);
+            return null;
+        }
+    }
+
+    signOut() {
+        store.delete('google_tokens');
+        store.delete('google_user');
+        this.oauth2Client.setCredentials({});
+        console.log('🚪 Google Account disconnected.');
+        return true;
+    }
+
+    isAuthenticated() {
+        const tokens = store.get('google_tokens');
+        return !!tokens;
+    }
+
+    getStoredUser() {
+        return store.get('google_user');
     }
 
     async getOrCreateFolder(parentFolderId, folderName, shareWithEmail = null) {
@@ -166,62 +228,93 @@ class GoogleDriveService {
     }
 
     async uploadFile(buffer, fileName, customerName, customerEmail, mesocycleName) {
-        await this.ensureAuth();
+        console.log('━━━ GOOGLE DRIVE UPLOAD START ━━━');
+        console.log('📄 File:', fileName);
+        console.log('👤 Customer:', customerName);
+        console.log('📧 Email:', customerEmail);
+        console.log('📦 Buffer size:', buffer?.length || 0, 'bytes');
 
-        // 1. Root
-        const rootId = await this.getOrCreateFolder(null, 'GIMNASIO');
+        try {
+            await this.ensureAuth();
+            console.log('✅ Auth completed');
 
-        // 2. Customer (SHARE FOLDER HERE)
-        const safeCust = (customerName || 'Cliente').trim();
-        const custId = await this.getOrCreateFolder(rootId, safeCust, customerEmail);
+            // 1. Root
+            console.log('📁 Creating/finding root folder...');
+            const rootId = await this.getOrCreateFolder(null, 'GIMNASIO');
+            console.log('✅ Root folder ID:', rootId);
 
-        const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
+            // 2. Customer (SHARE FOLDER HERE)
+            const safeCust = (customerName || 'Cliente').trim();
+            console.log('📁 Creating/finding customer folder:', safeCust);
+            const custId = await this.getOrCreateFolder(rootId, safeCust, customerEmail);
+            console.log('✅ Customer folder ID:', custId);
 
-        // 3. DUPLICATE CHECK
-        const safeFileName = fileName.replace(/'/g, "\\'");
-        const existing = await drive.files.list({
-            q: `name='${safeFileName}' and '${custId}' in parents and trashed=false`,
-            fields: 'files(id, webViewLink, webContentLink)',
-        });
+            const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
 
-        if (existing.data.files.length > 0) {
-            console.log(`♻️ Archivo duplicado detectado: ${fileName}. Usando existente.`);
-            return existing.data.files[0].webViewLink;
+            // 3. DUPLICATE CHECK
+            const safeFileName = fileName.replace(/'/g, "\\'");
+            const existing = await drive.files.list({
+                q: `name='${safeFileName}' and '${custId}' in parents and trashed=false`,
+                fields: 'files(id, webViewLink, webContentLink)',
+            });
+
+            if (existing.data.files.length > 0) {
+                console.log(`♻️ Archivo duplicado detectado: ${fileName}. Usando existente.`);
+                return existing.data.files[0].webViewLink;
+            }
+
+            // 4. Upload New
+            const bufferStream = new Readable();
+            bufferStream.push(buffer);
+            bufferStream.push(null);
+
+            const media = {
+                mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                body: bufferStream
+            };
+
+            console.log('📤 Uploading file to Drive...');
+            const file = await drive.files.create({
+                resource: { name: fileName, parents: [custId] },
+                media: media,
+                fields: 'id, webViewLink, webContentLink'
+            });
+            console.log('✅ File uploaded! ID:', file.data.id);
+
+            // 5. File Permission (Fallback: Anyone with link)
+            console.log('🔓 Setting public permissions...');
+            await drive.permissions.create({
+                fileId: file.data.id,
+                requestBody: { role: 'reader', type: 'anyone' }
+            });
+            console.log('✅ Public permissions set');
+
+            // Also explicitly share file if requested (redundant if folder shared, but ensures notification)
+            if (customerEmail && customerEmail.includes('@')) {
+                try {
+                    console.log('📧 Sharing with email:', customerEmail);
+                    await drive.permissions.create({
+                        fileId: file.data.id,
+                        requestBody: { role: 'reader', type: 'user', emailAddress: customerEmail }
+                    });
+                    console.log('✅ Email share successful');
+                } catch (e) {
+                    console.log('⚠️ Email share failed:', e.message);
+                }
+            }
+
+            console.log('━━━ UPLOAD COMPLETE ━━━');
+            console.log('🔗 URL:', file.data.webViewLink);
+            return file.data.webViewLink;
+        } catch (error) {
+            console.error('━━━ GOOGLE DRIVE UPLOAD ERROR ━━━');
+            console.error('❌ Error type:', error.constructor.name);
+            console.error('❌ Error message:', error.message);
+            console.error('❌ Error code:', error.code);
+            console.error('❌ Error details:', JSON.stringify(error, null, 2));
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            throw error;
         }
-
-        // 4. Upload New
-        const bufferStream = new Readable();
-        bufferStream.push(buffer);
-        bufferStream.push(null);
-
-        const media = {
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            body: bufferStream
-        };
-
-        const file = await drive.files.create({
-            resource: { name: fileName, parents: [custId] },
-            media: media,
-            fields: 'id, webViewLink, webContentLink'
-        });
-
-        // 5. File Permission (Fallback: Anyone with link)
-        await drive.permissions.create({
-            fileId: file.data.id,
-            requestBody: { role: 'reader', type: 'anyone' }
-        });
-
-        // Also explicitly share file if requested (redundant if folder shared, but ensures notification)
-        if (customerEmail && customerEmail.includes('@')) {
-            try {
-                await drive.permissions.create({
-                    fileId: file.data.id,
-                    requestBody: { role: 'reader', type: 'user', emailAddress: customerEmail }
-                });
-            } catch (e) { }
-        }
-
-        return file.data.webViewLink;
     }
 
     async checkFileExistsFromUrl(url) {
@@ -232,6 +325,12 @@ class GoogleDriveService {
         if (!idMatch) return false;
 
         const fileId = idMatch[1];
+
+        // Prevent auto-auth popup for background checks
+        if (!this.isAuthenticated()) {
+            return null; // Unknown status (Disconnected), do NOT treat as missing
+        }
+
         await this.ensureAuth();
         const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
 

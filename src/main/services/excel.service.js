@@ -10,9 +10,17 @@ class ExcelService {
     }
 
     getTemplatePath() {
+        const { app } = require('electron');
+        const path = require('path');
+
         if (app.isPackaged) {
-            return path.join(process.resourcesPath, 'templates', 'routine_template.xlsx');
+            // In production, resources are copied to the root resources folder
+            // per package.json extraResources config
+            const p = path.join(process.resourcesPath, 'templates', 'routine_template.xlsx');
+            console.log('ExcelService: Production Template Path:', p);
+            return p;
         } else {
+            // In development
             return path.join(__dirname, '../assets/templates/routine_template.xlsx');
         }
     }

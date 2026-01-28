@@ -457,6 +457,14 @@ class DBManager {
         }
         return this.db;
     }
+
+    close() {
+        if (this.db) {
+            this.db.close();
+            this.db = null;
+            console.log('Database connection closed.');
+        }
+    }
 }
 
 module.exports = new DBManager();

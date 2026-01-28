@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import Layout from './components/Layout';
 import { GymProvider } from './context/GymContext';
 import { LanguageProvider } from './context/LanguageContext';
+import { ToastProvider } from './context/ToastContext';
+import { NotificationProvider } from './context/NotificationContext';
+import ToastContainer from './components/ui/ToastContainer';
+import NotificationCenter from './components/ui/NotificationCenter';
 
 // Pages
 import DashboardPage from './pages/DashboardPage';
@@ -12,6 +16,9 @@ import LibraryPage from './pages/LibraryPage';
 import TrainingHistoryPage from './pages/TrainingHistoryPage';
 import SettingsPage from './pages/SettingsPage'; // Backup Page
 import GeneralSettings from './features/settings/SettingsPage'; // New Config Page
+import OnboardingOverlay from './features/onboarding/OnboardingOverlay';
+// Admin Module
+import AdminDashboard from './features/admin/AdminDashboard';
 
 function Dashboard() {
     const [currentView, setCurrentView] = useState('customers');
@@ -27,6 +34,8 @@ function Dashboard() {
 
     const renderContent = () => {
         switch (currentView) {
+            case 'admin':
+                return <AdminDashboard />;
             case 'dashboard':
                 return <DashboardPage />;
             case 'tariffs':
@@ -34,11 +43,11 @@ function Dashboard() {
             case 'backup':
                 return <SettingsPage />;
             case 'settings':
-                return <GeneralSettings />;
+                return <GeneralSettings initialTab={selectedCustomer} />;
             case 'training':
                 return <TrainingPage onNavigate={handleNavigate} />;
             case 'history':
-                return <TrainingHistoryPage initialCustomer={selectedCustomer} />;
+                return <TrainingHistoryPage initialCustomer={selectedCustomer} onNavigate={handleNavigate} />;
             case 'library':
                 return <LibraryPage />;
             case 'customers':
@@ -54,6 +63,9 @@ function Dashboard() {
             <div className="h-full">
                 {renderContent()}
             </div>
+            <OnboardingOverlay currentTab={currentView} onNavigate={handleNavigate} />
+            <ToastContainer />
+            <NotificationCenter onNavigate={handleNavigate} />
         </Layout>
     );
 }
@@ -62,7 +74,11 @@ export default function App() {
     return (
         <LanguageProvider>
             <GymProvider>
-                <Dashboard />
+                <ToastProvider>
+                    <NotificationProvider>
+                        <Dashboard />
+                    </NotificationProvider>
+                </ToastProvider>
             </GymProvider>
         </LanguageProvider>
     );

@@ -8,11 +8,22 @@ export function GymProvider({ children }) {
     const [payments, setPayments] = useState({}); // Map: customerId -> [payment records]
 
     const [loading, setLoading] = useState(true);
+    const [broadcast, setBroadcast] = useState(null);
     const [settings, setSettings] = useState({
         gym_name: 'Gym Manager',
         manager_name: 'Admin',
         role: 'Gerente'
     });
+
+    const refreshBroadcast = async () => {
+        if (!window.api?.admin?.getBroadcast) return;
+        try {
+            const res = await window.api.admin.getBroadcast();
+            if (res.success) setBroadcast(res.data);
+        } catch (e) {
+            console.error('[GymContext] Broadcast refresh failed:', e);
+        }
+    };
 
     const refreshData = async () => {
         if (!window.api) {
@@ -22,16 +33,28 @@ export function GymProvider({ children }) {
         }
 
         try {
-            const [customersRes, tariffsRes, settingsRes] = await Promise.all([
+            const [customersRes, tariffsRes, settingsRes, licenseRes, broadcastRes] = await Promise.all([
                 window.api.customers.getAll(),
                 window.api.tariffs.getAll(),
-                window.api.settings.getAll()
+                window.api.settings.getAll(),
+                window.api.license.getStatus(),
+                window.api.admin.getBroadcast()
             ]);
 
             if (customersRes.success) setCustomers(customersRes.data || []);
             if (tariffsRes.success) setTariffs(tariffsRes.data || []);
             if (settingsRes.success && settingsRes.data) {
                 setSettings(prev => ({ ...prev, ...settingsRes.data }));
+            }
+            if (broadcastRes.success) {
+                setBroadcast(broadcastRes.data);
+            }
+            // Master License Check - Note: result is wrapped in { success, data }
+            if (licenseRes.success && licenseRes.data?.authenticated && licenseRes.data?.data?.is_master) {
+                console.log('[GymContext] Master License Detected');
+                setSettings(prev => ({ ...prev, isMaster: true, role: 'Super Admin' }));
+            } else {
+                console.log('[GymContext] Regular or No License Detected');
             }
 
         } catch (error) {
@@ -57,8 +80,37 @@ export function GymProvider({ children }) {
         await window.api.tariffs.delete(id);
     };
 
+    const reportVersion = async () => {
+        try {
+            const versionData = await window.api.updater.getVersion();
+            // Wrap in an object if needed, but getVersion usually returns string or {version}
+            const version = typeof versionData === 'object' ? versionData.version : versionData;
+
+            if (version) {
+                await window.api.license.reportVersion(version);
+                console.log('[GymContext] Version reported:', version);
+            }
+        } catch (e) {
+            console.error('[GymContext] Failed to report version:', e);
+        }
+    };
+
     useEffect(() => {
         refreshData();
+        reportVersion();
+
+        // Robust Refresh Strategy:
+        // 1. On window focus (whenever user clicks back into app)
+        const handleFocus = () => refreshBroadcast();
+        window.addEventListener('focus', handleFocus);
+
+        // 2. Background polling (every 5 minutes)
+        const pollInterval = setInterval(refreshBroadcast, 5 * 60 * 1000);
+
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            clearInterval(pollInterval);
+        };
     }, []);
 
     const addCustomer = async (data) => {
@@ -78,6 +130,16 @@ export function GymProvider({ children }) {
         if (result.success) {
             // Update local state
             setCustomers(prev => prev.map(c => c.id === id ? result.data : c));
+            return true;
+        }
+        return false;
+    };
+
+    const deleteCustomer = async (id) => {
+        if (!window.api) return false;
+        const result = await window.api.customers.delete(id);
+        if (result.success) {
+            setCustomers(prev => prev.filter(c => c.id !== id));
             return true;
         }
         return false;
@@ -159,6 +221,7 @@ export function GymProvider({ children }) {
             tariffs,
             addCustomer,
             updateCustomer,
+            deleteCustomer,
             addTariff,
             updateTariff,
             deleteTariff,
@@ -175,9 +238,10 @@ export function GymProvider({ children }) {
                     return d.getMonth() === monthIndex && d.getFullYear() === year;
                 });
             },
-            isPaid,
+
             isPaid,
             refreshData,
+            broadcast,
             settings,
             updateSettings: async (newSettings) => {
                 if (!window.api) return;
@@ -190,7 +254,7 @@ export function GymProvider({ children }) {
             }
         }}>
             {children}
-        </GymContext.Provider>
+        </GymContext.Provider >
     );
 }
 
