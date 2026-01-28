@@ -6,6 +6,8 @@
     "scripts": {
         "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
         "build": "vite build && electron-builder",
+        "release": "npm version patch && npm run build",
+        "ship": "npm version patch && vite build && electron-builder --publish always",
         "postinstall": "electron-rebuild",
         "rebuild": "electron-rebuild"
     },
