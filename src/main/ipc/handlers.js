@@ -297,6 +297,21 @@ function registerHandlers() {
     handle('admin:unbindHardware', (gymId) => adminService.unbindHardware(gymId));
     handle('admin:getBroadcast', () => adminService.getGlobalBroadcast());
     handle('admin:updateBroadcast', (data) => adminService.updateGlobalBroadcast(data));
+    handle('admin:getReleases', () => adminService.getGitHubReleases());
+    handle('admin:listBackups', (gymId) => adminService.listGymBackups(gymId));
+    handle('admin:getPushHistory', (gymId) => adminService.getPushHistory(gymId));
+    handle('admin:pushDB', ({ gymId, localPath }) => adminService.pushRemoteDatabase(gymId, localPath));
+    handle('admin:pickDB', async () => {
+        const { dialog } = require('electron');
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Seleccionar Base de Datos para Carga Remota',
+            properties: ['openFile'],
+            filters: [{ name: 'Database Files', extensions: ['db'] }]
+        });
+        if (canceled || filePaths.length === 0) return null;
+        return filePaths[0];
+    });
+    handle('cloud:applyRemoteLoad', (data) => cloudService.applyRemoteLoad(data.gym_id, data.load_id));
 }
 
 module.exports = { registerHandlers };

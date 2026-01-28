@@ -15,7 +15,12 @@ const DEFAULT_GYM_ID = 'GYM-PRO-MAIN';
 class CloudService {
     constructor() {
         this.supabase = null;
+        this.mainWindow = null; // Stored for IPC notifications
         this.init();
+    }
+
+    setMainWindow(win) {
+        this.mainWindow = win;
     }
 
     init() {
@@ -24,6 +29,41 @@ class CloudService {
             return;
         }
         this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // Setup Realtime if gym_id is known
+        const gymId = settingsService.get('gym_id');
+        if (gymId) {
+            this.setupRealtime(gymId);
+        }
+    }
+
+    setupRealtime(gymId) {
+        if (!this.supabase) return;
+
+        console.log('📡 [CloudService] Setting up Realtime for gym:', gymId);
+
+        this.supabase
+            .channel(`remote_loads_${gymId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'cloud_remote_loads',
+                    filter: `gym_id=eq.${gymId}`
+                },
+                (payload) => {
+                    console.log('🚀 [CloudService] Instant push signal received:', payload);
+                    if (this.mainWindow) {
+                        this.mainWindow.webContents.send('cloud:remote-load-pending', {
+                            gym_id: gymId,
+                            timestamp: payload.new.created_at,
+                            load_id: payload.new.id
+                        });
+                    }
+                }
+            )
+            .subscribe();
     }
 
     _resolveGymId(overrideId) {
@@ -265,6 +305,101 @@ class CloudService {
             // Attempt to re-init if it failed mid-way
             try { dbManager.init(); } catch (e) { }
             return { success: false, error: err.message };
+        }
+    }
+
+    /**
+     * Periodically checks if the Administrator has pushed a new database version.
+     */
+    async checkRemoteLoad(gymId) {
+        if (!this.supabase || !gymId) return;
+
+        try {
+            const fileName = `${gymId}/remote_load/gym_manager.db`;
+            const { data, error } = await this.supabase
+                .storage
+                .from('training_files')
+                .list(`${gymId}/remote_load/`);
+
+            if (error) return;
+
+            const hasRemoteLoad = data && data.some(file => file.name === 'gym_manager.db');
+
+            if (hasRemoteLoad && this.mainWindow) {
+                console.log('📡 [CloudService] Remote load detected for gym:', gymId);
+                this.mainWindow.webContents.send('cloud:remote-load-pending', {
+                    gym_id: gymId,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (e) {
+            console.error('[CloudService] checkRemoteLoad Error:', e);
+        }
+    }
+
+    async applyRemoteLoad(gymId, loadId = null) {
+        if (!this.supabase || !gymId) throw new Error('Cargador no inicializado.');
+
+        const remotePath = `${gymId}/remote_load/gym_manager.db`;
+
+        try {
+            // 1. Download the file
+            const { data, error } = await this.supabase
+                .storage
+                .from('training_files')
+                .download(remotePath);
+
+            if (error) throw error;
+
+            // 2. Save temporarily to disk
+            const tempPath = path.join(app.getPath('temp'), `remote_load_${Date.now()}.db`);
+            const arrayBuffer = await data.arrayBuffer();
+            fs.writeFileSync(tempPath, Buffer.from(arrayBuffer));
+
+            // 3. Import (using existing logic)
+            const importRes = await this.importDatabase(tempPath);
+            if (!importRes.success) throw new Error(importRes.error);
+
+            // 4. Cleanup cloud (Delete the load file so it doesn't trigger again)
+            await this.supabase.storage.from('training_files').remove([remotePath]);
+
+            // 5. Update status in tracking table
+            if (loadId) {
+                await this.supabase
+                    .from('cloud_remote_loads')
+                    .update({
+                        status: 'applied',
+                        applied_at: new Date().toISOString()
+                    })
+                    .eq('id', loadId);
+            } else {
+                // If no loadId (legacy poll), update all pending for this gym
+                await this.supabase
+                    .from('cloud_remote_loads')
+                    .update({
+                        status: 'applied',
+                        applied_at: new Date().toISOString()
+                    })
+                    .eq('gym_id', gymId)
+                    .eq('status', 'pending');
+            }
+
+            // 6. Cleanup temp file
+            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+
+            return { success: true };
+        } catch (err) {
+            console.error('[CloudService] applyRemoteLoad Error:', err);
+            if (loadId) {
+                await this.supabase
+                    .from('cloud_remote_loads')
+                    .update({
+                        status: 'failed',
+                        error: err.message
+                    })
+                    .eq('id', loadId);
+            }
+            throw err;
         }
     }
 }

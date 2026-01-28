@@ -9,10 +9,39 @@ export function NotificationProvider({ children }) {
     useEffect(() => {
         // Listen for updater events from main process
         if (window.api?.on) {
-            const cleanup = window.api.on('updater:status', (statusData) => {
+            const cleanupStatus = window.api.on('updater:status', (statusData) => {
                 handleUpdaterStatus(statusData);
             });
-            return cleanup;
+
+            const cleanupRemote = window.api.on('cloud:remote-load-pending', (data) => {
+                addNotification({
+                    id: 'remote-load-pending',
+                    type: 'update',
+                    title: 'Actualización de Base de Datos',
+                    message: 'El administrador ha enviado una versión recomendada de la base de datos.',
+                    priority: 'high',
+                    actionLabel: 'CARGAR AHORA',
+                    onAction: async () => {
+                        try {
+                            const res = await window.api.cloud.applyRemoteLoad({
+                                gym_id: data.gym_id,
+                                load_id: data.load_id
+                            });
+                            if (res.success) {
+                                addNotification({ type: 'success', message: 'Base de Datos actualizada. Reiniciando...' });
+                                setTimeout(() => window.location.reload(), 2000);
+                            }
+                        } catch (e) {
+                            addNotification({ type: 'error', message: 'Error al aplicar carga: ' + e.message });
+                        }
+                    }
+                });
+            });
+
+            return () => {
+                cleanupStatus();
+                cleanupRemote();
+            };
         }
     }, []);
 

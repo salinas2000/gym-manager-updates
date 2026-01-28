@@ -167,3 +167,17 @@ CREATE POLICY "Public Access" ON cloud_routine_items FOR ALL USING (true);
 -- 4. ÍNDICES
 CREATE INDEX IF NOT EXISTS idx_cloud_customers_gym ON cloud_customers(gym_id);
 CREATE INDEX IF NOT EXISTS idx_cloud_mesocycles_customer ON cloud_mesocycles(gym_id, customer_id);
+
+-- REMOTE LOADS TRACKING
+CREATE TABLE IF NOT EXISTS cloud_remote_loads (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    gym_id TEXT NOT NULL,
+    status TEXT DEFAULT 'pending', -- 'pending', 'applied', 'failed'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    applied_at TIMESTAMPTZ,
+    error TEXT,
+    app_version TEXT
+);
+
+ALTER TABLE cloud_remote_loads ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access" ON cloud_remote_loads FOR ALL USING (true);

@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
+const fs = require('fs');
 const licenseService = require('./license.service');
 const path = require('path');
 const crypto = require('crypto');
@@ -178,6 +179,153 @@ class AdminService {
 
         if (error) throw error;
         return { success: true };
+    }
+
+    async getGitHubReleases() {
+        this.checkMaster();
+        const token = process.env.GH_TOKEN;
+        if (!token) throw new Error('GH_TOKEN no configurado en el servidor.');
+
+        // Extract owner and repo from package.json or hardcoded
+        const owner = 'salinas2000';
+        const repo = 'gym-manager-updates';
+
+        try {
+            const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/releases`, {
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'Gym-Manager-Pro-Admin'
+                }
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.message || 'Error al conectar con GitHub');
+            }
+
+            const releases = await response.json();
+            return releases.map(r => ({
+                version: r.tag_name.replace('v', ''),
+                name: r.name,
+                date: r.published_at,
+                url: r.html_url,
+                is_draft: r.draft,
+                is_prerelease: r.prerelease,
+                body: r.body
+            }));
+        } catch (error) {
+            console.error('[AdminService] GitHub fetch failed:', error);
+            throw error;
+        }
+    }
+
+    async listGymBackups(gymId) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        const { data, error } = await supabase
+            .storage
+            .from('training_files')
+            .list(`${gymId}/sys_backups/`, {
+                limit: 100,
+                offset: 0,
+                sortBy: { column: 'name', order: 'desc' }
+            });
+
+        if (error) {
+            console.error('[AdminService] listGymBackups failed:', error);
+            throw error;
+        }
+
+        return data.map(file => ({
+            name: file.name,
+            size: file.metadata?.size,
+            created_at: file.created_at,
+            path: `${gymId}/sys_backups/${file.name}`
+        }));
+    }
+
+    async getRemotePushStatus(gymId) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        const { data, error } = await supabase
+            .storage
+            .from('training_files')
+            .list(`${gymId}/remote_load/`);
+
+        if (error) return { hasPush: false };
+
+        const hasPush = data && data.some(file => file.name === 'gym_manager.db');
+        const file = hasPush ? data.find(f => f.name === 'gym_manager.db') : null;
+
+        return {
+            hasPush,
+            lastPush: file ? file.created_at : null,
+            size: file ? file.metadata?.size : 0
+        };
+    }
+
+    async pushRemoteDatabase(gymId, localPath) {
+        this.checkMaster();
+        console.log('[AdminService] pushRemoteDatabase called:', { gymId, localPath });
+
+        if (!gymId) throw new Error('gymId es requerido');
+        if (!localPath) throw new Error('localPath es requerido');
+
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        if (!fs.existsSync(localPath)) {
+            console.error('[AdminService] File not found at:', localPath);
+            throw new Error(`El archivo local no existe: ${localPath}`);
+        }
+
+        const fileBuffer = fs.readFileSync(localPath);
+        const fileName = `${gymId}/remote_load/gym_manager.db`;
+        console.log('[AdminService] Uploading to:', fileName);
+        const { error: uploadError } = await supabase
+            .storage
+            .from('training_files')
+            .upload(fileName, fileBuffer, {
+                contentType: 'application/x-sqlite3',
+                upsert: true
+            });
+
+        if (uploadError) throw uploadError;
+
+        console.log('[AdminService] Upload successful for gym:', gymId);
+
+        // 2. Register the push in the tracking table
+        const { error: dbError } = await supabase
+            .from('cloud_remote_loads')
+            .insert([{
+                gym_id: gymId,
+                status: 'pending',
+                created_at: new Date().toISOString()
+            }]);
+
+        if (dbError) {
+            console.error('[AdminService] Error logging push to DB:', dbError);
+            // We don't throw here to not break the success, but it's a warning
+        }
+
+        return { success: true, path: fileName };
+    }
+
+    async getPushHistory(gymId) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        const { data, error } = await supabase
+            .from('cloud_remote_loads')
+            .select('*')
+            .eq('gym_id', gymId)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (error) throw error;
+        return data;
     }
 }
 

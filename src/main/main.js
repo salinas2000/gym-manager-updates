@@ -202,6 +202,35 @@ app.whenReady().then(() => {
                         console.error('Update check failed:', err);
                     }
                 });
+
+                // 5. Periodic background check (Every 30 minutes)
+                setInterval(() => {
+                    console.log('📡 [Updater] Running periodic background check...');
+                    autoUpdater.checkForUpdatesAndNotify().catch(err => {
+                        console.error('Background update check failed:', err);
+                    });
+                }, 30 * 60 * 1000);
+
+                // 6. Remote Load Check (Every 30 minutes)
+                const cloudService = require('./services/cloud.service');
+                const licenseService = require('./services/license.service');
+
+                cloudService.setMainWindow(mainWindow);
+
+                setInterval(() => {
+                    const lic = licenseService.getLicenseData();
+                    if (lic && !lic.is_master) {
+                        cloudService.checkRemoteLoad(lic.gym_id);
+                    }
+                }, 30 * 60 * 1000);
+
+                // Initial check for non-master clients
+                setTimeout(() => {
+                    const lic = licenseService.getLicenseData();
+                    if (lic && !lic.is_master) {
+                        cloudService.checkRemoteLoad(lic.gym_id);
+                    }
+                }, 10000);
             }
         }, 3000);
     }
