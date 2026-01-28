@@ -7,7 +7,7 @@
         "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
         "build": "vite build && electron-builder",
         "release": "npm version patch && npm run build",
-        "ship": "npm version patch && vite build && electron-builder --publish always",
+        "ship": "npm version patch && vite build && dotenv -- electron-builder --publish always",
         "postinstall": "electron-rebuild",
         "rebuild": "electron-rebuild"
     },
@@ -80,6 +80,7 @@
         "autoprefixer": "^10.4.20",
         "class-variance-authority": "^0.7.1",
         "concurrently": "^9.1.2",
+        "dotenv-cli": "^11.0.0",
         "electron": "^34.0.0",
         "electron-builder": "^25.1.8",
         "electron-rebuild": "^3.2.9",
