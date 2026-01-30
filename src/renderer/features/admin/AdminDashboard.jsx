@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Users, CreditCard, Server, Plus, Copy, Lock, ShieldCheck, MoreVertical, Trash2, Unlock, AlertCircle, RefreshCw, BarChart3, Megaphone, Send, Info } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Plus, Copy, Lock, ShieldCheck, MoreVertical, Trash2, Unlock, AlertCircle, RefreshCw, Megaphone, Send, Info, Activity, Users, CreditCard, Server } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useNotifications } from '../../context/NotificationContext';
 
@@ -17,6 +16,7 @@ export default function AdminDashboard() {
     const [lastBroadcast, setLastBroadcast] = useState(null);
     const [releases, setReleases] = useState([]);
     const [currentVersion, setCurrentVersion] = useState('0.0.0');
+    const [currentLicense, setCurrentLicense] = useState(null);
 
     // UI Modals / Flow states
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -50,6 +50,10 @@ export default function AdminDashboard() {
                 }
             }
             if (releasesRes.success) setReleases(releasesRes.data || []);
+
+            const licenseRes = await window.api.license.getData();
+            if (licenseRes) setCurrentLicense(licenseRes);
+
             if (versionRes) {
                 const v = typeof versionRes === 'object' ? versionRes.version : versionRes;
                 setCurrentVersion(v);
@@ -87,25 +91,7 @@ export default function AdminDashboard() {
         }
     };
 
-    const handleDeactivateBroadcast = async () => {
-        try {
-            setGenerating(true);
-            const res = await window.api.admin.updateBroadcast({
-                active: false
-            });
-            if (res.success) {
-                addNotification({ type: 'success', message: 'Comunicado retirado.' });
-                setLastBroadcast(null);
-                setBroadcastMessage('');
-            } else {
-                addNotification({ type: 'error', message: 'Error: ' + res.error });
-            }
-        } catch (e) {
-            addNotification({ type: 'error', message: 'Error al retirar comunicado.' });
-        } finally {
-            setGenerating(false);
-        }
-    };
+
 
     useEffect(() => {
         loadData();
@@ -179,6 +165,9 @@ export default function AdminDashboard() {
             ]);
             setGymBackups(resBackups.success ? resBackups.data : []);
             setPushHistory(resHistory.success ? resHistory.data : []);
+            console.log('📊 [AdminDashboard] History Loaded for Gym:', gym.gym_id);
+            console.log('✅ Backups Received:', resBackups.data);
+            console.log('✅ Push History Received:', resHistory.data);
         } catch (err) {
             console.error('Error fetching backups/status:', err);
             addNotification({ type: 'error', message: 'Error cargando backups o historial: ' + err.message });
@@ -195,7 +184,7 @@ export default function AdminDashboard() {
             const localPath = resPick.data;
 
             setGenerating(true);
-            addNotification({ type: 'info', message: 'Subiendo y enviando base de datos...' });
+            addNotification({ id: 'push-db-status', type: 'info', message: 'Subiendo y enviando base de datos...' });
 
             const res = await window.api.admin.pushDB({
                 gymId,
@@ -203,12 +192,12 @@ export default function AdminDashboard() {
             });
 
             if (res.success) {
-                addNotification({ type: 'success', message: 'Base de datos enviada correctamente.' });
+                addNotification({ id: 'push-db-status', type: 'success', message: 'Base de datos enviada correctamente.' });
                 // Refresh status
                 const resHistory = await window.api.admin.getPushHistory(gymId);
                 if (resHistory.success) setPushHistory(resHistory.data);
             } else {
-                addNotification({ type: 'error', message: 'Error: ' + res.error });
+                addNotification({ id: 'push-db-status', type: 'error', message: 'Error: ' + res.error });
             }
         } catch (err) {
             addNotification({ type: 'error', message: 'Error al enviar DB: ' + err.message });
@@ -245,8 +234,13 @@ export default function AdminDashboard() {
                     <h1 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
                         MASTER CONTROLLER
                     </h1>
-                    <p className="text-indigo-300/60 text-sm font-mono mt-1 flex items-center gap-2">
-                        <ShieldCheck size={14} /> SYSTEM: ONLINE | MODE: GOD VIEW
+                    <p className="text-indigo-300/60 text-sm font-mono mt-1 flex flex-col gap-1">
+                        <span className="flex items-center gap-2"><ShieldCheck size={14} /> SYSTEM: ONLINE | MODE: GOD VIEW</span>
+                        {currentLicense && (
+                            <span className="text-[10px] text-indigo-400/80 bg-indigo-400/5 px-2 py-0.5 rounded border border-indigo-400/10 w-fit">
+                                TU ID DE SESIÓN: {currentLicense.gym_id}
+                            </span>
+                        )}
                     </p>
                 </div>
                 <div className="flex gap-3">
@@ -362,18 +356,18 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* Broadcast Sidebar Management */}
+                {/* Global Notification Sender */}
                 <div className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col">
                     <div className="flex items-center gap-2 mb-6">
                         <Megaphone className="text-indigo-400" size={20} />
-                        <h3 className="text-white font-bold">Comunicado Global</h3>
+                        <h3 className="text-white font-bold">Enviar Notificación Global</h3>
                     </div>
 
                     <div className="space-y-4 flex-1 flex flex-col">
                         <textarea
                             value={broadcastMessage}
                             onChange={(e) => setBroadcastMessage(e.target.value)}
-                            placeholder="Escribe un mensaje para todos los gimnasios..."
+                            placeholder="Escribe un mensaje para notificar a todos..."
                             className="w-full h-32 bg-slate-950 border border-white/10 rounded-xl p-3 text-sm text-slate-300 focus:border-indigo-500 transition-colors outline-none resize-none"
                         />
 
@@ -400,19 +394,11 @@ export default function AdminDashboard() {
                                 disabled={generating || !broadcastMessage}
                                 className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all disabled:opacity-50"
                             >
-                                <Send size={18} /> Publicar Mensaje
+                                <Send size={18} /> Enviar Telegrama
                             </button>
-                            {lastBroadcast && (
-                                <button
-                                    onClick={() => {
-                                        setBroadcastMessage('');
-                                        handleDeactivateBroadcast();
-                                    }}
-                                    className="w-full py-2 text-xs text-red-400 hover:underline transition-all"
-                                >
-                                    Retirar comunicado actual
-                                </button>
-                            )}
+                            <p className="text-[10px] text-slate-500 text-center italic mt-2">
+                                Esto enviará un "Toast" emergente a todos los gimnasios conectados.
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -447,6 +433,9 @@ export default function AdminDashboard() {
                                         <td className="p-4">
                                             <div className="font-bold text-white flex items-center gap-2">
                                                 {gym.gym_name || 'Sin Nombre'}
+                                                {gym.gym_id === currentLicense?.gym_id && (
+                                                    <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/20 font-black animate-pulse">ESTA APP</span>
+                                                )}
                                                 {isInactive && <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full border border-red-500/20">REVOCADA</span>}
                                             </div>
                                             <div className="text-xs text-slate-500 font-mono">{gym.gym_id}</div>

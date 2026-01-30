@@ -112,7 +112,16 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
 
     const handleNewMesocycle = () => {
         // Check if there's an active mesocycle
-        const activeMesocycle = mesocycles.find(m => m.status === 'active');
+        // Prioritize the one that ends later if multiple exist
+        const activeMesocycles = mesocycles
+            .filter(m => m.status === 'active')
+            .sort((a, b) => {
+                const dateA = a.end_date ? new Date(a.end_date) : new Date('9999-12-31');
+                const dateB = b.end_date ? new Date(b.end_date) : new Date('9999-12-31');
+                return dateB - dateA;
+            });
+
+        const activeMesocycle = activeMesocycles[0];
 
         if (activeMesocycle) {
             requestConfirm({
@@ -123,7 +132,7 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                         <p className="text-sm text-slate-400">
                             Fecha: {new Date(activeMesocycle.start_date).toLocaleDateString()} - {activeMesocycle.end_date ? new Date(activeMesocycle.end_date).toLocaleDateString() : 'Indefinido'}
                         </p>
-                        <p>¿Deseas crear uno nuevo? Las fechas no pueden solaparse.</p>
+                        <p>¿Deseas crear uno nuevo? (Puedes crearlo como una excepción si las fechas coinciden).</p>
                     </div>
                 ),
                 type: 'warning',

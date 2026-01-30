@@ -18,6 +18,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // Smart Dates Logic
     const [occupiedRanges, setOccupiedRanges] = useState([]);
     const [suggestedDate, setSuggestedDate] = useState(null);
+    const [acceptedOverlap, setAcceptedOverlap] = useState(false);
 
     React.useEffect(() => {
         if (customerId && !templateMode && !initialData) {
@@ -140,8 +141,14 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
         setStep(2);
     };
 
+    const handleContinueWithOverlap = () => {
+        setAcceptedOverlap(true);
+        setError(null);
+        setStep(2);
+    };
+
     // Save & Share
-    const handleFinish = async () => {
+    const handleFinish = async (allowOverlap = false) => {
         setIsSaving(true);
         setError(null);
         try {
@@ -153,6 +160,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 endDate,
                 notes: 'Creado desde App',
                 isTemplate,
+                allowOverlap,
                 daysPerWeek: days.length, // Auto-calculate from number of routines
                 routines: days.map(d => ({
                     name: d.name,
@@ -372,17 +380,25 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                                 <p className="font-bold text-sm">Las fechas se solapan con otro mesociclo activo</p>
                                                 <p className="text-xs text-red-300 mt-1">
                                                     Ya existe un plan de entrenamiento activo para este cliente en las fechas seleccionadas.
-                                                    Las fechas no pueden coincidir con otro mesociclo activo.
+                                                    Puedes crear este plan como una excepción si necesitas que coexista con el actual.
                                                 </p>
                                             </div>
                                         </div>
-                                        <button
-                                            onClick={onViewHistory || onBack}
-                                            className="w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
-                                        >
-                                            <Calendar size={18} />
-                                            Ver Historial de Mesociclos
-                                        </button>
+                                        <div className="flex flex-col gap-2">
+                                            <button
+                                                onClick={handleContinueWithOverlap}
+                                                className="w-full bg-orange-600 hover:bg-orange-500 text-white px-4 py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <span>✅</span> Diseñar como Excepción
+                                            </button>
+                                            <button
+                                                onClick={onViewHistory || onBack}
+                                                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <Calendar size={14} />
+                                                Ver Historial de Mesociclos
+                                            </button>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="bg-red-500/10 text-red-400 p-4 rounded-xl border border-red-500/20 flex items-center gap-2 text-sm">
@@ -567,7 +583,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                     </button>
                 ) : (
                     <button
-                        onClick={handleFinish}
+                        onClick={() => handleFinish(acceptedOverlap)}
                         disabled={isSaving}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px] justify-center"
                     >

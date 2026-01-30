@@ -14,6 +14,7 @@ export function NotificationProvider({ children }) {
             });
 
             const cleanupRemote = window.api.on('cloud:remote-load-pending', (data) => {
+                console.log('🔔 [NotificationContext] Remote load signal received:', data);
                 addNotification({
                     id: 'remote-load-pending',
                     type: 'update',
@@ -28,11 +29,11 @@ export function NotificationProvider({ children }) {
                                 load_id: data.load_id
                             });
                             if (res.success) {
-                                addNotification({ type: 'success', message: 'Base de Datos actualizada. Reiniciando...' });
+                                addNotification({ id: 'apply-success', type: 'success', message: 'Base de Datos actualizada. Reiniciando...' });
                                 setTimeout(() => window.location.reload(), 2000);
                             }
                         } catch (e) {
-                            addNotification({ type: 'error', message: 'Error al aplicar carga: ' + e.message });
+                            addNotification({ id: 'apply-error', type: 'error', message: 'Error al aplicar carga: ' + e.message });
                         }
                     }
                 });
@@ -137,12 +138,16 @@ export function NotificationProvider({ children }) {
 
     const addNotification = (notif) => {
         setNotifications(prev => {
+            // Generate unique ID if none provided
+            const id = notif.id || `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const finalNotif = { ...notif, id };
+
             // Check if it already exists (prevent duplicates for same ID)
-            const exists = prev.find(n => n.id === notif.id);
+            const exists = prev.find(n => n.id === id);
             if (exists) {
-                return prev.map(n => n.id === notif.id ? { ...n, ...notif, timestamp: new Date() } : n);
+                return prev.map(n => n.id === id ? { ...n, ...finalNotif, timestamp: new Date() } : n);
             }
-            return [{ ...notif, timestamp: new Date() }, ...prev];
+            return [{ ...finalNotif, timestamp: new Date() }, ...prev];
         });
     };
 

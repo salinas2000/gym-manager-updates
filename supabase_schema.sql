@@ -181,3 +181,6 @@ CREATE TABLE IF NOT EXISTS cloud_remote_loads (
 
 ALTER TABLE cloud_remote_loads ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public Access" ON cloud_remote_loads FOR ALL USING (true);
+
+-- ENABLE REALTIME
+ALTER PUBLICATION supabase_realtime ADD TABLE cloud_remote_loads;

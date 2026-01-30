@@ -94,10 +94,11 @@ class AdminService {
     async getGlobalBroadcast() {
         // No checkMaster here because regular clients need to read it too
         if (!supabase) return null;
+
+        // Fetch the LATEST notification, regardless of "active"
         const { data, error } = await supabase
             .from('global_notifications')
             .select('*')
-            .eq('active', true)
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
@@ -110,13 +111,7 @@ class AdminService {
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
 
-        // Deactivate old notifications
-        await supabase.from('global_notifications').update({ active: false }).eq('active', true);
-
-        // If active is false, we just stop here (effectively cleared)
-        if (notification.active === false) return { success: true };
-
-        // Insert new one
+        // Simply insert the new notification. We don't care about "active" state anymore.
         const { data, error } = await supabase
             .from('global_notifications')
             .insert([{
@@ -269,7 +264,7 @@ class AdminService {
 
     async pushRemoteDatabase(gymId, localPath) {
         this.checkMaster();
-        console.log('[AdminService] pushRemoteDatabase called:', { gymId, localPath });
+        console.log(`🚀 [AdminService] STARTING PUSH for Gym: ${gymId} from ${localPath}`);
 
         if (!gymId) throw new Error('gymId es requerido');
         if (!localPath) throw new Error('localPath es requerido');

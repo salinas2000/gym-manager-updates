@@ -3,6 +3,7 @@ import { useNotifications } from '../../context/NotificationContext';
 import { useGym } from '../../context/GymContext';
 import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Cloud, HardDrive, Database } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import SettingsLicense from './SettingsLicense';
 
 export default function SettingsPage({ initialTab = 'general' }) {
     const { settings, updateSettings, refreshData } = useGym();
@@ -123,14 +124,16 @@ export default function SettingsPage({ initialTab = 'general' }) {
         setIsSaving(false);
     };
 
-    const handleActivate = async (e) => {
-        e.preventDefault();
-        if (!licenseKey) return;
+    const handleActivate = async (e, directKey = null) => {
+        if (e) e.preventDefault();
+        const keyToUse = directKey || licenseKey;
+
+        if (!keyToUse) return;
 
         setIsSaving(true);
         try {
             // Use NEW License API
-            const res = await window.api.license.activate(licenseKey);
+            const res = await window.api.license.activate(keyToUse);
             if (res) {
                 setLicenseData(res);
                 showMsg('success', '¡Aplicación activada correctamente!');
@@ -321,86 +324,26 @@ export default function SettingsPage({ initialTab = 'general' }) {
 
             {/* TAB CONTENT: LICENSE */}
             {activeTab === 'license' && (
-                <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-                    <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl">
-                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                            <Key className="text-amber-400" /> Activación del Producto
-                        </h3>
-                        <p className="text-slate-400 text-sm mb-6">Si has instalado esta aplicación en un nuevo ordenador, ingresa tu clave de licencia para sincronizar y desbloquear todas las funciones.</p>
+                <SettingsLicense
+                    licenseData={licenseData}
+                    onActivate={(key) => handleActivate({ preventDefault: () => { } }, key)}
+                    onDeactivate={() => {
+                        requestConfirm({
+                            title: 'Desactivar Licencia',
+                            message: '¿Estás seguro de que quieres desactivar la licencia? La aplicación se cerrará y tendrás que volver a activarla.',
+                            type: 'danger',
+                            confirmText: 'Desactivar',
+                            onConfirm: () => {
+                                window.api.license.deactivate().then(() => {
+                                    window.location.reload();
+                                });
+                            }
+                        });
+                    }}
+                    isSaving={isSaving}
+                />
+            )}
 
-                        <form onSubmit={handleActivate} className="max-w-lg space-y-4">
-                            <div>
-                                <label className="text-sm font-medium text-slate-400 block mb-2">Clave de Licencia</label>
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        value={isActivated ? '••••-••••-••••-••••' : licenseKey}
-                                        onChange={e => setLicenseKey(e.target.value)}
-                                        placeholder="XXXX-XXXX-XXXX-XXXX"
-                                        disabled={isActivated}
-                                        className={`w-full bg-slate-950 border rounded-xl px-4 py-3 text-white font-mono tracking-widest outline-none uppercase transition-colors ${isActivated
-                                            ? 'border-emerald-500/30 text-emerald-400 cursor-not-allowed opacity-75'
-                                            : 'border-white/10 focus:border-amber-500'
-                                            }`}
-                                    />
-                                    {isActivated && (
-                                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                                            <CheckCircle size={20} className="text-emerald-500" />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {!isActivated ? (
-                                <button type="submit" disabled={!licenseKey || isSaving} className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white px-6 py-3 rounded-xl font-bold w-full transition-all shadow-lg shadow-amber-900/20 disabled:opacity-50">
-                                    Activar Aplicación
-                                </button>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
-                                        <ShieldCheck className="text-emerald-400 flex-shrink-0" size={24} />
-                                        <div>
-                                            <p className="text-emerald-400 font-bold">Licencia Verificada y Segura</p>
-                                            <p className="text-emerald-500/70 text-xs">Tu copia de Gym Manager Pro está autenticada con nuestros servidores.</p>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            requestConfirm({
-                                                title: 'Desactivar Licencia',
-                                                message: '¿Estás seguro de que quieres desactivar la licencia? La aplicación se cerrará y tendrás que volver a activarla.',
-                                                type: 'danger',
-                                                confirmText: 'Desactivar',
-                                                onConfirm: () => {
-                                                    window.api.license.deactivate().then(() => {
-                                                        window.location.reload();
-                                                    });
-                                                }
-                                            });
-                                        }}
-                                        className="w-full border border-red-500/20 text-red-400 hover:bg-red-500/10 px-6 py-3 rounded-xl font-bold transition-all text-sm"
-                                    >
-                                        Desactivar Licencia (Reset)
-                                    </button>
-                                </div>
-                            )}
-                        </form>
-
-                        {isActivated && (
-                            <div className="mt-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
-                                <CheckCircle className="text-emerald-400" size={24} />
-                                <div>
-                                    <p className="text-emerald-400 font-bold">Producto Activado</p>
-                                    <p className="text-emerald-500/70 text-xs">Tu licencia está activa y funcionando correctamente.</p>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )
-            }
 
             {/* TAB CONTENT: INTEGRATIONS */}
             {

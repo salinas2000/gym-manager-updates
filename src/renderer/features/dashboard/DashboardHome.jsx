@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { TrendingUp, Users, CreditCard, Activity, ChevronDown } from 'lucide-react';
 import GrowthChart from '../finance/GrowthChart';
 import TariffPieChart from '../finance/TariffPieChart';
-import AcquisitionChart from './AcquisitionChart';
 import RecentActivity from './RecentActivity';
 import { cn } from '../../lib/utils';
 import { useLanguage } from '../../context/LanguageContext';
@@ -151,35 +150,44 @@ export default function DashboardHome() {
                 {/* Recent Activity (1 Col) - Tall */}
                 <div className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col row-span-2">
                     <h3 className="text-lg font-semibold text-white mb-4">{t('dashboard.recentActivity') || "Recent Activity"}</h3>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                    <div className="flex-1 w-full">
                         <RecentActivity transactions={recentTx} />
                     </div>
                 </div>
 
-                {/* New Members Acquisition (2 Cols) */}
-                <div className="lg:col-span-1 bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col min-h-[300px]">
-                    <h3 className="text-lg font-semibold text-white mb-6">{t('dashboard.memberGrowth') || "New Members"}</h3>
-                    <div className="flex-1 min-h-[300px]">
-                        <AcquisitionChart data={data.newMembers || []} />
-                    </div>
-                </div>
 
-                {/* Tariff Distribution (1 Col) */}
-                <div className="lg:col-span-2 bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col min-h-[300px]">
+
+                {/* Tariff Distribution (3 Cols) - Expanded View */}
+                <div className="lg:col-span-3 bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col">
                     <h3 className="text-lg font-semibold text-white mb-6">{t('dashboard.tariffDistribution') || "Distribution"}</h3>
-                    <div className="flex-1 flex flex-col md:flex-row items-center justify-center gap-8">
-                        <div className="w-full h-[200px] relative">
+                    <div className="flex-1 flex flex-col md:flex-row items-center justify-around gap-12">
+                        {/* Chart Area - Larger fixed height */}
+                        <div className="w-full max-w-[400px] h-[300px] relative">
                             <TariffPieChart data={data.distribution} />
                         </div>
-                        {/* Legend */}
-                        <div className="flex flex-col gap-2 min-w-[120px]">
-                            {data.distribution.map((d, i) => (
-                                <div key={d.name} className="flex items-center gap-2 text-xs text-slate-400">
-                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color_theme === 'emerald' ? '#10b981' : (['#8b5cf6', '#ec4899', '#f59e0b', '#3b82f6'][i % 4]) }} />
-                                    <span>{d.name}</span>
-                                    <span className="ml-auto font-bold text-white">{d.value}</span>
-                                </div>
-                            ))}
+
+                        {/* Interactive Legend - Grid Layout */}
+                        <div className="grid grid-cols-2 lg:grid-cols-2 gap-x-16 gap-y-6 min-w-[350px]">
+                            {data.distribution.map((d, i) => {
+                                const COLORS = ['#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6'];
+                                const color = COLORS[i % COLORS.length];
+                                const total = data.distribution.reduce((acc, curr) => acc + curr.value, 0);
+                                const percent = total > 0 ? ((d.value / total) * 100).toFixed(1) : 0;
+
+                                return (
+                                    <div key={d.name} className="flex items-center gap-4 text-xs group/item cursor-pointer hover:bg-white/5 p-3 rounded-xl transition-all border border-transparent hover:border-white/5">
+                                        <div
+                                            className="w-4 h-4 rounded-full shadow-lg shadow-white/5 flex-shrink-0"
+                                            style={{ backgroundColor: color, boxShadow: `0 0 15px ${color}50` }}
+                                        />
+                                        <div className="flex flex-col flex-1">
+                                            <span className="text-white font-bold text-sm group-hover/item:text-blue-200 transition-colors">{d.name}</span>
+                                            <span className="text-xs text-slate-500 font-mono tracking-wide">{percent}% del total</span>
+                                        </div>
+                                        <span className="font-black text-2xl text-slate-700 group-hover/item:text-white transition-colors">{d.value}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>

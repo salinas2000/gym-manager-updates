@@ -188,51 +188,44 @@ app.whenReady().then(() => {
         createWindow();
 
         // 4. Initialize Updater
+        // Initialize Services (Dev & Prod)
+        const cloudService = require('./services/cloud.service');
+        const licenseService = require('./services/license.service');
+        cloudService.setMainWindow(mainWindow);
+
+        // 4. Initialize Updater (Only if supported)
         const { initUpdater, autoUpdater } = require('./services/updater.service');
-        // Wait a bit for window to load
-        setTimeout(() => {
-            if (mainWindow) initUpdater(mainWindow);
+        initUpdater(mainWindow);
 
-            // Auto-check in dev or prod
+        // 5. App Version Update Check
+        const runUpdateCheck = () => {
             if (app.isPackaged) {
-                autoUpdater.checkForUpdatesAndNotify().catch(err => {
-                    if (err.message.includes('latest.yml')) {
-                        console.log('ℹ️ No updates available (repo empty)');
-                    } else {
-                        console.error('Update check failed:', err);
-                    }
-                });
-
-                // 5. Periodic background check (Every 30 minutes)
-                setInterval(() => {
-                    console.log('📡 [Updater] Running periodic background check...');
-                    autoUpdater.checkForUpdatesAndNotify().catch(err => {
-                        console.error('Background update check failed:', err);
-                    });
-                }, 30 * 60 * 1000);
-
-                // 6. Remote Load Check (Every 30 minutes)
-                const cloudService = require('./services/cloud.service');
-                const licenseService = require('./services/license.service');
-
-                cloudService.setMainWindow(mainWindow);
-
-                setInterval(() => {
-                    const lic = licenseService.getLicenseData();
-                    if (lic && !lic.is_master) {
-                        cloudService.checkRemoteLoad(lic.gym_id);
-                    }
-                }, 30 * 60 * 1000);
-
-                // Initial check for non-master clients
-                setTimeout(() => {
-                    const lic = licenseService.getLicenseData();
-                    if (lic && !lic.is_master) {
-                        cloudService.checkRemoteLoad(lic.gym_id);
-                    }
-                }, 10000);
+                autoUpdater.checkForUpdatesAndNotify().catch(err => console.error('Update check failed:', err));
+            } else {
+                console.log('📡 [Updater] Update check skipped in Development mode.');
             }
-        }, 3000);
+        };
+
+        // 6. Remote Database Load Check (Realtime & Polling)
+        const runRemoteLoadCheck = () => {
+            const lic = licenseService.getLicenseData();
+            if (lic) {
+                console.log('📡 [Main] Checking for remote loads for gym:', lic.gym_id);
+                // Ensure Realtime is active
+                cloudService.setupRealtime(lic.gym_id);
+                // Manual Polling Fallback (Every 30m)
+                cloudService.checkRemoteLoad(lic.gym_id);
+            }
+        };
+
+        setTimeout(() => {
+            runUpdateCheck();
+            runRemoteLoadCheck();
+        }, 5000);
+
+        // Background intervals
+        setInterval(runUpdateCheck, 30 * 60 * 1000);
+        setInterval(runRemoteLoadCheck, 30 * 60 * 1000);
     }
 
     function createActivationWindow() {

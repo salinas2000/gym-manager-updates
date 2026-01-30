@@ -265,7 +265,13 @@ function registerHandlers() {
         data: licService.getLicenseData()
     }));
     handle('license:reportVersion', (version) => licService.updateVersion(version));
-    handle('license:deactivate', () => licService.deactivate());
+    handle('license:deactivate', () => {
+        const { app } = require('electron');
+        licService.deactivate();
+        console.log('[IPC] License deactivated. Relaunching app for fresh state...');
+        app.relaunch();
+        app.exit(0);
+    });
 
     // Google Integration
     handle('google:startAuth', async () => {

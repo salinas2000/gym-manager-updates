@@ -286,6 +286,8 @@ class TrainingService {
         };
 
         const isTemplate = normalizedData.isTemplate;
+        const allowOverlap = (data.allowOverlap === true || data.allowOverlap === 'true');
+        console.log('[saveMesocycle] Overlap Check Config:', { isTemplate, allowOverlap, dataAllowOverlap: data.allowOverlap });
 
         // If it's NOT a template, check overlaps
         const overlapCheck = this.checkMesocycleOverlap(
@@ -294,7 +296,7 @@ class TrainingService {
             normalizedData.endDate,
             normalizedData.id
         );
-        if (!isTemplate && overlapCheck.hasOverlap) {
+        if (!isTemplate && overlapCheck.hasOverlap && !allowOverlap) {
             throw new Error('Las fechas se solapan con otro mesociclo activo.');
         }
 

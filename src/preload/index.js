@@ -98,5 +98,10 @@ contextBridge.exposeInMainWorld('api', {
         getPushHistory: (gymId) => ipcRenderer.invoke('admin:getPushHistory', gymId),
         pushDB: (data) => ipcRenderer.invoke('admin:pushDB', data),
         pickDB: () => ipcRenderer.invoke('admin:pickDB'),
+    },
+    on: (channel, callback) => {
+        const subscription = (event, ...args) => callback(...args);
+        ipcRenderer.on(channel, subscription);
+        return () => ipcRenderer.removeListener(channel, subscription);
     }
 });

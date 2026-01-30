@@ -15,7 +15,8 @@ const DEFAULT_GYM_ID = 'GYM-PRO-MAIN';
 class CloudService {
     constructor() {
         this.supabase = null;
-        this.mainWindow = null; // Stored for IPC notifications
+        this.mainWindow = null;
+        this.activeChannels = new Set(); // Track active subscriptions
         this.init();
     }
 
@@ -38,36 +39,67 @@ class CloudService {
     }
 
     setupRealtime(gymId) {
-        if (!this.supabase) return;
+        if (!this.supabase || !gymId) return;
+        if (this.activeChannels.has(gymId)) {
+            console.log('📡 [CloudService] Realtime already active for gym:', gymId);
+            return;
+        }
 
         console.log('📡 [CloudService] Setting up Realtime for gym:', gymId);
 
-        this.supabase
+        const channel = this.supabase
             .channel(`remote_loads_${gymId}`)
             .on(
                 'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
-                    table: 'cloud_remote_loads',
-                    filter: `gym_id=eq.${gymId}`
+                    table: 'cloud_remote_loads'
+                    // Remove strict filter to handle it in JS with better logging
                 },
                 (payload) => {
-                    console.log('🚀 [CloudService] Instant push signal received:', payload);
-                    if (this.mainWindow) {
-                        this.mainWindow.webContents.send('cloud:remote-load-pending', {
-                            gym_id: gymId,
-                            timestamp: payload.new.created_at,
-                            load_id: payload.new.id
-                        });
+                    const receivedGymId = payload.new.gym_id;
+                    console.log(`🚀 [CloudService] Realtime Push Signal: For Gym[${receivedGymId}] (Local Gym is [${gymId}])`);
+
+                    if (receivedGymId === gymId) {
+                        console.log('✅ [CloudService] Gym ID Match! Sending notification to UI...');
+                        if (this.mainWindow) {
+                            this.mainWindow.webContents.send('cloud:remote-load-pending', {
+                                gym_id: receivedGymId,
+                                timestamp: payload.new.created_at,
+                                load_id: payload.new.id
+                            });
+                        }
+                    } else {
+                        console.log('ℹ️ [CloudService] Post-filtered event: Gym ID mismatch. Ignored.');
                     }
                 }
-            )
-            .subscribe();
+            );
+
+        channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                this.activeChannels.add(gymId);
+                console.log('✅ [CloudService] Realtime SUBSCRIBED for gym:', gymId);
+            }
+        });
     }
 
     _resolveGymId(overrideId) {
         if (overrideId) return overrideId;
+
+        // 1. Try retrieving from License Service (Authoritative Source)
+        try {
+            const licenseService = require('./license.service');
+            const data = licenseService.getLicenseData();
+            if (data && data.gym_id) return data.gym_id;
+        } catch (e) {
+            console.warn('[CloudService] Failed to resolve ID from LicenseService:', e);
+        }
+
+        const id = settingsService.get('gym_id');
+        if (id) return id;
+
+        // Fallback (Should rarely happen in enabled app)
         const name = settingsService.get('gym_name');
         return name ? name.trim().replace(/[^a-zA-Z0-9]/g, '_').toUpperCase() : DEFAULT_GYM_ID;
     }

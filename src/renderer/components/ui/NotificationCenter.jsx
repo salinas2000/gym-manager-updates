@@ -9,7 +9,8 @@ export default function NotificationCenter({ onNavigate }) {
         isDrawerOpen,
         setDrawerOpen,
         removeNotification,
-        clearAll
+        clearAll,
+        updateNotification
     } = useNotifications();
 
     if (!isDrawerOpen) return null;
@@ -127,6 +128,20 @@ export default function NotificationCenter({ onNavigate }) {
                                                     {notif.action.label}
                                                 </button>
                                             )}
+                                            {notif.onAction && (
+                                                <button
+                                                    disabled={notif.loading}
+                                                    onClick={async () => {
+                                                        if (updateNotification) updateNotification(notif.id, { loading: true });
+                                                        await notif.onAction();
+                                                        if (updateNotification) updateNotification(notif.id, { loading: false });
+                                                    }}
+                                                    className="text-[10px] items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-500 transition-colors inline-flex"
+                                                >
+                                                    {notif.loading ? <RefreshCw size={12} className="animate-spin" /> : <Download size={12} />}
+                                                    {notif.actionLabel || 'Confirmar'}
+                                                </button>
+                                            )}
                                             {!notif.persistent && (
                                                 <button
                                                     onClick={() => removeNotification(notif.id)}
@@ -156,6 +171,6 @@ export default function NotificationCenter({ onNavigate }) {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 }
