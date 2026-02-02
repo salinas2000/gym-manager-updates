@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
@@ -21,8 +21,34 @@ const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
 
 export default function Layout({ children, currentView, onNavigate }) {
     const { t, language, setLanguage } = useLanguage();
-    const { settings } = useGym();
     const [appVersion, setAppVersion] = React.useState('1.0.0');
+    const [licenseWarning, setLicenseWarning] = React.useState(null);
+    const { settings, reloadSettings } = useGym();
+
+    React.useEffect(() => {
+        const checkLicense = async () => {
+            try {
+                const status = await window.api.license.getStatus();
+                if (status.data && status.data.status) {
+                    const s = status.data.status;
+                    if (s.warning) {
+                        setLicenseWarning({
+                            days: s.daysLeft,
+                            message: s.message
+                        });
+                    } else {
+                        setLicenseWarning(null);
+                    }
+                }
+            } catch (err) {
+                console.error('License check failed:', err);
+            }
+        };
+
+        checkLicense();
+        const interval = setInterval(checkLicense, 60000); // Check every minute
+        return () => clearInterval(interval);
+    }, []);
 
     React.useEffect(() => {
         if (window.api?.updater?.getVersion) {
@@ -32,9 +58,6 @@ export default function Layout({ children, currentView, onNavigate }) {
         }
     }, []);
 
-    const toggleLang = () => {
-        setLanguage(prev => prev === 'en' ? 'es' : 'en');
-    };
 
     return (
         <>
@@ -92,6 +115,12 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('customers')}
                         />
                         <SidebarItem
+                            icon={CreditCard}
+                            label="Pagos"
+                            active={currentView === 'finance'}
+                            onClick={() => onNavigate('finance')}
+                        />
+                        <SidebarItem
                             icon={Settings}
                             label={t('sidebar.tariffs')}
                             active={currentView === 'tariffs'}
@@ -108,6 +137,12 @@ export default function Layout({ children, currentView, onNavigate }) {
                             label={t('sidebar.training')}
                             active={currentView === 'training'}
                             onClick={() => onNavigate('training')}
+                        />
+                        <SidebarItem
+                            icon={Palette}
+                            label="Diseñador"
+                            active={currentView === 'templates'}
+                            onClick={() => onNavigate('templates')}
                         />
                         <SidebarItem
                             icon={Clock}
@@ -153,16 +188,6 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('backup')}
                         />
 
-                        {/* Language Switcher */}
-                        <div
-                            onClick={toggleLang}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 cursor-pointer border border-white/5 transition-colors"
-                        >
-                            <Globe size={16} className="text-slate-400" />
-                            <span className="text-xs font-medium text-slate-300">
-                                {t('sidebar.language')}: <span className="text-white uppercase">{language}</span>
-                            </span>
-                        </div>
 
                         <div className="flex items-center gap-3 px-2">
                             <div className="w-8 h-8 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center">
@@ -182,6 +207,22 @@ export default function Layout({ children, currentView, onNavigate }) {
                     <div className="fixed top-0 left-0 w-full h-[500px] bg-blue-600/10 blur-[100px] -z-10 pointer-events-none rounded-full transform -translate-y-1/2"></div>
 
                     <div className="p-8 max-w-7xl mx-auto h-full">
+                        {licenseWarning && (
+                            <div className="mb-6 bg-orange-500/10 border border-orange-500/50 rounded-xl p-4 flex items-center justify-between animate-pulse">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-orange-500/20 rounded-lg text-orange-500">
+                                        <Globe size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-orange-400 font-bold">Verificación de Licencia Requerida</h3>
+                                        <p className="text-slate-400 text-sm">
+                                            Tu sesión sin conexión caducará en <span className="text-white font-bold">{licenseWarning.days} días</span>.
+                                            Por favor, conéctate a internet para renovar el acceso.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         {children}
                     </div>
                 </main>

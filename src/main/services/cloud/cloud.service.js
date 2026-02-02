@@ -1,11 +1,11 @@
 const { createClient } = require('@supabase/supabase-js');
-const dbManager = require('../db/database');
-const settingsService = require('./settings.service');
+const dbManager = require('../../db/database');
+const settingsService = require('../local/settings.service');
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
 // Ensure dotenv is loaded if main.js hasn't loaded it yet (safety)
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '../../../../.env') });
 
 // NOTE: Credentials now loaded from .env
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -26,7 +26,7 @@ class CloudService {
 
     init() {
         if (!SUPABASE_URL || !SUPABASE_KEY) {
-            console.warn('CloudService: Supabase credentials not found in .env');
+            console.warn('[CLOUD_SYNC] Supabase credentials not found in .env');
             return;
         }
         this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -41,11 +41,11 @@ class CloudService {
     setupRealtime(gymId) {
         if (!this.supabase || !gymId) return;
         if (this.activeChannels.has(gymId)) {
-            console.log('📡 [CloudService] Realtime already active for gym:', gymId);
+            console.log('📡 [CLOUD_SYNC] Realtime already active for gym:', gymId);
             return;
         }
 
-        console.log('📡 [CloudService] Setting up Realtime for gym:', gymId);
+        console.log('📡 [CLOUD_SYNC] Setting up Realtime for gym:', gymId);
 
         const channel = this.supabase
             .channel(`remote_loads_${gymId}`)
@@ -59,10 +59,10 @@ class CloudService {
                 },
                 (payload) => {
                     const receivedGymId = payload.new.gym_id;
-                    console.log(`🚀 [CloudService] Realtime Push Signal: For Gym[${receivedGymId}] (Local Gym is [${gymId}])`);
+                    console.log(`🚀 [CLOUD_SYNC] Realtime Push Signal: For Gym[${receivedGymId}] (Local Gym is [${gymId}])`);
 
                     if (receivedGymId === gymId) {
-                        console.log('✅ [CloudService] Gym ID Match! Sending notification to UI...');
+                        console.log('✅ [CLOUD_SYNC] Gym ID Match! Sending notification to UI...');
                         if (this.mainWindow) {
                             this.mainWindow.webContents.send('cloud:remote-load-pending', {
                                 gym_id: receivedGymId,
@@ -71,7 +71,7 @@ class CloudService {
                             });
                         }
                     } else {
-                        console.log('ℹ️ [CloudService] Post-filtered event: Gym ID mismatch. Ignored.');
+                        console.log('ℹ️ [CLOUD_SYNC] Post-filtered event: Gym ID mismatch. Ignored.');
                     }
                 }
             );
@@ -79,7 +79,7 @@ class CloudService {
         channel.subscribe((status) => {
             if (status === 'SUBSCRIBED') {
                 this.activeChannels.add(gymId);
-                console.log('✅ [CloudService] Realtime SUBSCRIBED for gym:', gymId);
+                console.log('✅ [CLOUD_SYNC] Realtime SUBSCRIBED for gym:', gymId);
             }
         });
     }
@@ -89,11 +89,11 @@ class CloudService {
 
         // 1. Try retrieving from License Service (Authoritative Source)
         try {
-            const licenseService = require('./license.service');
+            const licenseService = require('../local/license.service');
             const data = licenseService.getLicenseData();
             if (data && data.gym_id) return data.gym_id;
         } catch (e) {
-            console.warn('[CloudService] Failed to resolve ID from LicenseService:', e);
+            console.warn('[CLOUD_SYNC] Failed to resolve ID from LicenseService:', e);
         }
 
         const id = settingsService.get('gym_id');
@@ -119,7 +119,7 @@ class CloudService {
         };
 
         try {
-            console.log(`CloudService: Starting FULL SYNC for ${targetGymId}`);
+            console.log(`[CLOUD_SYNC] Starting FULL SYNC for ${targetGymId}`);
 
             // === PART 1: ROW SYNC (Upsert + Prune) ===
 
@@ -219,16 +219,16 @@ class CloudService {
 
 
             // === PART 2: FILE SNAPSHOT (Physical DB) ===
-            console.log('CloudService: Starting DB Snapshot Upload...');
+            console.log('[CLOUD_SYNC] Starting DB Snapshot Upload...');
             const snapshotUrl = await this.backupDatabaseFile(targetGymId);
             results.fileBackup = snapshotUrl;
 
             const finalResult = { success: true, data: results };
-            console.log('CloudService: Sync Complete.', JSON.stringify(finalResult));
+            console.log('[CLOUD_SYNC] Sync Complete.', JSON.stringify(finalResult));
             return finalResult;
 
         } catch (error) {
-            console.error('CloudService: Backup failed.', error);
+            console.error('[CLOUD_SYNC] Backup failed.', error);
             return { success: false, error: error.message };
         }
     }
@@ -358,14 +358,14 @@ class CloudService {
             const hasRemoteLoad = data && data.some(file => file.name === 'gym_manager.db');
 
             if (hasRemoteLoad && this.mainWindow) {
-                console.log('📡 [CloudService] Remote load detected for gym:', gymId);
+                console.log('📡 [CLOUD_SYNC] Remote load detected for gym:', gymId);
                 this.mainWindow.webContents.send('cloud:remote-load-pending', {
                     gym_id: gymId,
                     timestamp: new Date().toISOString()
                 });
             }
         } catch (e) {
-            console.error('[CloudService] checkRemoteLoad Error:', e);
+            console.error('[CLOUD_SYNC] checkRemoteLoad Error:', e);
         }
     }
 
@@ -421,7 +421,7 @@ class CloudService {
 
             return { success: true };
         } catch (err) {
-            console.error('[CloudService] applyRemoteLoad Error:', err);
+            console.error('[CLOUD_SYNC] applyRemoteLoad Error:', err);
             if (loadId) {
                 await this.supabase
                     .from('cloud_remote_loads')

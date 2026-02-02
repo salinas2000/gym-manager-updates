@@ -10,7 +10,8 @@ export const translations = {
             backup: "Cloud Backup",
             language: "Language",
             admin: "Admin",
-            manager: "Manager"
+            manager: "Manager",
+            finance: "Payments"
         },
         common: {
             id: "ID",
@@ -157,6 +158,18 @@ export const translations = {
                 phone: "Phone (Optional)",
                 tariff: "Tariff Plan"
             }
+        },
+        finance: {
+            title: "Payments",
+            monthly: "Monthly Management",
+            debtors: "Debtors List",
+            revenue: "Monthly Revenue",
+            pending: "Pending Collection",
+            paidCount: "Paid",
+            globalDebtors: "Global Debtors",
+            searchPlaceholder: "Search member...",
+            lastPayment: "Last Payment",
+            registerPayment: "Register Payment"
         }
     },
     es: {
@@ -170,7 +183,8 @@ export const translations = {
             backup: "Backup Cloud",
             language: "Idioma",
             admin: "Admin",
-            manager: "Gerente"
+            manager: "Gerente",
+            finance: "Pagos"
         },
         common: {
             id: "ID",
@@ -317,6 +331,18 @@ export const translations = {
                 phone: "Teléfono (Opcional)",
                 tariff: "Plan de Tarifa"
             }
+        },
+        finance: {
+            title: "Gestión de Pagos",
+            monthly: "Gestión Mensual",
+            debtors: "Lista de Morosos",
+            revenue: "Ingresos del Mes",
+            pending: "Pendiente de Cobro",
+            paidCount: "Pagados",
+            globalDebtors: "Morosos Globales",
+            searchPlaceholder: "Buscar socio...",
+            lastPayment: "Últ. Pago",
+            registerPayment: "Registrar Cobro"
         }
     }
 };

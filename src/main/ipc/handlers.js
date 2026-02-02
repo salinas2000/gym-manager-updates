@@ -1,7 +1,8 @@
 const { ipcMain } = require('electron');
-const customerService = require('../services/customer.service');
-const paymentService = require('../services/payment.service');
-const tariffService = require('../services/tariff.service');
+const customerService = require('../services/local/customer.service');
+const paymentService = require('../services/local/payment.service');
+const tariffService = require('../services/local/tariff.service');
+const templateService = require('../services/local/template.service');
 
 let handlersRegistered = false;
 
@@ -43,10 +44,12 @@ function registerHandlers() {
     handle('payments:getByCustomer', (customerId) => paymentService.getByCustomer(customerId));
     handle('payments:create', (data) => paymentService.create(data));
     handle('payments:delete', (id) => paymentService.delete(id));
+    handle('payments:getMonthlyReport', (year, month) => paymentService.getMonthlyReport(year, month));
+    handle('payments:getDebtors', () => paymentService.getDebtors());
 
     // Analytics
     handle('analytics:getDashboardData', async (year) => {
-        const analyticsService = require('../services/analytics.service');
+        const analyticsService = require('../services/local/analytics.service');
         const revenue = analyticsService.getRevenueHistory(year);
         const members = analyticsService.getActiveMembersHistory(year);
         const distribution = analyticsService.getTariffDistribution();
@@ -57,16 +60,14 @@ function registerHandlers() {
         return { revenue, members, distribution, activeCount, newMembers };
     });
 
-    handle('analytics:getAvailableYears', () => require('../services/analytics.service').getAvailableYears());
-    handle('analytics:getRecentTransactions', (limit) => require('../services/analytics.service').getRecentTransactions(limit));
+    handle('analytics:getAvailableYears', () => require('../services/local/analytics.service').getAvailableYears());
+    handle('analytics:getRecentTransactions', (limit) => require('../services/local/analytics.service').getRecentTransactions(limit));
 
     // Cloud Backup
-    handle('cloud:backup', (gymId) => require('../services/cloud.service').performFullBackup(gymId));
-
-    // Local Backup Export
+    handle('cloud:backup', (gymId) => require('../services/cloud/cloud.service').performFullBackup(gymId));
     handle('cloud:exportLocal', async () => {
         const { dialog } = require('electron');
-        const cloudService = require('../services/cloud.service');
+        const cloudService = require('../services/cloud/cloud.service');
 
         const { canceled, filePath } = await dialog.showSaveDialog({
             title: 'Exportar Backup Local',
@@ -81,7 +82,7 @@ function registerHandlers() {
 
     handle('cloud:importLocal', async () => {
         const { dialog } = require('electron');
-        const cloudService = require('../services/cloud.service');
+        const cloudService = require('../services/cloud/cloud.service');
 
         const { canceled, filePaths } = await dialog.showOpenDialog({
             title: 'Importar Backup Local',
@@ -95,10 +96,10 @@ function registerHandlers() {
     });
 
     // --- TRAINING MODULE ---
-    const trainingService = require('../services/training.service');
-    const excelService = require('../services/excel.service');
-    const cloudService = require('../services/cloud.service');
-    const googleService = require('../services/google.service');
+    const trainingService = require('../services/local/training.service');
+    const excelService = require('../services/io/excel.service');
+    const cloudService = require('../services/cloud/cloud.service');
+    const googleService = require('../services/cloud/google.service');
 
     handle('training:getExercises', () => trainingService.getExercises());
     handle('training:createExercise', (data) => trainingService.createExercise(data));
@@ -247,19 +248,33 @@ function registerHandlers() {
     });
 
     // Memberships (History Editing)
-    const membershipService = require('../services/membership.service');
+    const membershipService = require('../services/local/membership.service');
     handle('memberships:update', (id, data) => membershipService.update(id, data));
     handle('memberships:delete', (id) => membershipService.delete(id));
 
     // Settings
-    const settingsService = require('../services/settings.service');
+    const settingsService = require('../services/local/settings.service');
     handle('settings:getAll', () => settingsService.getAll());
     handle('settings:update', (data) => settingsService.updateSettings(data));
     handle('settings:verifyPassword', (pwd) => settingsService.verifyPassword(pwd));
     handle('settings:activate', (key) => settingsService.setActivation(key));
+    handle('settings:selectExcelTemplate', async () => {
+        const { dialog } = require('electron');
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Seleccionar Plantilla Excel Personalizada',
+            properties: ['openFile'],
+            filters: [{ name: 'Excel Files', extensions: ['xlsx'] }]
+        });
+
+        if (canceled || !filePaths || filePaths.length === 0) return null;
+
+        const path = filePaths[0];
+        settingsService.set('excel_template_path', path);
+        return path;
+    });
 
     // License System
-    const licService = require('../services/license.service');
+    const licService = require('../services/local/license.service');
     handle('license:getStatus', () => ({
         authenticated: licService.isAuthenticated(),
         data: licService.getLicenseData()
@@ -295,14 +310,31 @@ function registerHandlers() {
     });
 
     // Admin Panel (Master Only)
-    const adminService = require('../services/admin.service');
+    const adminService = require('../services/local/admin.service');
     handle('admin:getStats', () => adminService.getGlobalStats());
     handle('admin:listGyms', () => adminService.listGymsDetail());
-    handle('admin:createLicense', (gymName) => adminService.generateNewLicense(gymName));
+
+    // Org & Licenses
+    handle('admin:createOrganization', (name, email, templatePath) => adminService.createOrganization(name, email, templatePath));
+    handle('admin:updateOrganization', (id, data) => adminService.updateOrganization(id, data));
+    handle('admin:selectTemplate', async () => {
+        const { dialog } = require('electron');
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Seleccionar Plantilla Corporativa',
+            properties: ['openFile'],
+            filters: [{ name: 'Excel Files', extensions: ['xlsx'] }]
+        });
+        if (canceled || filePaths.length === 0) return null;
+        return filePaths[0];
+    });
+    handle('admin:listOrganizations', () => adminService.listOrganizations());
+    handle('admin:createLicense', (orgId) => adminService.createLicense(orgId));
+
+    // Legacy/Helper
+    handle('admin:generateNewLicense', (gymName) => adminService.generateNewLicense(gymName));
     handle('admin:revokeLicense', (gymId) => adminService.revokeLicense(gymId));
     handle('admin:unbindHardware', (gymId) => adminService.unbindHardware(gymId));
-    handle('admin:getBroadcast', () => adminService.getGlobalBroadcast());
-    handle('admin:updateBroadcast', (data) => adminService.updateGlobalBroadcast(data));
+
     handle('admin:getReleases', () => adminService.getGitHubReleases());
     handle('admin:listBackups', (gymId) => adminService.listGymBackups(gymId));
     handle('admin:getPushHistory', (gymId) => adminService.getPushHistory(gymId));
@@ -317,7 +349,24 @@ function registerHandlers() {
         if (canceled || filePaths.length === 0) return null;
         return filePaths[0];
     });
-    handle('cloud:applyRemoteLoad', (data) => cloudService.applyRemoteLoad(data.gym_id, data.load_id));
+    handle('cloud:applyRemoteLoad', (data) => require('../services/cloud/cloud.service').applyRemoteLoad(data.gym_id, data.load_id));
+
+    // Template Designer
+    handle('templates:generate', (config) => templateService.generateTemplate(config));
+    handle('templates:getInfo', () => templateService.getInfo());
+    handle('templates:loadConfig', (filename) => templateService.loadConfig(filename));
+    handle('templates:delete', (filename) => templateService.deleteConfig(filename));
+    handle('templates:activate', (filename) => templateService.activateConfig(filename));
+    handle('templates:selectLogo', async () => {
+        const { dialog } = require('electron');
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Seleccionar Logo para Excel',
+            properties: ['openFile'],
+            filters: [{ name: 'Images', extensions: ['jpg', 'png', 'jpeg'] }]
+        });
+        if (canceled || filePaths.length === 0) return null;
+        return filePaths[0];
+    });
 }
 
 module.exports = { registerHandlers };

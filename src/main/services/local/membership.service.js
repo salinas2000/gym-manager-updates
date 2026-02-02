@@ -1,4 +1,4 @@
-const dbManager = require('../db/database');
+const dbManager = require('../../db/database');
 
 class MembershipService {
     update(id, { start_date, end_date }) {

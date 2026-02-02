@@ -1,11 +1,21 @@
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
-const dbManager = require('../db/database');
+const dbManager = require('../../db/database');
 
 class SeedService {
     constructor() {
         this.db = null;
+    }
+
+    getGymId() {
+        try {
+            const licenseService = require('./license.service');
+            const data = licenseService.getLicenseData();
+            return data ? data.gym_id : 'LOCAL_DEV';
+        } catch (e) {
+            return 'LOCAL_DEV';
+        }
     }
 
     init() {
@@ -23,7 +33,7 @@ class SeedService {
     getSeedsPath() {
         return app.isPackaged
             ? path.join(process.resourcesPath, 'seeds')
-            : path.join(__dirname, '../db/seeds');
+            : path.join(__dirname, '../../db/seeds');
     }
 
     seedCategories() {
@@ -35,18 +45,19 @@ class SeedService {
             }
 
             const categories = JSON.parse(fs.readFileSync(categoriesPath, 'utf-8'));
+            const gymId = this.getGymId();
 
-            const insertCat = this.db.prepare('INSERT OR IGNORE INTO exercise_categories (name, icon, is_system) VALUES (?, ?, 1)');
-            const insertSub = this.db.prepare('INSERT OR IGNORE INTO exercise_subcategories (category_id, name) VALUES (?, ?)');
+            const insertCat = this.db.prepare('INSERT OR IGNORE INTO exercise_categories (gym_id, name, icon, is_system) VALUES (?, ?, ?, 1)');
+            const insertSub = this.db.prepare('INSERT OR IGNORE INTO exercise_subcategories (gym_id, category_id, name) VALUES (?, ?, ?)');
             const getCatId = this.db.prepare('SELECT id FROM exercise_categories WHERE name = ?');
 
             const transaction = this.db.transaction((cats) => {
                 for (const cat of cats) {
-                    insertCat.run(cat.name, cat.icon);
+                    insertCat.run(gymId, cat.name, cat.icon);
                     const catId = getCatId.get(cat.name).id;
 
                     for (const sub of cat.subcategories) {
-                        insertSub.run(catId, sub);
+                        insertSub.run(gymId, catId, sub);
                     }
                 }
             });

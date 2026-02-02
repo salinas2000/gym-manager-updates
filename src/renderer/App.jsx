@@ -10,15 +10,16 @@ import NotificationCenter from './components/ui/NotificationCenter';
 // Pages
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
-import FinancePage from './pages/FinancePage';
+import TariffPage from './pages/TariffPage';
+import PaymentsPage from './pages/PaymentsPage';
 import TrainingPage from './pages/TrainingPage';
 import LibraryPage from './pages/LibraryPage';
 import TrainingHistoryPage from './pages/TrainingHistoryPage';
 import SettingsPage from './pages/SettingsPage'; // Backup Page
 import GeneralSettings from './features/settings/SettingsPage'; // New Config Page
-import OnboardingOverlay from './features/onboarding/OnboardingOverlay';
 // Admin Module
 import AdminDashboard from './features/admin/AdminDashboard';
+import TemplatesPage from './features/templates/TemplatesPage';
 
 function Dashboard() {
     const [currentView, setCurrentView] = useState('customers');
@@ -38,8 +39,10 @@ function Dashboard() {
                 return <AdminDashboard />;
             case 'dashboard':
                 return <DashboardPage />;
+            case 'finance':
+                return <PaymentsPage />;
             case 'tariffs':
-                return <FinancePage />;
+                return <TariffPage />;
             case 'backup':
                 return <SettingsPage />;
             case 'settings':
@@ -50,6 +53,8 @@ function Dashboard() {
                 return <TrainingHistoryPage initialCustomer={selectedCustomer} onNavigate={handleNavigate} />;
             case 'library':
                 return <LibraryPage />;
+            case 'templates':
+                return <TemplatesPage />;
             case 'customers':
             default:
                 return (
@@ -63,7 +68,6 @@ function Dashboard() {
             <div className="h-full">
                 {renderContent()}
             </div>
-            <OnboardingOverlay currentTab={currentView} onNavigate={handleNavigate} />
             <ToastContainer />
             <NotificationCenter onNavigate={handleNavigate} />
         </Layout>

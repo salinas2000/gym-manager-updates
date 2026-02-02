@@ -3,6 +3,7 @@ export default {
     content: [
         "./index.html",
         "./src/renderer/**/*.{js,jsx,ts,tsx}",
+        "./node_modules/@tremor/**/*.{js,ts,jsx,tsx}",
     ],
     theme: {
         extend: {

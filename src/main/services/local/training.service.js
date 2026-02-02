@@ -1,8 +1,52 @@
-const dbManager = require('../db/database');
+const dbManager = require('../../db/database');
+const z = require('zod');
+
+// Validation Schemas
+const exerciseSchema = z.object({
+    name: z.string().min(1, "El nombre del ejercicio es obligatorio"),
+    subcategoryId: z.number().int().positive("La subcategoría es obligatoria"),
+    video_url: z.string().url().optional().nullable().or(z.literal('')),
+    default_sets: z.number().int().min(1).optional(),
+    default_reps: z.string().optional(),
+    is_failure: z.boolean().optional(),
+    default_intensity: z.string().optional()
+});
+
+const categorySchema = z.object({
+    name: z.string().min(1, "El nombre de la categoría es obligatorio"),
+    icon: z.string().min(1, "El icono es obligatorio")
+});
+
+const subcategorySchema = z.object({
+    categoryId: z.number().int().positive(),
+    name: z.string().min(1, "El nombre de la subcategoría es obligatorio")
+});
+
+const mesocycleSchema = z.object({
+    id: z.number().optional(),
+    customerId: z.number().optional().nullable(),
+    name: z.string().min(1, "El nombre del mesociclo es obligatorio"),
+    startDate: z.string().optional().nullable(),
+    endDate: z.string().optional().nullable(),
+    notes: z.string().optional(),
+    isTemplate: z.union([z.boolean(), z.number(), z.string()]).optional(),
+    daysPerWeek: z.number().int().min(0).optional(),
+    routines: z.array(z.any()).optional()
+});
 
 class TrainingService {
     get db() {
         return dbManager.getInstance();
+    }
+
+    getGymId() {
+        try {
+            const licenseService = require('./license.service');
+            const data = licenseService.getLicenseData();
+            return data ? data.gym_id : 'LOCAL_DEV';
+        } catch (e) {
+            return 'LOCAL_DEV';
+        }
     }
 
     // --- EXERCISES ---
@@ -49,11 +93,18 @@ class TrainingService {
     }
 
     createExercise(data) {
+        const validation = exerciseSchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        const gymId = this.getGymId();
         const stmt = this.db.prepare(`
-            INSERT INTO exercises (name, subcategory_id, video_url, default_sets, default_reps, is_failure, default_intensity) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO exercises (gym_id, name, subcategory_id, video_url, default_sets, default_reps, is_failure, default_intensity) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
+            gymId,
             data.name,
             data.subcategoryId,
             data.video_url,
@@ -69,19 +120,22 @@ class TrainingService {
         console.log('[TrainingService] updateExercise:', id, data);
         const stmt = this.db.prepare(`
             UPDATE exercises 
-            SET name = ?, subcategory_id = ?, video_url = ?, default_sets = ?, default_reps = ?, is_failure = ?, default_intensity = ?
-            WHERE id = ?
+            SET name = @name, subcategory_id = @subcategoryId, video_url = @video_url, 
+                default_sets = @default_sets, default_reps = @default_reps, 
+                is_failure = @is_failure, default_intensity = @default_intensity,
+                synced = 0, updated_at = datetime('now')
+            WHERE id = @id
         `);
-        const info = stmt.run(
-            data.name,
-            data.subcategoryId,
-            data.video_url,
-            data.default_sets,
-            data.default_reps,
-            data.is_failure ? 1 : 0,
-            data.default_intensity,
+        const info = stmt.run({
+            name: data.name,
+            subcategoryId: data.subcategoryId,
+            video_url: data.video_url,
+            default_sets: data.default_sets,
+            default_reps: data.default_reps,
+            is_failure: data.is_failure ? 1 : 0,
+            default_intensity: data.default_intensity,
             id
-        );
+        });
         console.log('[TrainingService] update info:', info);
         return { id, ...data };
     }
@@ -124,8 +178,14 @@ class TrainingService {
     }
 
     createCategory(data) {
-        const stmt = this.db.prepare('INSERT INTO exercise_categories (name, icon) VALUES (?, ?)');
-        const info = stmt.run(data.name, data.icon);
+        const validation = categorySchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        const gymId = this.getGymId();
+        const stmt = this.db.prepare('INSERT INTO exercise_categories (gym_id, name, icon) VALUES (?, ?, ?)');
+        const info = stmt.run(gymId, data.name, data.icon);
         return { id: info.lastInsertRowid, ...data, is_system: false, subcategories: [] };
     }
 
@@ -137,8 +197,14 @@ class TrainingService {
     }
 
     createSubcategory(data) {
-        const stmt = this.db.prepare('INSERT INTO exercise_subcategories (category_id, name) VALUES (?, ?)');
-        const info = stmt.run(data.categoryId, data.name);
+        const validation = subcategorySchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        const gymId = this.getGymId();
+        const stmt = this.db.prepare('INSERT INTO exercise_subcategories (gym_id, category_id, name) VALUES (?, ?, ?)');
+        const info = stmt.run(gymId, data.categoryId, data.name);
         return { id: info.lastInsertRowid, category_id: data.categoryId, name: data.name };
     }
 
@@ -271,7 +337,13 @@ class TrainingService {
     // Transactional Save: Mesocycle + Routines + Items
     // Transactional Save: Mesocycle + Routines + Items
     saveMesocycle(data) {
-        // Normalize Inputs (Handle varying case from Frontend vs DB)
+        // Validation
+        const validation = mesocycleSchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        // Normalize Inputs
         // Critical: When exporting, we pass DB object (snake_case). Editor passes Form object (camelCase).
         const normalizedData = {
             id: data.id,
@@ -301,14 +373,17 @@ class TrainingService {
         }
 
         // PREPARE STATEMENTS
+        const gymId = this.getGymId();
         const insertMeso = this.db.prepare(`
-            INSERT INTO mesocycles (customer_id, name, start_date, end_date, notes, active, is_template, days_per_week)
-            VALUES (@customerId, @name, @startDate, @endDate, @notes, 1, @isTemplate, @daysPerWeek)
+            INSERT INTO mesocycles (gym_id, customer_id, name, start_date, end_date, notes, active, is_template, days_per_week)
+            VALUES (@gymId, @customerId, @name, @startDate, @endDate, @notes, 1, @isTemplate, @daysPerWeek)
         `);
 
         const updateMeso = this.db.prepare(`
             UPDATE mesocycles 
-            SET name = @name, start_date = @startDate, end_date = @endDate, notes = @notes, active = 1, is_template = @isTemplate, days_per_week = @daysPerWeek
+            SET name = @name, start_date = @startDate, end_date = @endDate, 
+                notes = @notes, active = 1, is_template = @isTemplate, days_per_week = @daysPerWeek,
+                synced = 0, updated_at = datetime('now')
             WHERE id = @id
         `);
 
@@ -316,13 +391,13 @@ class TrainingService {
         const deleteRoutines = this.db.prepare('DELETE FROM routines WHERE mesocycle_id = ?');
 
         const insertRoutine = this.db.prepare(`
-           INSERT INTO routines (mesocycle_id, name, day_group, notes)
-           VALUES (@mesocycleId, @name, @dayGroup, @notes) 
+           INSERT INTO routines (gym_id, mesocycle_id, name, day_group, notes)
+           VALUES (@gymId, @mesocycleId, @name, @dayGroup, @notes) 
         `);
 
         const insertItem = this.db.prepare(`
-            INSERT INTO routine_items (routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity)
-            VALUES (@routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity)
+            INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity)
+            VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity)
         `);
 
         // EXECUTE TRANSACTION
@@ -345,6 +420,7 @@ class TrainingService {
             } else {
                 // Insert new
                 const info = insertMeso.run({
+                    gymId,
                     customerId: mesoData.customerId,
                     name: mesoData.name,
                     startDate: mesoData.startDate,
@@ -360,6 +436,7 @@ class TrainingService {
             if (mesoData.routines && mesoData.routines.length > 0) {
                 for (const routine of mesoData.routines) {
                     const rInfo = insertRoutine.run({
+                        gymId,
                         mesocycleId: mesoId,
                         name: routine.name,
                         dayGroup: routine.dayGroup || '',
@@ -372,6 +449,7 @@ class TrainingService {
                         let order = 0;
                         for (const item of routine.items) {
                             insertItem.run({
+                                gymId,
                                 routineId,
                                 exerciseId: item.exerciseId || item.exercise_id, // Flexible ID source
                                 series: item.series,
@@ -392,13 +470,13 @@ class TrainingService {
     }
 
     saveFileHistory(customerId, fileName, publicUrl) {
-        const db = require('../db/database').getInstance();
+        const db = require('../../db/database').getInstance();
         const stmt = db.prepare('INSERT INTO file_history (customer_id, file_name, public_url) VALUES (?, ?, ?)');
         stmt.run(customerId, fileName, publicUrl);
     }
 
     updateMesocycleLink(mesoId, publicUrl) {
-        const db = require('../db/database').getInstance();
+        const db = require('../../db/database').getInstance();
         const stmt = db.prepare('UPDATE mesocycles SET drive_link = ? WHERE id = ?');
         stmt.run(publicUrl, mesoId);
     }

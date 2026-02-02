@@ -3,7 +3,7 @@ const fs = require('fs');
 const licenseService = require('./license.service');
 const path = require('path');
 const crypto = require('crypto');
-require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+require('dotenv').config({ path: path.join(__dirname, '../../../../.env') });
 
 let supabase = null;
 if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
@@ -91,33 +91,49 @@ class AdminService {
         return gymsWithStatus;
     }
 
-    async getGlobalBroadcast() {
-        // No checkMaster here because regular clients need to read it too
-        if (!supabase) return null;
 
-        // Fetch the LATEST notification, regardless of "active"
-        const { data, error } = await supabase
-            .from('global_notifications')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
 
-        if (error && error.code !== 'PGRST116') console.error('Error fetching broadcast:', error);
-        return data;
-    }
-
-    async updateGlobalBroadcast(notification) {
+    /**
+     * Creates a new Organization (Gym Tenant).
+     */
+    async createOrganization(name, email = null, templatePath = null) {
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
 
-        // Simply insert the new notification. We don't care about "active" state anymore.
+        let publicUrl = null;
+
+        // 1. Upload Template if provided
+        if (templatePath) {
+            console.log('[AdminService] Uploading Organization Template:', templatePath);
+            if (!fs.existsSync(templatePath)) throw new Error('Template file not found');
+
+            const buffer = fs.readFileSync(templatePath);
+            const fileName = `templates/${Date.now()}_${path.basename(templatePath).replace(/[^a-zA-Z0-9._-]/g, '')}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('org_assets')
+                .upload(fileName, buffer, {
+                    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    upsert: false
+                });
+
+            if (uploadError) {
+                console.error('Template Upload Failed:', uploadError);
+                throw new Error('Error subiendo plantilla: ' + uploadError.message);
+            }
+
+            const { data: urlData } = supabase.storage.from('org_assets').getPublicUrl(fileName);
+            publicUrl = urlData.publicUrl;
+            console.log('[AdminService] Template URL:', publicUrl);
+        }
+
+        // 2. Create Organization Record
         const { data, error } = await supabase
-            .from('global_notifications')
+            .from('organizations')
             .insert([{
-                message: notification.message,
-                type: notification.type || 'info',
-                active: true
+                name,
+                contact_email: email,
+                excel_template_url: publicUrl
             }])
             .select()
             .single();
@@ -126,19 +142,71 @@ class AdminService {
         return data;
     }
 
-    async generateNewLicense(gymName) {
+    async updateOrganization(id, { name, email, templatePath }) {
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
 
+        const updates = {};
+        if (name !== undefined) updates.name = name;
+        if (email !== undefined) updates.contact_email = email;
+
+        // 1. Upload Template if provided (Overrides existing)
+        if (templatePath) {
+            console.log('[AdminService] Uploading NEW Organization Template:', templatePath);
+            if (!fs.existsSync(templatePath)) throw new Error('Template file not found');
+
+            const buffer = fs.readFileSync(templatePath);
+            const fileName = `templates/${Date.now()}_${path.basename(templatePath).replace(/[^a-zA-Z0-9._-]/g, '')}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('org_assets')
+                .upload(fileName, buffer, {
+                    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    upsert: false
+                });
+
+            if (uploadError) throw new Error('Error subiendo plantilla: ' + uploadError.message);
+
+            const { data: urlData } = supabase.storage.from('org_assets').getPublicUrl(fileName);
+            updates.excel_template_url = urlData.publicUrl;
+        }
+
+        const { data, error } = await supabase
+            .from('organizations')
+            .update(updates)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Issues a new license for an existing Organization.
+     */
+    async createLicense(organizationId) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        // Verify Org exists
+        const { data: org, error: orgError } = await supabase
+            .from('organizations')
+            .select('name')
+            .eq('id', organizationId)
+            .single();
+
+        if (orgError || !org) throw new Error('Organización no encontrada.');
+
         const newKey = `GYM-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-        const newGymId = crypto.randomUUID();
 
         const { data, error } = await supabase
             .from('licenses')
             .insert([{
                 license_key: newKey,
-                gym_id: newGymId,
-                gym_name: gymName,
+                gym_id: organizationId, // Legacy compatibility: gym_id IS the org_id
+                organization_id: organizationId,
+                gym_name: org.name,
                 is_master: false,
                 active: true,
                 app_version: '1.0.1'
@@ -148,6 +216,29 @@ class AdminService {
 
         if (error) throw error;
         return data;
+    }
+
+    /**
+     * Lists all Organizations.
+     */
+    async listOrganizations() {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        const { data, error } = await supabase
+            .from('organizations')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return data;
+    }
+
+    // Legacy wrapper for compatibility if needed, or remove if unused in frontend
+    async generateNewLicense(gymName) {
+        // Deprecated: Auto-creates org + license
+        const org = await this.createOrganization(gymName);
+        return this.createLicense(org.id);
     }
 
     async revokeLicense(gymId) {

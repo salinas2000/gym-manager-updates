@@ -142,7 +142,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-    const licenseService = require('./services/license.service');
+    const licenseService = require('./services/local/license.service');
     const { ipcMain } = require('electron');
 
     // 1. Initialize Licenser Handlers
@@ -179,6 +179,7 @@ app.whenReady().then(() => {
             console.log('Database initialized successfully.');
         } catch (err) {
             console.error('Failed to initialize database:', err);
+            return; // STOP initialization if DB is fundamentally broken
         }
 
         // 2. Register IPC Handlers
@@ -189,12 +190,12 @@ app.whenReady().then(() => {
 
         // 4. Initialize Updater
         // Initialize Services (Dev & Prod)
-        const cloudService = require('./services/cloud.service');
-        const licenseService = require('./services/license.service');
+        const cloudService = require('./services/cloud/cloud.service');
+        const licenseService = require('./services/local/license.service');
         cloudService.setMainWindow(mainWindow);
 
         // 4. Initialize Updater (Only if supported)
-        const { initUpdater, autoUpdater } = require('./services/updater.service');
+        const { initUpdater, autoUpdater } = require('./services/local/updater.service');
         initUpdater(mainWindow);
 
         // 5. App Version Update Check
@@ -223,9 +224,18 @@ app.whenReady().then(() => {
             runRemoteLoadCheck();
         }, 5000);
 
+        // 7. Lease Renewal (Offline Protection)
+        const runLeaseRenewal = async () => {
+            const renewed = await licenseService.renewLease();
+            if (renewed) console.log('✅ [Main] License Lease Renewed successfully.');
+        };
+        // Initial renewal check
+        setTimeout(runLeaseRenewal, 10000);
+
         // Background intervals
         setInterval(runUpdateCheck, 30 * 60 * 1000);
         setInterval(runRemoteLoadCheck, 30 * 60 * 1000);
+        setInterval(runLeaseRenewal, 60 * 60 * 1000); // Check every hour
     }
 
     function createActivationWindow() {
@@ -235,8 +245,9 @@ app.whenReady().then(() => {
             frame: false, // Frameless for custom UI
             resizable: false,
             webPreferences: {
-                nodeIntegration: true,
-                contextIsolation: false // Simplifies communication for this specific window
+                nodeIntegration: false, // SECURITY: Disable Node Integration
+                contextIsolation: true, // SECURITY: Enable Context Isolation
+                preload: path.join(__dirname, '../preload/activation.js') // Use specific preload
             },
             icon: path.join(__dirname, '../../resources/icon.png'),
             backgroundColor: '#0f172a'
@@ -248,15 +259,15 @@ app.whenReady().then(() => {
     // Register Updater IPC (Moved here to ensure availability)
     ipcMain.handle('updater:getVersion', () => app.getVersion());
     ipcMain.handle('updater:check', () => {
-        const { autoUpdater } = require('./services/updater.service');
+        const { autoUpdater } = require('./services/local/updater.service');
         return autoUpdater.checkForUpdates();
     });
     ipcMain.handle('updater:download', () => {
-        const { autoUpdater } = require('./services/updater.service');
+        const { autoUpdater } = require('./services/local/updater.service');
         return autoUpdater.downloadUpdate();
     });
     ipcMain.handle('updater:install', () => {
-        const { autoUpdater } = require('./services/updater.service');
+        const { autoUpdater } = require('./services/local/updater.service');
         return autoUpdater.quitAndInstall();
     });
 

@@ -16,10 +16,24 @@ class DBManager {
             fs.mkdirSync(userDataPath, { recursive: true });
         }
 
-        const dbPath = path.join(userDataPath, 'gym_manager.db');
-        console.log('Database path:', dbPath);
+        const databasePath = path.join(userDataPath, 'gym_manager.db');
+        const backupPath = path.join(userDataPath, 'gym_manager.bak');
 
-        this.db = new Database(dbPath, { verbose: console.log });
+        // 1. Automatic Local Backup before opening
+        try {
+            if (fs.existsSync(databasePath)) {
+                fs.copyFileSync(databasePath, backupPath);
+                console.log('[LOCAL_DB] Auto-backup created at:', backupPath);
+            }
+        } catch (e) {
+            console.warn('[LOCAL_DB] Failed to create auto-backup:', e);
+        }
+
+        console.log('[LOCAL_DB] Database initialization at:', databasePath);
+
+        this.db = new Database(databasePath, {
+            verbose: (msg) => console.log(`[LOCAL_DB] SQL: ${msg}`)
+        });
 
         // Performance & Integrity
         this.db.pragma('journal_mode = WAL');
@@ -35,8 +49,11 @@ class DBManager {
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS tariffs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 name TEXT NOT NULL,
-                amount REAL NOT NULL
+                amount REAL NOT NULL,
+                synced INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
 
@@ -44,13 +61,17 @@ class DBManager {
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS customers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 first_name TEXT NOT NULL,
                 last_name TEXT NOT NULL,
                 email TEXT UNIQUE NOT NULL,
                 phone TEXT,
+                tariff_id INTEGER,
                 active INTEGER DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                -- tariff_id column might be missing in old DBs, handled below
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                synced INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (tariff_id) REFERENCES tariffs (id)
             )
         `);
 
@@ -58,6 +79,7 @@ class DBManager {
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS payments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 customer_id INTEGER NOT NULL,
                 amount REAL NOT NULL,
                 payment_date DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -69,6 +91,7 @@ class DBManager {
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS memberships (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 customer_id INTEGER NOT NULL,
                 start_date DATETIME NOT NULL,
                 end_date DATETIME,
@@ -80,7 +103,7 @@ class DBManager {
         // If memberships is empty but we have active customers, we create an initial record for them.
         const membershipCount = this.db.prepare('SELECT COUNT(*) as count FROM memberships').get().count;
         if (membershipCount === 0) {
-            console.log('Migrating: Backfilling membership history...');
+            console.log('[LOCAL_DB] Migrating: Backfilling membership history...');
             const activeCustomers = this.db.prepare('SELECT id, created_at FROM customers WHERE active = 1').all();
 
             const insertStmt = this.db.prepare('INSERT INTO memberships (customer_id, start_date) VALUES (?, ?)');
@@ -92,28 +115,60 @@ class DBManager {
             });
 
             transaction(activeCustomers);
-            console.log(`Backfilled ${activeCustomers.length} active memberships.`);
+            console.log(`[LOCAL_DB] Backfilled ${activeCustomers.length} active memberships.`);
         }
 
         // 6. Drop Deprecated Columns (payment_method)
         try {
             const tableInfo = this.db.pragma('table_info(payments)');
-            const hasPaymentMethod = tableInfo.some(col => col.name === 'payment_method');
-            if (hasPaymentMethod) {
+            const hasColumn = tableInfo.some(col => col.name === 'payment_method');
+            if (hasColumn) {
                 console.log('Migrating: Dropping deprecated column payment_method from payments...');
                 this.db.exec('ALTER TABLE payments DROP COLUMN payment_method');
                 console.log('Migration successful: payment_method dropped.');
             }
         } catch (error) {
-            console.error('Migration warning: Could not drop payment_method column (requires SQLite 3.35+). Ignoring if older.', error);
+            console.error('Migration warning: Could not drop payment_method column:', error);
         }
 
-        // 7. Schema Updates (Migrations)
+        // 7. Standardize Sync Status tracking Early
+        const tablesToMirror = [
+            'customers', 'payments', 'memberships', 'tariffs',
+            'exercises', 'exercise_categories', 'exercise_subcategories',
+            'training_mesocycles', 'training_routines', 'routine_items' // Fixed table names
+        ];
+
+        tablesToMirror.forEach(table => {
+            this.safeAddColumn(table, 'synced', 'INTEGER DEFAULT 0');
+            this.safeAddColumn(table, 'updated_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
+        });
+
+        // FORCE FIX for updated_at column on critical tables 
+        // (Sometimes safeAddColumn fails on older schemas or locking issues)
+        ['customers', 'memberships'].forEach(table => {
+            try {
+                this.db.exec(`ALTER TABLE ${table} ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+                console.log(`[LOCAL_DB] Force-fixed: Added updated_at to ${table}`);
+            } catch (e) {
+                // Ignore "duplicate column name" error, report others
+                if (!e.message.includes('duplicate column name')) {
+                    console.warn(`[LOCAL_DB] Force-fix updated_at for ${table} info:`, e.message);
+                }
+            }
+            try {
+                this.db.exec(`ALTER TABLE ${table} ADD COLUMN synced INTEGER DEFAULT 0`);
+            } catch (e) {
+                if (!e.message.includes('duplicate column name')) console.warn(e.message);
+            }
+        });
+
+        // 8. Schema Updates (Migrations)
         this.safeAddColumn('customers', 'tariff_id', 'INTEGER REFERENCES tariffs(id)');
         this.safeAddColumn('tariffs', 'color_theme', 'TEXT DEFAULT "emerald"');
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS exercises (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 name TEXT NOT NULL,
                 muscle_group TEXT,
                 video_url TEXT,
@@ -122,7 +177,8 @@ class DBManager {
 
             CREATE TABLE IF NOT EXISTS mesocycles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                customer_id INTEGER NOT NULL,
+                gym_id TEXT,
+                customer_id INTEGER,
                 name TEXT NOT NULL,
                 start_date DATETIME,
                 end_date DATETIME,
@@ -134,6 +190,7 @@ class DBManager {
 
             CREATE TABLE IF NOT EXISTS routines (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 mesocycle_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 day_group TEXT,
@@ -144,6 +201,7 @@ class DBManager {
 
             CREATE TABLE IF NOT EXISTS routine_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 routine_id INTEGER NOT NULL,
                 exercise_id INTEGER NOT NULL,
                 series INTEGER,
@@ -157,6 +215,7 @@ class DBManager {
 
             CREATE TABLE IF NOT EXISTS file_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
                 customer_id INTEGER NOT NULL,
                 file_name TEXT NOT NULL,
                 public_url TEXT NOT NULL,
@@ -252,8 +311,9 @@ class DBManager {
 
             // 1. Create Categories Table
             this.db.exec(`
-                CREATE TABLE IF NOT EXISTS exercise_categories (
+            CREATE TABLE IF NOT EXISTS exercise_categories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gym_id TEXT,
                     name TEXT UNIQUE NOT NULL,
                     icon TEXT NOT NULL,
                     is_system INTEGER DEFAULT 0,
@@ -263,8 +323,9 @@ class DBManager {
 
             // 2. Create Subcategories Table
             this.db.exec(`
-                CREATE TABLE IF NOT EXISTS exercise_subcategories (
+            CREATE TABLE IF NOT EXISTS exercise_subcategories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gym_id TEXT,
                     category_id INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -377,7 +438,27 @@ class DBManager {
 
         // 18. Add Intensity Fields (Baja, Media, Alta, Máxima)
         this.safeAddColumn('exercises', 'default_intensity', 'TEXT');
-        this.safeAddColumn('routine_items', 'intensity', 'TEXT');
+        // 20. Migration: Massive gym_id addition
+        const tables = [
+            'tariffs', 'customers', 'payments', 'memberships', 'exercises',
+            'mesocycles', 'routines', 'routine_items', 'file_history',
+            'exercise_categories', 'exercise_subcategories'
+        ];
+        tables.forEach(t => this.safeAddColumn(t, 'gym_id', 'TEXT'));
+
+        // Populación masiva de gym_id para registros huérfanos
+        try {
+            const licenseService = require('../services/local/license.service');
+            const licData = licenseService.getLicenseData();
+            const currentGymId = licData ? licData.gym_id : 'LOCAL_DEV';
+
+            tables.forEach(t => {
+                this.db.prepare(`UPDATE ${t} SET gym_id = ? WHERE gym_id IS NULL`).run(currentGymId);
+            });
+            console.log(`Migration: gym_id populated with ${currentGymId} for existing records.`);
+        } catch (e) {
+            console.error('Migration Warning: Could not populate gym_id:', e.message);
+        }
 
         // 19. Settings Table (Gym Config)
         this.db.exec(`
@@ -390,12 +471,30 @@ class DBManager {
 
         console.log('Initializing Seeding...');
         try {
-            require('../services/seed.service').init();
+            require('../services/local/seed.service').init();
         } catch (err) {
             console.error('Seeding failed:', err);
         }
 
         console.log('Database initialized successfully.');
+
+        // 15. Standardize Sync Status tracking
+        try {
+            const tablesToMirror = [
+                'customers', 'payments', 'memberships', 'tariffs',
+                'exercises', 'exercise_categories', 'exercise_subcategories',
+                'mesocycles', 'routines', 'routine_items'
+            ];
+
+            tablesToMirror.forEach(table => {
+                this.safeAddColumn(table, 'synced', 'INTEGER DEFAULT 0');
+                this.safeAddColumn(table, 'updated_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
+            });
+        } catch (e) {
+            console.error('Migration for sync status failed:', e);
+        }
+
+        this.verifyIntegrity();
 
 
         // 10. Daily Cleanup: Finalize Scheduled Cancellations
@@ -434,6 +533,89 @@ class DBManager {
         } catch (error) {
             console.error('Maintenance cleanup failed:', error);
         }
+
+        // 16. Deletion Log for Cloud Sync
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS sync_deleted_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                local_id INTEGER NOT NULL,
+                deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        this.verifySystemSettings();
+    }
+
+    verifySystemSettings() {
+        console.log('[LOCAL_DB] Checking system settings...');
+        try {
+            const licenseService = require('../services/local/license.service');
+            const licData = licenseService.getLicenseData();
+
+            if (licData && licData.gym_id) {
+                const settingsService = require('../services/local/settings.service');
+                const currentId = settingsService.get('gym_id');
+
+                if (currentId !== licData.gym_id) {
+                    console.log('[LOCAL_DB] Syncing gym_id setting with license...');
+                    settingsService.set('gym_id', licData.gym_id);
+                }
+            }
+        } catch (e) {
+            console.warn('[LOCAL_DB] verifySystemSettings failed:', e.message);
+        }
+    }
+
+    verifyIntegrity() {
+        console.log('[LOCAL_DB] Running Integrity Verification...');
+        try {
+            const licenseService = require('../services/local/license.service');
+            const lic = licenseService.getLicenseData();
+            const currentGymId = lic ? lic.gym_id : null;
+
+            const tables = ['customers', 'payments', 'memberships', 'training_routines', 'training_mesocycles'];
+            let issuesFound = 0;
+            let fixedCount = 0;
+
+            tables.forEach(table => {
+                try {
+                    // Check if table exists
+                    const exists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
+                    if (!exists) return;
+
+                    // 1. Check for Orphans (Missing gym_id)
+                    const orphans = this.db.prepare(`SELECT count(*) as count FROM ${table} WHERE gym_id IS NULL OR gym_id = ''`).get();
+
+                    if (orphans.count > 0) {
+                        console.warn(`[LOCAL_DB] ⚠️ Found ${orphans.count} orphan records in ${table}`);
+                        issuesFound += orphans.count;
+
+                        // Auto-Fix if we have a valid Gym ID
+                        if (currentGymId) {
+                            console.log(`[LOCAL_DB] 🔧 Auto-Fixing orphans in ${table} -> ${currentGymId}...`);
+                            const info = this.db.prepare(`UPDATE ${table} SET gym_id = ? WHERE gym_id IS NULL OR gym_id = ''`).run(currentGymId);
+                            fixedCount += info.changes;
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`[LOCAL_DB] Integrity check skipped for ${table}: ${e.message}`);
+                }
+            });
+
+            if (issuesFound === 0) {
+                console.log('[LOCAL_DB] Integrity: ✅ OK');
+            } else {
+                if (fixedCount > 0) {
+                    console.log(`[LOCAL_DB] Integrity: 🛡️ FIXED ${fixedCount} issues automatically.`);
+                } else {
+                    console.warn(`[LOCAL_DB] Integrity: ❌ WARNING (${issuesFound} issues remain, no Gym ID to fix)`);
+                }
+            }
+        } catch (error) {
+            console.error('[LOCAL_DB] Integrity check failed:', error);
+        }
     }
 
     safeAddColumn(tableName, columnName, columnDef) {
@@ -443,7 +625,23 @@ class DBManager {
 
             if (!hasColumn) {
                 console.log(`Migrating: Adding ${columnName} to ${tableName}...`);
-                this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
+                try {
+                    this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
+                } catch (addError) {
+                    // Ignore error if column default is dynamic (e.g. CURRENT_TIMESTAMP) in some older sqlite versions
+                    // But better-sqlite3 usually handles this. If fails, it might be due to non-constant default.
+                    // Strategy B: If it fails, try adding without default, then defaulting.
+                    if (addError.message.includes('non-constant default')) {
+                        // Sqlite limitation: Cannot ADD COLUMN with non-constant default value (like CURRENT_TIMESTAMP)
+                        // Workaround: Add column null, then update it.
+                        // OR: Add as NULL, then create TRIGGER (too complex).
+                        // SIMPLEST: No default, then Update.
+                        this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} DATETIME`);
+                        this.db.exec(`UPDATE ${tableName} SET ${columnName} = datetime('now') WHERE ${columnName} IS NULL`);
+                    } else {
+                        throw addError;
+                    }
+                }
                 console.log('Migration successful.');
             }
         } catch (error) {

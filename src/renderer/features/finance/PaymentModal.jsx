@@ -16,28 +16,65 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
     const [prorationInfo, setProrationInfo] = useState({ isProrated: false, daysRemaining: 0 });
 
     // Helper: Calculate price based on tariff and date
-    const calculateAutoPrice = (tId) => {
+    const calculateAutoPrice = (tId, overrideDate = null) => {
         const selectedTariff = tariffs.find(t => t.id === Number(tId));
         if (!selectedTariff) return null;
 
         const baseAmount = selectedTariff.amount;
-        const now = new Date();
-        const isCurrentMonth = now.getMonth() === month && now.getFullYear() === year;
+
+        // Strict Type Coercion for comparison
+        const targetMonth = Number(month);
+        const targetYear = Number(year);
+
+        // 1. Determine the "Start Date" for this payment window (The key logic)
+        // If customer joined this month, start counting from join date.
+        // Otherwise, start from 1st of month.
+        let startDate = 1;
+        let isProrated = false;
+        let joinDateObj = null;
+
+        // Use fetched fresh date if passed explicitly, otherwise fallback to prop
+        const rawDate = overrideDate || fetchedJoinDate || customer.joined_date;
+
+        if (rawDate) {
+            // Robust Date Parsing (YYYY-MM-DD) avoiding timezone shifts
+            // e.g. "2026-01-05" -> Year 0 (Jan), Day 5
+            const parts = rawDate.split(/[-T ]/);
+            if (parts.length >= 3) {
+                const y = parseInt(parts[0], 10);
+                const m = parseInt(parts[1], 10) - 1; // 0-indexed
+                const d = parseInt(parts[2], 10);
+
+                joinDateObj = new Date(y, m, d); // Local time construction
+
+                // Check if joined in THIS payment month/year
+                if (m === targetMonth && y === targetYear) {
+                    startDate = d;
+                    // If joined after day 1, it's prorated
+                    if (startDate > 1) {
+                        isProrated = true;
+                    }
+                }
+            }
+        }
+        // If no joined_date (legacy), assume full month (startDate = 1)
 
         let finalPrice = baseAmount;
-        let info = { isProrated: false, daysRemaining: 0 };
+        let info = { isProrated: false, daysRemaining: 0, fromDate: null };
 
-        if (isCurrentMonth) {
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const today = now.getDate();
-            // Calculate remaining days (inclusive of today)
-            // If today is 30th and month ends 30th, remaining = 30 - 30 + 1 = 1 day.
-            const remaining = Math.max(0, daysInMonth - today + 1);
+        if (isProrated) {
+            const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+            // Days to pay = Total days - Start Day + 1
+            // Example: Month 30 days. Joined 15th. Pay 15,16...30 = 16 days.
+            // 30 - 15 + 1 = 16.
+            const daysToPay = daysInMonth - startDate + 1;
 
-            if (remaining < daysInMonth) {
-                finalPrice = (baseAmount / daysInMonth) * remaining;
-                info = { isProrated: true, daysRemaining: remaining };
-            }
+            finalPrice = (baseAmount / daysInMonth) * daysToPay;
+            info = {
+                isProrated: true,
+                daysRemaining: daysToPay,
+                fromDate: joinDateObj ? joinDateObj.toLocaleDateString() : null
+            };
         }
 
         return {
@@ -47,9 +84,42 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
         };
     };
 
+    const [paymentMethod, setPaymentMethod] = useState('cash');
+    const [fetchedJoinDate, setFetchedJoinDate] = useState(null);
+    const [isFetchingHistory, setIsFetchingHistory] = useState(false); // Explicit loading state
+
+    useEffect(() => {
+        if (isOpen) {
+            setPaymentMethod('cash');
+            // Fetch latest membership to be absolutely sure about Join Date
+            if (customer && customer.id) {
+                setIsFetchingHistory(true);
+                setIsFetchingHistory(true);
+                window.api.customers.getHistory(customer.id).then(response => {
+                    // Fix: Handle { success: true, data: [...] } structure
+                    const history = response.data || response;
+
+                    if (Array.isArray(history) && history.length > 0) {
+                        setFetchedJoinDate(history[0].start_date);
+                    } else {
+                        setFetchedJoinDate(null);
+                    }
+                }).catch(err => {
+                    console.error("Failed to fetch fresh history for proration", err);
+                    setFetchedJoinDate(null);
+                }).finally(() => {
+                    setIsFetchingHistory(false); // Done fetching
+                });
+            } else {
+                setFetchedJoinDate(null);
+                setIsFetchingHistory(false);
+            }
+        }
+    }, [isOpen, customer]);
+
     // Initialize/Reset
     useEffect(() => {
-        if (isOpen && customer) {
+        if (isOpen && customer && !isFetchingHistory) { // Wait for fetch to complete
             if (existingPayment) {
                 // View Mode
             } else {
@@ -57,7 +127,11 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
                 const defaultTariff = tariffs.find(t => t.id === customer.tariff_id);
                 if (defaultTariff) {
                     setTariffId(defaultTariff.id);
-                    const calculation = calculateAutoPrice(defaultTariff.id);
+
+                    // Explicitly pass the fresh date we just got (or fallback)
+                    const dateToUse = fetchedJoinDate || customer.joined_date;
+                    const calculation = calculateAutoPrice(defaultTariff.id, dateToUse);
+
                     if (calculation) {
                         setPrice(calculation.charged.toString());
                         setTariffPrice(calculation.base.toString());
@@ -76,12 +150,13 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
                 }
             }
         }
-    }, [isOpen, customer, existingPayment, tariffs, month, year]);
+    }, [isOpen, customer, existingPayment, tariffs, month, year, fetchedJoinDate, isFetchingHistory]);
 
     // Update price when tariff changes
     const handleTariffChange = (id) => {
         setTariffId(id);
-        const calculation = calculateAutoPrice(id);
+        const dateToUse = fetchedJoinDate || customer.joined_date;
+        const calculation = calculateAutoPrice(id, dateToUse);
 
         if (calculation) {
             setPrice(calculation.charged.toString());
@@ -200,17 +275,28 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
                                 </div>
                             </div>
 
-                            {/* Charge Price (Editable) */}
                             <div className="space-y-1">
-                                <label className="text-xs font-medium text-emerald-500 uppercase">Precio a Cobrar</label>
-                                <div className="flex rounded-xl bg-slate-950/50 border border-white/10 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all overflow-hidden">
+                                <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">
+                                    Precio a Cobrar
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-400 text-xl font-bold">€</span>
                                     <input
                                         type="number"
-                                        className="w-full bg-transparent text-emerald-400 px-4 py-3 font-mono text-lg focus:outline-none placeholder:text-slate-600 font-bold"
+                                        step="0.01"
+                                        className={cn(
+                                            "w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 pl-10 text-emerald-400 font-bold text-2xl outline-none focus:border-emerald-500 transition-colors",
+                                            isFetchingHistory && "opacity-50 animate-pulse"
+                                        )}
                                         value={price}
-                                        onChange={e => setPrice(e.target.value)}
-                                        placeholder="0.00"
+                                        onChange={(e) => setPrice(e.target.value)}
+                                        disabled={isFetchingHistory}
                                     />
+                                    {isFetchingHistory && (
+                                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                            <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -219,7 +305,9 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
                         {prorationInfo.isProrated && (
                             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-medium">
                                 <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                                ℹ️ Prorrateado: quedan {prorationInfo.daysRemaining} días este mes.
+                                <span>
+                                    ℹ️ Prorrateado: Alta el <b>{prorationInfo.fromDate}</b> ({prorationInfo.daysRemaining} días).
+                                </span>
                             </div>
                         )}
 

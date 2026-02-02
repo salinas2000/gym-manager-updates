@@ -265,6 +265,41 @@ export default function SettingsPage({ initialTab = 'general' }) {
 
                             <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
                                 <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                    <Briefcase className="text-purple-400" /> Documentos y Plantillas
+                                </h3>
+                                <div className="space-y-4">
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-slate-950 rounded-xl border border-white/5">
+                                        <div>
+                                            <h4 className="text-sm font-bold text-white mb-1">Plantilla de Rutinas (Excel)</h4>
+                                            <p className="text-xs text-slate-500 font-mono break-all max-w-lg">
+                                                {settings.excel_template_path
+                                                    ? settings.excel_template_path
+                                                    : 'Ubicación: Interna (Predeterminada)'}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const path = await window.api.settings.selectExcelTemplate();
+                                                if (path) {
+                                                    showMsg('success', 'Plantilla actualizada correctamente');
+                                                    refreshData(); // Reload settings
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg transition-colors border border-white/10"
+                                        >
+                                            Cambiar Plantilla...
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 italic">
+                                        Puedes seleccionar un archivo .xlsx personalizado para usar como base en la generación de rutinas.
+                                        Asegúrate de mantener la estructura de celdas original.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
+                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
                                     <Database className="text-amber-400" /> Gestión de Datos
                                 </h3>
                                 <div className="space-y-4">

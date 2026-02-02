@@ -1,4 +1,4 @@
-const dbManager = require('../db/database');
+const dbManager = require('../../db/database');
 const z = require('zod');
 
 // Validation Schemas
@@ -11,6 +11,16 @@ const createCustomerSchema = z.object({
 });
 
 class CustomerService {
+    getGymId() {
+        try {
+            const licenseService = require('./license.service');
+            const data = licenseService.getLicenseData();
+            return data ? data.gym_id : 'LOCAL_DEV';
+        } catch (e) {
+            return 'LOCAL_DEV';
+        }
+    }
+
     getAll() {
         const db = dbManager.getInstance();
         // Join with tariffs to get name
@@ -45,20 +55,21 @@ class CustomerService {
         const db = dbManager.getInstance();
 
         try {
+            const gymId = this.getGymId();
             // Transaction so we create customer AND membership record atomically
             const transaction = db.transaction(() => {
                 const stmt = db.prepare(`
-                    INSERT INTO customers (first_name, last_name, email, phone, tariff_id)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO customers (gym_id, first_name, last_name, email, phone, tariff_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 `);
-                const info = stmt.run(first_name, last_name, email, phone || null, tariff_id || null);
+                const info = stmt.run(gymId, first_name, last_name, email, phone || null, tariff_id || null);
                 const newId = info.lastInsertRowid;
 
                 // Create initial Membership record
                 db.prepare(`
-                    INSERT INTO memberships (customer_id, start_date)
-                    VALUES (?, ?)
-                `).run(newId, new Date().toISOString());
+                    INSERT INTO memberships (gym_id, customer_id, start_date)
+                    VALUES (?, ?, ?)
+                `).run(gymId, newId, new Date().toISOString());
 
                 return { id: newId, ...data };
             });
@@ -89,6 +100,10 @@ class CustomerService {
         // For now, let's assume 'toggleActive' is the main way to change status or user knows what they do.
         if (data.active !== undefined) { fields.push('active = ?'); values.push(data.active ? 1 : 0); }
         if (data.tariff_id !== undefined) { fields.push('tariff_id = ?'); values.push(data.tariff_id); }
+
+        // Always reset sync status on update
+        fields.push('synced = 0');
+        fields.push('updated_at = datetime(\'now\')');
 
         if (fields.length === 0) return this.getById(id);
 
@@ -129,12 +144,12 @@ class CustomerService {
                 }
 
                 // Update Customer Status
-                db.prepare('UPDATE customers SET active = ? WHERE id = ?').run(setActive, id);
+                db.prepare('UPDATE customers SET active = ?, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(setActive, id);
 
                 // Close current open membership
                 db.prepare(`
                     UPDATE memberships 
-                    SET end_date = ? 
+                    SET end_date = ?, synced = 0, updated_at = datetime('now')
                     WHERE customer_id = ? AND end_date IS NULL
                 `).run(endDate, id);
 
@@ -167,17 +182,17 @@ class CustomerService {
                 if (existingThisMonth) {
                     // Case A: Rejoining in same month (or cancelling a scheduled drop)
                     // Just clear the end_date
-                    db.prepare('UPDATE memberships SET end_date = NULL WHERE id = ?').run(existingThisMonth.id);
+                    db.prepare('UPDATE memberships SET end_date = NULL, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(existingThisMonth.id);
                 } else {
                     // Case B: Clean rejoin
                     db.prepare(`
-                        INSERT INTO memberships (customer_id, start_date)
-                        VALUES (?, ?)
-                    `).run(id, nowISO);
+                        INSERT INTO memberships (gym_id, customer_id, start_date)
+                        VALUES (?, ?, ?)
+                    `).run(this.getGymId(), id, nowISO);
                 }
 
                 // Always set to active
-                db.prepare('UPDATE customers SET active = 1 WHERE id = ?').run(id);
+                db.prepare('UPDATE customers SET active = 1, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
 
                 return { ...customer, active: 1, latest_end_date: null };
             }
@@ -198,8 +213,18 @@ class CustomerService {
 
     delete(id) {
         const db = dbManager.getInstance();
-        const stmt = db.prepare('DELETE FROM customers WHERE id = ?');
-        return stmt.run(id);
+        const gymId = this.getGymId();
+
+        const result = db.transaction(() => {
+            // Log for cloud sync
+            db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)')
+                .run(gymId, 'customers', id);
+
+            const stmt = db.prepare('DELETE FROM customers WHERE id = ?');
+            return stmt.run(id);
+        })();
+
+        return result;
     }
 }
 

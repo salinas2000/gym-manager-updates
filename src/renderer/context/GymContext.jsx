@@ -15,15 +15,7 @@ export function GymProvider({ children }) {
         role: 'Gerente'
     });
 
-    const refreshBroadcast = async () => {
-        if (!window.api?.admin?.getBroadcast) return;
-        try {
-            const res = await window.api.admin.getBroadcast();
-            if (res.success) setBroadcast(res.data);
-        } catch (e) {
-            console.error('[GymContext] Broadcast refresh failed:', e);
-        }
-    };
+
 
     const refreshData = async () => {
         if (!window.api) {
@@ -33,12 +25,12 @@ export function GymProvider({ children }) {
         }
 
         try {
-            const [customersRes, tariffsRes, settingsRes, licenseRes, broadcastRes] = await Promise.all([
+            // Master License Check - Note: result is wrapped in { success, data }
+            const [customersRes, tariffsRes, settingsRes, licenseRes] = await Promise.all([
                 window.api.customers.getAll(),
                 window.api.tariffs.getAll(),
                 window.api.settings.getAll(),
-                window.api.license.getStatus(),
-                window.api.admin.getBroadcast()
+                window.api.license.getStatus()
             ]);
 
             if (customersRes.success) setCustomers(customersRes.data || []);
@@ -46,10 +38,7 @@ export function GymProvider({ children }) {
             if (settingsRes.success && settingsRes.data) {
                 setSettings(prev => ({ ...prev, ...settingsRes.data }));
             }
-            if (broadcastRes.success) {
-                setBroadcast(broadcastRes.data);
-            }
-            // Master License Check - Note: result is wrapped in { success, data }
+
             if (licenseRes.success && licenseRes.data?.authenticated && licenseRes.data?.data?.is_master) {
                 console.log('[GymContext] Master License Detected');
                 setSettings(prev => ({ ...prev, isMaster: true, role: 'Super Admin' }));
@@ -98,19 +87,6 @@ export function GymProvider({ children }) {
     useEffect(() => {
         refreshData();
         reportVersion();
-
-        // Robust Refresh Strategy:
-        // 1. On window focus (whenever user clicks back into app)
-        const handleFocus = () => refreshBroadcast();
-        window.addEventListener('focus', handleFocus);
-
-        // 2. Background polling (every 5 minutes)
-        const pollInterval = setInterval(refreshBroadcast, 5 * 60 * 1000);
-
-        return () => {
-            window.removeEventListener('focus', handleFocus);
-            clearInterval(pollInterval);
-        };
     }, []);
 
     const addCustomer = async (data) => {
@@ -204,6 +180,16 @@ export function GymProvider({ children }) {
         return false;
     };
 
+    const getMonthlyReport = async (year, month) => {
+        if (!window.api) return { success: false, data: [] };
+        return await window.api.payments.getMonthlyReport(year, month);
+    };
+
+    const getDebtors = async () => {
+        if (!window.api) return { success: false, data: [] };
+        return await window.api.payments.getDebtors();
+    };
+
     // Helper to check if paid in specific month (0-11) of current year
     const isPaid = (customerId, monthIndex) => {
         const customerPayments = payments[customerId] || [];
@@ -251,7 +237,9 @@ export function GymProvider({ children }) {
                     return true;
                 }
                 return false;
-            }
+            },
+            getMonthlyReport,
+            getDebtors
         }}>
             {children}
         </GymContext.Provider >

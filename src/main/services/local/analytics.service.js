@@ -1,4 +1,4 @@
-const dbManager = require('../db/database');
+const dbManager = require('../../db/database');
 
 class AnalyticsService {
     // 1. Revenue History (Sum amount group by month)

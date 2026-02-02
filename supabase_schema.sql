@@ -104,6 +104,8 @@ CREATE TABLE IF NOT EXISTS cloud_mesocycles (
     start_date TIMESTAMPTZ,
     end_date TIMESTAMPTZ,
     active INTEGER DEFAULT 1,
+    is_template INTEGER DEFAULT 0,
+    days_per_week INTEGER DEFAULT 0,
     notes TEXT,
     created_at TIMESTAMPTZ,
     synced_at TIMESTAMPTZ DEFAULT NOW(),
@@ -132,10 +134,21 @@ CREATE TABLE IF NOT EXISTS cloud_routine_items (
     series INTEGER,
     reps TEXT,
     rpe TEXT,
-    rpe TEXT,
     notes TEXT,
     intensity TEXT,
     order_index INTEGER,
+    synced_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (gym_id, local_id)
+);
+
+-- FILE HISTORY
+CREATE TABLE IF NOT EXISTS cloud_file_history (
+    gym_id TEXT NOT NULL,
+    local_id BIGINT NOT NULL,
+    customer_id BIGINT NOT NULL,
+    file_name TEXT NOT NULL,
+    public_url TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
     synced_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (gym_id, local_id)
 );
@@ -151,22 +164,75 @@ ALTER TABLE cloud_exercises ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_mesocycles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_routines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_routine_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_file_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_remote_loads ENABLE ROW LEVEL SECURITY;
 
--- Política Pública (Dev Mode)
-CREATE POLICY "Public Access" ON cloud_tariffs FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_customers FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_memberships FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_payments FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_exercise_categories FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_exercise_subcategories FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_exercises FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_mesocycles FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_routines FOR ALL USING (true);
-CREATE POLICY "Public Access" ON cloud_routine_items FOR ALL USING (true);
+-- POLICIES
+-- 1. Permitive Policy for Service Role (Backend Access)
+-- We ensure idempotency by dropping before creating.
 
--- 4. ÍNDICES
-CREATE INDEX IF NOT EXISTS idx_cloud_customers_gym ON cloud_customers(gym_id);
-CREATE INDEX IF NOT EXISTS idx_cloud_mesocycles_customer ON cloud_mesocycles(gym_id, customer_id);
+-- TARIFFS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_tariffs;
+CREATE POLICY "Service Role Full Access" ON cloud_tariffs TO service_role USING (true) WITH CHECK (true);
+
+-- CUSTOMERS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_customers;
+CREATE POLICY "Service Role Full Access" ON cloud_customers TO service_role USING (true) WITH CHECK (true);
+
+-- MEMBERSHIPS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_memberships;
+CREATE POLICY "Service Role Full Access" ON cloud_memberships TO service_role USING (true) WITH CHECK (true);
+
+-- PAYMENTS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_payments;
+CREATE POLICY "Service Role Full Access" ON cloud_payments TO service_role USING (true) WITH CHECK (true);
+
+-- EXERCISE CATEGORIES
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_exercise_categories;
+CREATE POLICY "Service Role Full Access" ON cloud_exercise_categories TO service_role USING (true) WITH CHECK (true);
+
+-- EXERCISE SUBCATEGORIES
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_exercise_subcategories;
+CREATE POLICY "Service Role Full Access" ON cloud_exercise_subcategories TO service_role USING (true) WITH CHECK (true);
+
+-- EXERCISES
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_exercises;
+CREATE POLICY "Service Role Full Access" ON cloud_exercises TO service_role USING (true) WITH CHECK (true);
+
+-- MESOCYCLES
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_mesocycles;
+CREATE POLICY "Service Role Full Access" ON cloud_mesocycles TO service_role USING (true) WITH CHECK (true);
+
+-- ROUTINES
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_routines;
+CREATE POLICY "Service Role Full Access" ON cloud_routines TO service_role USING (true) WITH CHECK (true);
+
+-- ROUTINE ITEMS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_routine_items;
+CREATE POLICY "Service Role Full Access" ON cloud_routine_items TO service_role USING (true) WITH CHECK (true);
+
+-- FILE HISTORY
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_file_history;
+CREATE POLICY "Service Role Full Access" ON cloud_file_history TO service_role USING (true) WITH CHECK (true);
+
+-- REMOTE LOADS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_remote_loads;
+CREATE POLICY "Service Role Full Access" ON cloud_remote_loads TO service_role USING (true) WITH CHECK (true);
+
+-- 2. Restrictive Policy for Anon/Public (Prevent accidental leaks)
+-- We explicitly DROP the old "Public Access" if it exists.
+DROP POLICY IF EXISTS "Public Access" ON cloud_tariffs;
+DROP POLICY IF EXISTS "Public Access" ON cloud_customers;
+DROP POLICY IF EXISTS "Public Access" ON cloud_memberships;
+DROP POLICY IF EXISTS "Public Access" ON cloud_payments;
+DROP POLICY IF EXISTS "Public Access" ON cloud_exercise_categories;
+DROP POLICY IF EXISTS "Public Access" ON cloud_exercise_subcategories;
+DROP POLICY IF EXISTS "Public Access" ON cloud_exercises;
+DROP POLICY IF EXISTS "Public Access" ON cloud_mesocycles;
+DROP POLICY IF EXISTS "Public Access" ON cloud_routines;
+DROP POLICY IF EXISTS "Public Access" ON cloud_routine_items;
+DROP POLICY IF EXISTS "Public Access" ON cloud_file_history;
+DROP POLICY IF EXISTS "Public Access" ON cloud_remote_loads;
 
 -- REMOTE LOADS TRACKING
 CREATE TABLE IF NOT EXISTS cloud_remote_loads (
@@ -179,8 +245,11 @@ CREATE TABLE IF NOT EXISTS cloud_remote_loads (
     app_version TEXT
 );
 
-ALTER TABLE cloud_remote_loads ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public Access" ON cloud_remote_loads FOR ALL USING (true);
-
--- ENABLE REALTIME
-ALTER PUBLICATION supabase_realtime ADD TABLE cloud_remote_loads;
+-- ENABLE REALTIME (Safe Version)
+DO $$
+BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE cloud_remote_loads;
+EXCEPTION
+    WHEN duplicate_object OR sqlstate '42710' THEN
+        RAISE NOTICE 'Table cloud_remote_loads is already in publication supabase_realtime';
+END $$;

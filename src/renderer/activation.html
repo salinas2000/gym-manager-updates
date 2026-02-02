@@ -86,9 +86,9 @@
         </div>
     </div>
 
-    <!-- Renderer Script -->
     <script>
-        const { ipcRenderer } = require('electron');
+        // Use exposed API instead of direct require
+        const api = window.activationAPI;
 
         const form = document.getElementById('activationForm');
         const input = document.getElementById('licenseKey');
@@ -99,14 +99,13 @@
         const hardwareIdSpan = document.getElementById('hardwareIdDisplay');
 
         // Get hardware ID on load
-        ipcRenderer.invoke('license:getHardwareId').then(id => {
+        api.getHardwareId().then(id => {
             hardwareIdSpan.textContent = id;
         });
 
         // Copy ID on click
         hardwareIdSpan.addEventListener('click', () => {
             navigator.clipboard.writeText(hardwareIdSpan.textContent);
-            // Visual feedback could be added here
         });
 
         form.addEventListener('submit', async (e) => {
@@ -123,8 +122,8 @@
             statusMsg.className = 'mt-4 text-sm font-medium hidden';
 
             try {
-                // Call Main Process
-                await ipcRenderer.invoke('license:activate', key);
+                // Call Main Process via Secure API
+                await api.activate(key);
 
                 // Success UI
                 statusMsg.textContent = '✅ ¡Licencia activada correctamente!';
@@ -132,11 +131,7 @@
                 statusMsg.classList.add('text-emerald-400');
                 btnText.textContent = '¡Listo!';
 
-                // Main process will close this window shortly, but let's show success for 1s
-                setTimeout(() => {
-                    // Window closes automatically by main process
-                }, 1500);
-
+                // Main process will close this window shortly
             } catch (error) {
                 // Error UI
                 console.error(error);

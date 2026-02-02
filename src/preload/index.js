@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
         getByCustomer: (customerId) => ipcRenderer.invoke('payments:getByCustomer', customerId),
         create: (data) => ipcRenderer.invoke('payments:create', data),
         delete: (id) => ipcRenderer.invoke('payments:delete', id),
+        getMonthlyReport: (year, month) => ipcRenderer.invoke('payments:getMonthlyReport', year, month),
+        getDebtors: () => ipcRenderer.invoke('payments:getDebtors')
     },
     tariffs: {
         getAll: () => ipcRenderer.invoke('tariffs:getAll'),
@@ -63,6 +65,7 @@ contextBridge.exposeInMainWorld('api', {
         update: (data) => ipcRenderer.invoke('settings:update', data),
         verifyPassword: (pwd) => ipcRenderer.invoke('settings:verifyPassword', pwd),
         activate: (key) => ipcRenderer.invoke('settings:activate', key),
+        selectExcelTemplate: () => ipcRenderer.invoke('settings:selectExcelTemplate'),
     },
     license: {
         activate: (key) => ipcRenderer.invoke('license:activate', key),
@@ -88,16 +91,32 @@ contextBridge.exposeInMainWorld('api', {
     admin: {
         getStats: () => ipcRenderer.invoke('admin:getStats'),
         listGyms: () => ipcRenderer.invoke('admin:listGyms'),
-        createLicense: (gymName) => ipcRenderer.invoke('admin:createLicense', gymName),
+
+        // Org Refactor
+        createOrganization: (name, email, templatePath) => ipcRenderer.invoke('admin:createOrganization', name, email, templatePath),
+        updateOrganization: (id, data) => ipcRenderer.invoke('admin:updateOrganization', id, data),
+        selectTemplate: () => ipcRenderer.invoke('admin:selectTemplate'),
+        listOrganizations: () => ipcRenderer.invoke('admin:listOrganizations'),
+        createLicense: (orgId) => ipcRenderer.invoke('admin:createLicense', orgId),
+
+        // Legacy
+        generateNewLicense: (gymName) => ipcRenderer.invoke('admin:generateNewLicense', gymName),
+
         revokeLicense: (gymId) => ipcRenderer.invoke('admin:revokeLicense', gymId),
         unbindHardware: (gymId) => ipcRenderer.invoke('admin:unbindHardware', gymId),
-        getBroadcast: () => ipcRenderer.invoke('admin:getBroadcast'),
-        updateBroadcast: (data) => ipcRenderer.invoke('admin:updateBroadcast', data),
         getReleases: () => ipcRenderer.invoke('admin:getReleases'),
         listBackups: (gymId) => ipcRenderer.invoke('admin:listBackups', gymId),
         getPushHistory: (gymId) => ipcRenderer.invoke('admin:getPushHistory', gymId),
         pushDB: (data) => ipcRenderer.invoke('admin:pushDB', data),
         pickDB: () => ipcRenderer.invoke('admin:pickDB'),
+    },
+    templates: {
+        generate: (config) => ipcRenderer.invoke('templates:generate', config),
+        selectLogo: () => ipcRenderer.invoke('templates:selectLogo'),
+        getInfo: () => ipcRenderer.invoke('templates:getInfo'),
+        loadConfig: (filename) => ipcRenderer.invoke('templates:loadConfig', filename),
+        delete: (filename) => ipcRenderer.invoke('templates:delete', filename),
+        activate: (filename) => ipcRenderer.invoke('templates:activate', filename),
     },
     on: (channel, callback) => {
         const subscription = (event, ...args) => callback(...args);

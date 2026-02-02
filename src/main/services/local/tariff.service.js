@@ -1,4 +1,4 @@
-const dbManager = require('../db/database');
+const dbManager = require('../../db/database');
 const z = require('zod');
 
 const createTariffSchema = z.object({
@@ -8,6 +8,16 @@ const createTariffSchema = z.object({
 });
 
 class TariffService {
+    getGymId() {
+        try {
+            const licenseService = require('./license.service');
+            const data = licenseService.getLicenseData();
+            return data ? data.gym_id : 'LOCAL_DEV';
+        } catch (e) {
+            return 'LOCAL_DEV';
+        }
+    }
+
     getAll() {
         const db = dbManager.getInstance();
         return db.prepare('SELECT * FROM tariffs').all();
@@ -23,9 +33,10 @@ class TariffService {
         const db = dbManager.getInstance();
 
         const theme = color_theme || 'emerald';
+        const gymId = this.getGymId();
 
-        const stmt = db.prepare('INSERT INTO tariffs (name, amount, color_theme) VALUES (?, ?, ?)');
-        const info = stmt.run(name, amount, theme);
+        const stmt = db.prepare('INSERT INTO tariffs (gym_id, name, amount, color_theme) VALUES (?, ?, ?, ?)');
+        const info = stmt.run(gymId, name, amount, theme);
 
         return { id: info.lastInsertRowid, name, amount, color_theme: theme };
     }
@@ -56,6 +67,10 @@ class TariffService {
         if (validation.data.name) { fields.push('name = ?'); values.push(validation.data.name); }
         if (validation.data.amount) { fields.push('amount = ?'); values.push(validation.data.amount); }
         if (validation.data.color_theme) { fields.push('color_theme = ?'); values.push(validation.data.color_theme); }
+
+        // Always reset sync status on update
+        fields.push('synced = 0');
+        fields.push('updated_at = datetime(\'now\')');
 
         if (fields.length === 0) return { id, ...data }; // Nothing to update
 

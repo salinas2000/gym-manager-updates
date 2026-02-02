@@ -1,6 +1,6 @@
 import React from 'react';
 import TariffManager from '../features/finance/TariffManager';
 
-export default function FinancePage() {
+export default function TariffPage() {
     return <TariffManager />;
 }

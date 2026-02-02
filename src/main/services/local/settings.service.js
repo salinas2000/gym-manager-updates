@@ -1,4 +1,4 @@
-const dbManager = require('../db/database');
+const dbManager = require('../../db/database');
 
 class SettingsService {
     get db() {
