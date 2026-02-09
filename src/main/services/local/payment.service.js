@@ -145,7 +145,9 @@ class PaymentService {
                 if (joinYear === year && joinMonth === month) {
                     // Joined exactly in this month -> Prorate
                     const daysInMonth = new Date(year, month, 0).getDate();
-                    const remainingDays = daysInMonth - joinDay + 1;
+                    // FIX: Edge case - if joinDay > daysInMonth (e.g. joined 31st in 30-day month)
+                    // Ensure remainingDays is at least 1 to avoid 0 or negative values
+                    const remainingDays = Math.max(1, daysInMonth - joinDay + 1);
 
                     if (remainingDays < daysInMonth && remainingDays > 0) {
                         targetAmount = (targetAmount / daysInMonth) * remainingDays;

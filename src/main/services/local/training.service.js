@@ -41,6 +41,11 @@ const mesocycleSchema = z.object({
 });
 
 class TrainingService {
+    constructor() {
+        // FIX: Cache for deleted field keys to prevent N+1 query
+        this._deletedKeysCache = null;
+    }
+
     get db() {
         return dbManager.getInstance();
     }
@@ -53,6 +58,29 @@ class TrainingService {
         } catch (e) {
             return 'LOCAL_DEV';
         }
+    }
+
+    /**
+     * Get cached set of deleted field keys
+     * FIX: Prevents N+1 query by caching the result
+     */
+    getDeletedFieldKeys() {
+        if (!this._deletedKeysCache) {
+            this._deletedKeysCache = new Set(
+                this.db.prepare('SELECT field_key FROM exercise_field_config WHERE is_deleted = 1')
+                    .all()
+                    .map(r => r.field_key)
+            );
+        }
+        return this._deletedKeysCache;
+    }
+
+    /**
+     * Invalidate deleted keys cache
+     * Call this when field configs are modified
+     */
+    invalidateDeletedKeysCache() {
+        this._deletedKeysCache = null;
     }
 
     // --- EXERCISES ---
@@ -97,10 +125,8 @@ class TrainingService {
         query += ' ORDER BY e.name ASC';
         const rows = this.db.prepare(query).all(...params);
 
-        // Get deleted field keys to filter them out from results
-        const deletedKeys = new Set(
-            this.db.prepare('SELECT field_key FROM exercise_field_config WHERE is_deleted = 1').all().map(r => r.field_key)
-        );
+        // FIX: Use cached deleted keys to prevent N+1 query
+        const deletedKeys = this.getDeletedFieldKeys();
 
         return rows.map(r => {
             let fields = {};
@@ -266,7 +292,8 @@ class TrainingService {
         const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
 
         return mesocycles.map(m => {
-            const startStr = m.start_date.split('T')[0];
+            // FIX: Add NULL check to prevent crash if start_date is NULL
+            const startStr = m.start_date ? m.start_date.split('T')[0] : todayStr;
             const endStr = m.end_date ? m.end_date.split('T')[0] : null;
 
             let status = 'expired';
@@ -293,9 +320,8 @@ class TrainingService {
     }
 
     getRoutinesByMesocycle(mesocycleId) {
-        const deletedKeys = new Set(
-            this.db.prepare('SELECT field_key FROM exercise_field_config WHERE is_deleted = 1').all().map(r => r.field_key)
-        );
+        // FIX: Use cached deleted keys to prevent N+1 query
+        const deletedKeys = this.getDeletedFieldKeys();
 
         const routines = this.db.prepare('SELECT * FROM routines WHERE mesocycle_id = ? ORDER BY id ASC').all(mesocycleId);
         return routines.map(r => ({
