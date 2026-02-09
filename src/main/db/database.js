@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const { app } = require('electron');
 const fs = require('fs');
+const logger = require('../utils/logger').createModuleLogger('DATABASE');
 
 class DBManager {
     constructor() {
@@ -23,16 +24,18 @@ class DBManager {
         try {
             if (fs.existsSync(databasePath)) {
                 fs.copyFileSync(databasePath, backupPath);
-                console.log('[LOCAL_DB] Auto-backup created at:', backupPath);
+                logger.info('Auto-backup created', { backupPath });
             }
         } catch (e) {
-            console.warn('[LOCAL_DB] Failed to create auto-backup:', e);
+            logger.warn('Failed to create auto-backup', { error: e.message });
         }
 
-        console.log('[LOCAL_DB] Database initialization at:', databasePath);
+        logger.info('Database initialization', { databasePath });
 
         this.db = new Database(databasePath, {
-            verbose: (msg) => console.log(`[LOCAL_DB] SQL: ${msg}`)
+            verbose: process.env.NODE_ENV === 'development'
+                ? (msg) => logger.debug('SQL query', { query: msg })
+                : undefined
         });
 
         // Performance & Integrity
@@ -125,10 +128,10 @@ class DBManager {
             if (hasColumn) {
                 console.log('Migrating: Dropping deprecated column payment_method from payments...');
                 this.db.exec('ALTER TABLE payments DROP COLUMN payment_method');
-                console.log('Migration successful: payment_method dropped.');
+                logger.info('Migration successful: payment_method dropped');
             }
         } catch (error) {
-            console.error('Migration warning: Could not drop payment_method column:', error);
+            logger.warn('Could not drop payment_method column', { error: error.message });
         }
 
         // Standard sync tracking columns will be added at the end of runMigrations
