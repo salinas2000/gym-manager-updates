@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, Filter, Edit2, Trash2, Home, ChevronRight, Video, FileText, Dumbbell } from 'lucide-react';
+import { Search, Plus, Filter, Edit2, Trash2, Home, ChevronRight, Video, FileText, Dumbbell, Settings2 } from 'lucide-react';
 import CategorySidebar from './CategorySidebar';
 import ExerciseModal from './ExerciseModal';
 import { useToast } from '../../context/ToastContext';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import FieldConfigModal from './FieldConfigModal';
 
 export default function ExerciseLibraryPage() {
     const toast = useToast();
@@ -17,6 +18,8 @@ export default function ExerciseLibraryPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingExercise, setEditingExercise] = useState(null);
+    const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+    const [hoveredExerciseId, setHoveredExerciseId] = useState(null);
 
     // --- QUERIES ---
     const { data: exercises = [], isLoading } = useQuery({
@@ -31,6 +34,15 @@ export default function ExerciseLibraryPage() {
         queryKey: ['categories'],
         queryFn: async () => {
             const res = await window.api.training.getCategories();
+            return res.success ? res.data : [];
+        }
+    });
+
+    // Query Field Configs for labels
+    const { data: fieldConfigs = [] } = useQuery({
+        queryKey: ['exercise-field-configs'],
+        queryFn: async () => {
+            const res = await window.api.training.getFieldConfigs();
             return res.success ? res.data : [];
         }
     });
@@ -147,12 +159,21 @@ export default function ExerciseLibraryPage() {
                             />
                         </div>
 
-                        <button
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-blue-500/20 transition-all active:scale-95"
-                            onClick={handleOpenCreate}
-                        >
-                            <Plus size={18} /> Nuevo Ejercicio
-                        </button>
+                        <div className="flex items-center gap-3">
+                            <button
+                                className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700/80 rounded-xl transition-all border border-white/5 active:scale-95"
+                                onClick={() => setIsConfigModalOpen(true)}
+                            >
+                                <Settings2 size={18} className="text-indigo-400" />
+                                <span className="text-sm font-semibold">Campos</span>
+                            </button>
+                            <button
+                                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-blue-500/20 transition-all active:scale-95"
+                                onClick={handleOpenCreate}
+                            >
+                                <Plus size={18} /> Nuevo Ejercicio
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -176,69 +197,97 @@ export default function ExerciseLibraryPage() {
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {filteredExercises.map(ex => (
-                                <div key={ex.id} className="group bg-slate-900 border border-white/5 rounded-xl p-4 hover:bg-slate-800 transition-all hover:border-blue-500/30 hover:shadow-lg flex flex-col">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="font-bold text-white truncate group-hover:text-blue-400 transition-colors" title={ex.name}>
-                                                {ex.name}
-                                            </h4>
-                                            <p className="text-xs text-slate-500 truncate flex items-center gap-1 mt-1">
-                                                {ex.category_name}
-                                                <ChevronRight size={10} />
-                                                {ex.subcategory_name || 'General'}
-                                            </p>
-                                        </div>
-                                        {/* Actions shown on hover */}
-                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                                            <button
-                                                onClick={() => handleOpenEdit(ex)}
-                                                className="p-1.5 hover:bg-slate-700 rounded text-slate-400 hover:text-white"
-                                            >
-                                                <Edit2 size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setConfirmModal({
-                                                        isOpen: true,
-                                                        title: 'Eliminar Ejercicio',
-                                                        children: `¿Estás seguro de que quieres eliminar "${ex.name}"? Esta acción no se puede deshacer.`,
-                                                        type: 'danger',
-                                                        confirmText: 'Eliminar',
-                                                        onConfirm: () => deleteExercise.mutate(ex.id)
-                                                    });
-                                                }}
-                                                className="p-1.5 hover:bg-red-900/30 rounded text-slate-400 hover:text-red-400"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
+                            {filteredExercises.map(ex => {
+                                const isHovered = hoveredExerciseId === ex.id;
+                                const hasFields = ex.custom_fields && Object.keys(ex.custom_fields).length > 0;
+                                const fields = typeof ex.custom_fields === 'string' ? JSON.parse(ex.custom_fields) : (ex.custom_fields || {});
 
-                                    {/* Footer details */}
-                                    <div className="mt-auto pt-3 border-t border-white/5 flex gap-3 text-xs text-slate-500">
-                                        {ex.video_url && (
-                                            <span className="flex items-center gap-1 text-emerald-500/80" title="Tiene Video">
-                                                <Video size={12} /> Video
-                                            </span>
-                                        )}
-                                        {ex.is_failure ? (
-                                            <span className="flex items-center gap-1 text-red-400 font-bold" title="Modo Fallo">
-                                                🔥 Al Fallo
-                                            </span>
-                                        ) : ex.default_reps ? (
-                                            <span className="flex items-center gap-1 text-blue-400" title="Rango Reps">
-                                                <Dumbbell size={12} /> {ex.default_reps} reps
-                                            </span>
-                                        ) : null}
-                                        {ex.notes && (
-                                            <span className="flex items-center gap-1" title="Tiene Notas">
-                                                <FileText size={12} /> Info
-                                            </span>
-                                        )}
+                                return (
+                                    <div
+                                        key={ex.id}
+                                        onMouseEnter={() => setHoveredExerciseId(ex.id)}
+                                        onMouseLeave={() => setHoveredExerciseId(null)}
+                                        className={`group bg-slate-900 border border-white/5 rounded-xl p-4 transition-all duration-300 flex flex-col min-h-[140px] relative ${isHovered ? 'bg-slate-800 border-blue-500/40 shadow-xl shadow-blue-500/10 -translate-y-1' : 'hover:border-white/10'
+                                            }`}
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className={`font-bold transition-colors truncate ${isHovered ? 'text-blue-400' : 'text-white'}`} title={ex.name}>
+                                                    {ex.name}
+                                                </h4>
+                                                <p className="text-[10px] text-slate-500 truncate flex items-center gap-1 mt-1 font-medium uppercase tracking-wider">
+                                                    {ex.category_name}
+                                                    <ChevronRight size={10} className="text-slate-700" />
+                                                    {ex.subcategory_name || 'General'}
+                                                </p>
+                                            </div>
+                                            {/* Actions shown on hover */}
+                                            <div className={`transition-opacity flex gap-1 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+                                                <button
+                                                    onClick={() => handleOpenEdit(ex)}
+                                                    className="p-1.5 bg-slate-950/40 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"
+                                                >
+                                                    <Edit2 size={13} />
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setConfirmModal({
+                                                            isOpen: true,
+                                                            title: 'Eliminar Ejercicio',
+                                                            children: `¿Estás seguro de que quieres eliminar "${ex.name}"? Esta acción no se puede deshacer.`,
+                                                            type: 'danger',
+                                                            confirmText: 'Eliminar',
+                                                            onConfirm: () => deleteExercise.mutate(ex.id)
+                                                        });
+                                                    }}
+                                                    className="p-1.5 bg-slate-950/40 hover:bg-red-900/40 rounded-lg text-slate-400 hover:text-red-400 transition-all"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Fields on Hover - Absolute overlay or smooth expansion? */}
+                                        {/* Let's go with a smooth internal expansion/fade */}
+                                        <div className={`mt-2 flex-1 overflow-hidden transition-all duration-300 ${isHovered && hasFields ? 'opacity-100 max-h-40' : 'opacity-0 max-h-0'}`}>
+                                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
+                                                {Object.entries(fields).map(([key, val]) => {
+                                                    const config = fieldConfigs.find(f => f.field_key === key);
+                                                    if (!val || !config) return null;
+                                                    return (
+                                                        <div key={key} className="flex flex-col">
+                                                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter truncate">
+                                                                {config.label}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-300 truncate font-medium">
+                                                                {val}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        {/* Footer details (Visible when NOT hovered or always?) */}
+                                        <div className={`mt-auto pt-3 border-t border-white/5 flex gap-3 text-[10px] items-center transition-opacity ${isHovered && hasFields ? 'opacity-40' : 'opacity-100'}`}>
+                                            {ex.video_url && (
+                                                <span className="flex items-center gap-1 text-emerald-500/80" title="Tiene Video">
+                                                    <Video size={10} /> Video
+                                                </span>
+                                            )}
+                                            {ex.is_failure ? (
+                                                <span className="flex items-center gap-1 text-red-500 font-black uppercase tracking-tighter" title="Modo Fallo">
+                                                    🔥 Fallo
+                                                </span>
+                                            ) : ex.default_reps ? (
+                                                <span className="flex items-center gap-1 text-blue-400 font-bold" title="Rango Reps">
+                                                    <Dumbbell size={10} /> {ex.default_reps}
+                                                </span>
+                                            ) : null}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -267,6 +316,11 @@ export default function ExerciseLibraryPage() {
             >
                 {confirmModal.children}
             </ConfirmationModal>
+
+            <FieldConfigModal
+                isOpen={isConfigModalOpen}
+                onClose={() => setIsConfigModalOpen(false)}
+            />
         </div>
     );
 }

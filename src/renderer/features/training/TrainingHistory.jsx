@@ -8,6 +8,7 @@ export default function TrainingHistory({ initialCustomer, onNavigate }) {
     const { customers } = useGym();
     const [selectedCustomer, setSelectedCustomer] = useState(initialCustomer || null);
     const [search, setSearch] = useState('');
+    const [filterActive, setFilterActive] = useState('active'); // active, inactive, all
 
     // Editor State (for editing plans found in history)
     // We lift this state here so we can overlay the editor over the whole history view
@@ -21,18 +22,29 @@ export default function TrainingHistory({ initialCustomer, onNavigate }) {
         }
     }, [initialCustomer]);
 
-    // Auto-select first customer if none selected
+    // Auto-select first customer if none selected (from filtered list)
     useEffect(() => {
-        if (!selectedCustomer && customers.length > 0) {
-            setSelectedCustomer(customers[0]);
-        }
-    }, [customers, selectedCustomer]);
+        const filtered = customers.filter(c => {
+            const matchesSearch = `${c.first_name} ${c.last_name}`.toLowerCase().includes(search.toLowerCase());
+            const matchesActive = filterActive === 'all'
+                ? true
+                : filterActive === 'active' ? c.active === 1 : c.active === 0;
+            return matchesSearch && matchesActive;
+        });
 
-    // Filtering
-    const filteredCustomers = customers.filter(c =>
-        c.first_name.toLowerCase().includes(search.toLowerCase()) ||
-        c.last_name.toLowerCase().includes(search.toLowerCase())
-    );
+        if (!selectedCustomer && filtered.length > 0) {
+            setSelectedCustomer(filtered[0]);
+        }
+    }, [customers, selectedCustomer, search, filterActive]);
+
+    // Filtering for the display list
+    const filteredCustomers = customers.filter(c => {
+        const matchesSearch = `${c.first_name} ${c.last_name}`.toLowerCase().includes(search.toLowerCase());
+        const matchesActive = filterActive === 'all'
+            ? true
+            : filterActive === 'active' ? c.active === 1 : c.active === 0;
+        return matchesSearch && matchesActive;
+    });
 
     const handleEditPlan = (meso) => {
         setEditingMeso(meso);
@@ -68,10 +80,27 @@ export default function TrainingHistory({ initialCustomer, onNavigate }) {
             {/* LEFT: USER LIST */}
             <div className="w-80 border-r border-white/5 bg-slate-900/50 flex flex-col">
                 <div className="p-4 border-b border-white/5">
-                    <h2 className="text-white font-bold mb-4 flex items-center gap-2">
-                        <Dumbbell className="text-blue-500" size={20} />
-                        Historial
-                    </h2>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-white font-bold flex items-center gap-2">
+                            <Dumbbell className="text-blue-500" size={20} />
+                            Historial
+                        </h2>
+
+                        <div className="flex bg-slate-950/50 rounded-lg p-0.5 border border-white/5">
+                            {['active', 'inactive', 'all'].map((status) => (
+                                <button
+                                    key={status}
+                                    onClick={() => setFilterActive(status)}
+                                    className={`px-2 py-1 rounded text-[10px] font-bold uppercase transition-all ${filterActive === status
+                                        ? 'bg-blue-600 text-white shadow-lg'
+                                        : 'text-slate-500 hover:text-slate-300'
+                                        }`}
+                                >
+                                    {status === 'active' ? 'Activos' : status === 'inactive' ? 'Bajas' : 'Todos'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     <div className="relative">
                         <Search className="absolute left-3 top-2.5 text-slate-500" size={16} />
                         <input

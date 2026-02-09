@@ -10,6 +10,8 @@ const createCustomerSchema = z.object({
     tariff_id: z.number().optional().nullable(),
 });
 
+const updateCustomerSchema = createCustomerSchema.partial();
+
 class CustomerService {
     getGymId() {
         try {
@@ -26,13 +28,13 @@ class CustomerService {
         // Join with tariffs to get name
         // Also fetch the LATEST membership end_date for the customer to detect scheduled drops
         const stmt = db.prepare(`
-            SELECT 
-                c.*, 
-                t.name as tariff_name, 
+            SELECT
+                c.*,
+                t.name as tariff_name,
                 t.amount as tariff_amount,
                 (SELECT end_date FROM memberships m WHERE m.customer_id = c.id ORDER BY start_date DESC LIMIT 1) as latest_end_date
-            FROM customers c 
-            LEFT JOIN tariffs t ON c.tariff_id = t.id 
+            FROM customers c
+            LEFT JOIN tariffs t ON c.tariff_id = t.id
             ORDER BY c.created_at DESC
         `);
         return stmt.all();
@@ -76,30 +78,32 @@ class CustomerService {
 
             return transaction();
         } catch (error) {
-            if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-                throw new Error('Email already exists');
+            // better-sqlite3 uses error.message, not error.code for constraint errors
+            if (error.message && (error.message.includes('UNIQUE constraint failed') || error.message.includes('SQLITE_CONSTRAINT'))) {
+                throw new Error('Ya existe un cliente con ese email');
             }
             throw error;
         }
     }
 
     update(id, data) {
-        // Partial validation could be added here
-        const db = dbManager.getInstance();
+        const validation = updateCustomerSchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
 
-        // Dynamic update query builder could be used, simpler version here:
+        const db = dbManager.getInstance();
+        const validatedData = validation.data;
+
         const fields = [];
         const values = [];
 
-        if (data.first_name) { fields.push('first_name = ?'); values.push(data.first_name); }
-        if (data.last_name) { fields.push('last_name = ?'); values.push(data.last_name); }
-        if (data.email) { fields.push('email = ?'); values.push(data.email); }
-        if (data.phone) { fields.push('phone = ?'); values.push(data.phone); }
-        // NOTE: Active status update via general 'update' should probably also trigger history logic
-        // But usually we use toggleActive. If strict, we should handle it here too.
-        // For now, let's assume 'toggleActive' is the main way to change status or user knows what they do.
-        if (data.active !== undefined) { fields.push('active = ?'); values.push(data.active ? 1 : 0); }
-        if (data.tariff_id !== undefined) { fields.push('tariff_id = ?'); values.push(data.tariff_id); }
+        if (validatedData.first_name) { fields.push('first_name = ?'); values.push(validatedData.first_name); }
+        if (validatedData.last_name) { fields.push('last_name = ?'); values.push(validatedData.last_name); }
+        if (validatedData.email) { fields.push('email = ?'); values.push(validatedData.email); }
+        if (validatedData.phone !== undefined) { fields.push('phone = ?'); values.push(validatedData.phone); }
+        if (validatedData.active !== undefined) { fields.push('active = ?'); values.push(validatedData.active ? 1 : 0); }
+        if (validatedData.tariff_id !== undefined) { fields.push('tariff_id = ?'); values.push(validatedData.tariff_id); }
 
         // Always reset sync status on update
         fields.push('synced = 0');
@@ -204,8 +208,8 @@ class CustomerService {
     getMembershipHistory(customerId) {
         const db = dbManager.getInstance();
         const stmt = db.prepare(`
-            SELECT * FROM memberships 
-            WHERE customer_id = ? 
+            SELECT * FROM memberships
+            WHERE customer_id = ?
             ORDER BY start_date DESC
         `);
         return stmt.all(customerId);

@@ -47,21 +47,22 @@ function registerHandlers() {
     handle('payments:getMonthlyReport', (year, month) => paymentService.getMonthlyReport(year, month));
     handle('payments:getDebtors', () => paymentService.getDebtors());
 
-    // Analytics
     handle('analytics:getDashboardData', async (year) => {
         const analyticsService = require('../services/local/analytics.service');
         const revenue = analyticsService.getRevenueHistory(year);
         const members = analyticsService.getActiveMembersHistory(year);
         const distribution = analyticsService.getTariffDistribution();
         const activeCount = analyticsService.getActiveCount();
-
         const newMembers = analyticsService.getNewMembersHistory(year);
+        const debtorCount = analyticsService.getDebtorCount();
+        const totalRevenueAllTime = analyticsService.getTotalRevenue();
 
-        return { revenue, members, distribution, activeCount, newMembers };
+        return { revenue, members, distribution, activeCount, newMembers, debtorCount, totalRevenueAllTime };
     });
 
     handle('analytics:getAvailableYears', () => require('../services/local/analytics.service').getAvailableYears());
     handle('analytics:getRecentTransactions', (limit) => require('../services/local/analytics.service').getRecentTransactions(limit));
+    handle('analytics:getInventoryDashboardData', (year, category) => require('../services/local/analytics.service').getInventoryDashboardData(year, category));
 
     // Cloud Backup
     handle('cloud:backup', (gymId) => require('../services/cloud/cloud.service').performFullBackup(gymId));
@@ -117,9 +118,15 @@ function registerHandlers() {
     handle('training:getMesocycles', (customerId) => trainingService.getMesocyclesByCustomer(customerId));
     handle('training:getMesocycle', (id) => trainingService.getMesocycle(id));
     handle('training:getTemplates', (daysFilter) => trainingService.getTemplates(daysFilter));
+    handle('training:getPriorities', () => trainingService.getTrainingPriorities());
     handle('training:checkOverlap', (customerId, startDate, endDate, excludeId) => trainingService.checkMesocycleOverlap(customerId, startDate, endDate, excludeId));
     handle('training:saveMesocycle', (data) => trainingService.saveMesocycle(data));
     handle('training:deleteMesocycle', (id) => trainingService.deleteMesocycle(id));
+    handle('training:getFieldConfigs', () => trainingService.getExerciseFieldConfigs());
+    handle('training:getAllFieldConfigs', () => trainingService.getAllExerciseFieldConfigs());
+    handle('training:updateFieldConfig', (key, data) => trainingService.updateExerciseFieldConfig(key, data));
+    handle('training:addFieldConfig', (label, type, options) => trainingService.addFieldConfig(label, type, options));
+    handle('training:deleteFieldConfig', (key) => trainingService.deleteFieldConfig(key));
 
     // Orchestrator: Save -> Excel -> Upload -> Link
     // Orchestrator: Save -> Export Excel (Local)
@@ -130,7 +137,16 @@ function registerHandlers() {
             // 1. Save to Local DB (Transaction) - Ensure it's saved first
             trainingService.saveMesocycle(fullData);
 
-            // 2. Ask user for path
+            // 2. Fetch Customer Name BEFORE Excel generation
+            if (fullData.customerId || fullData.customer_id) {
+                const db = require('../db/database').getInstance();
+                const c = db.prepare('SELECT first_name, last_name FROM customers WHERE id = ?').get(fullData.customerId || fullData.customer_id);
+                if (c) {
+                    fullData.customer_name = `${c.first_name} ${c.last_name}`;
+                }
+            }
+
+            // 3. Ask user for path
             const safeName = fullData.name.replace(/[^a-z0-9]/gi, '_');
             const defaultName = `Rutina_${safeName}.xlsx`;
 
@@ -142,7 +158,7 @@ function registerHandlers() {
 
             if (canceled || !filePath) return { success: false, cancelled: true };
 
-            // 3. Generate Excel at path
+            // 4. Generate Excel at path
             await excelService.generateRoutineExcel(fullData, filePath);
 
             // 4. Auto-Upload to Drive (Supabase)
@@ -187,19 +203,7 @@ function registerHandlers() {
             const path = require('path');
             const fs = require('fs');
 
-            // Generate Temp Excel
-            const tempDir = app.getPath('temp');
-            const safeName = fullMeso.name.replace(/[^a-z0-9]/gi, '_');
-            const fileName = `Rutina_${safeName}_${Date.now()}.xlsx`;
-            const tempPath = path.join(tempDir, fileName);
-
-            console.log('📊 Generating Excel at:', tempPath);
-            await excelService.generateRoutineExcel(fullMeso, tempPath);
-
-            const buffer = fs.readFileSync(tempPath);
-            console.log('✅ Excel generated, size:', buffer.length, 'bytes');
-
-            // Fetch Customer Details (Name & Email)
+            // Fetch Customer Details (Name & Email) BEFORE Excel generation
             let customerName = 'Cliente';
             let customerEmail = null;
 
@@ -212,6 +216,21 @@ function registerHandlers() {
                     console.log('👤 Customer:', customerName, '|', customerEmail);
                 }
             }
+
+            // Add customer name to mesocycle for Excel generation
+            fullMeso.customer_name = customerName;
+
+            // Generate Temp Excel
+            const tempDir = app.getPath('temp');
+            const safeName = fullMeso.name.replace(/[^a-z0-9]/gi, '_');
+            const fileName = `Rutina_${safeName}_${Date.now()}.xlsx`;
+            const tempPath = path.join(tempDir, fileName);
+
+            console.log('📊 Generating Excel at:', tempPath);
+            await excelService.generateRoutineExcel(fullMeso, tempPath);
+
+            const buffer = fs.readFileSync(tempPath);
+            console.log('✅ Excel generated, size:', buffer.length, 'bytes');
 
             console.log('☁️ Calling Google Service uploadFile...');
             const publicUrl = await googleService.uploadFile(buffer, fileName, customerName, customerEmail, fullMeso.name);
@@ -256,7 +275,6 @@ function registerHandlers() {
     const settingsService = require('../services/local/settings.service');
     handle('settings:getAll', () => settingsService.getAll());
     handle('settings:update', (data) => settingsService.updateSettings(data));
-    handle('settings:verifyPassword', (pwd) => settingsService.verifyPassword(pwd));
     handle('settings:activate', (key) => settingsService.setActivation(key));
     handle('settings:selectExcelTemplate', async () => {
         const { dialog } = require('electron');
@@ -328,11 +346,12 @@ function registerHandlers() {
         return filePaths[0];
     });
     handle('admin:listOrganizations', () => adminService.listOrganizations());
-    handle('admin:createLicense', (orgId) => adminService.createLicense(orgId));
+    handle('admin:createLicense', (orgId, validity, amount) => adminService.createLicense(orgId, validity, amount));
 
     // Legacy/Helper
     handle('admin:generateNewLicense', (gymName) => adminService.generateNewLicense(gymName));
     handle('admin:revokeLicense', (gymId) => adminService.revokeLicense(gymId));
+    handle('admin:deleteLicense', (id) => adminService.deleteLicense(id));
     handle('admin:unbindHardware', (gymId) => adminService.unbindHardware(gymId));
 
     handle('admin:getReleases', () => adminService.getGitHubReleases());
@@ -351,22 +370,83 @@ function registerHandlers() {
     });
     handle('cloud:applyRemoteLoad', (data) => require('../services/cloud/cloud.service').applyRemoteLoad(data.gym_id, data.load_id));
 
+    // Credentials Management
+    const credentialManager = require('../config/credentials');
+    handle('credentials:getStatus', () => ({
+        loaded: credentialManager.isLoaded(),
+        hasSupabase: credentialManager.isLoaded() ? !!credentialManager.get().supabase?.url : false,
+        hasGoogle: credentialManager.isLoaded() ? !!credentialManager.get().google?.clientId : false,
+        hasGitHub: credentialManager.isLoaded() ? !!credentialManager.get().github?.token : false
+    }));
+    handle('credentials:getInstructions', () => credentialManager.getInstructions());
+    handle('credentials:createTemplate', () => {
+        const templatePath = credentialManager.createTemplate();
+        if (templatePath) {
+            require('electron').shell.showItemInFolder(templatePath);
+        }
+        return templatePath;
+    });
+    handle('credentials:save', (credentials) => credentialManager.saveToStore(credentials));
+
     // Template Designer
     handle('templates:generate', (config) => templateService.generateTemplate(config));
     handle('templates:getInfo', () => templateService.getInfo());
     handle('templates:loadConfig', (filename) => templateService.loadConfig(filename));
     handle('templates:delete', (filename) => templateService.deleteConfig(filename));
     handle('templates:activate', (filename) => templateService.activateConfig(filename));
+    handle('templates:getFieldConfigs', () => trainingService.getExerciseFieldConfigs());
     handle('templates:selectLogo', async () => {
         const { dialog } = require('electron');
+        const fs = require('fs');
+        const path = require('path');
+
         const { canceled, filePaths } = await dialog.showOpenDialog({
             title: 'Seleccionar Logo para Excel',
             properties: ['openFile'],
-            filters: [{ name: 'Images', extensions: ['jpg', 'png', 'jpeg'] }]
+            filters: [{ name: 'Imágenes', extensions: ['jpg', 'png', 'jpeg'] }]
         });
-        if (canceled || filePaths.length === 0) return null;
-        return filePaths[0];
+
+        if (canceled || filePaths.length === 0) {
+            console.log('[templates:selectLogo] User cancelled');
+            return null;
+        }
+
+        const filePath = filePaths[0];
+        console.log('[templates:selectLogo] Selected file:', filePath);
+
+        try {
+            // Verificar que el archivo existe
+            if (!fs.existsSync(filePath)) {
+                throw new Error('El archivo no existe');
+            }
+
+            const ext = path.extname(filePath).toLowerCase().replace('.', '');
+            const mime = ext === 'png' ? 'image/png' : (ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream');
+
+            const buffer = fs.readFileSync(filePath);
+            const data = buffer.toString('base64');
+            const base64 = `data:${mime};base64,${data}`;
+
+            console.log('[templates:selectLogo] Logo loaded successfully, size:', buffer.length, 'bytes');
+            return { path: filePath, base64: base64 };
+        } catch (e) {
+            console.error('[templates:selectLogo] Error reading logo:', e);
+            throw e;
+        }
     });
+    // --- INVENTORY MODULE (Services for stock and category management) ---
+    const inventoryService = require('../services/local/inventory.service');
+    handle('inventory:getProducts', () => inventoryService.getProducts());
+    handle('inventory:createProduct', (data) => inventoryService.createProduct(data));
+    handle('inventory:updateProduct', (id, data) => inventoryService.updateProduct(id, data));
+    handle('inventory:deleteProduct', (id) => inventoryService.deleteProduct(id));
+    handle('inventory:getOrders', () => inventoryService.getOrders());
+    handle('inventory:createOrder', (data) => inventoryService.createOrder(data));
+    handle('inventory:deleteOrder', (id) => inventoryService.deleteOrder(id));
+    handle('inventory:getCategories', () => inventoryService.getCategories());
+    handle('inventory:createCategory', (data) => inventoryService.createCategory(data));
+    handle('inventory:updateCategory', (id, data) => inventoryService.updateCategory(id, data));
+    handle('inventory:deleteCategory', (id) => inventoryService.deleteCategory(id));
 }
 
 module.exports = { registerHandlers };

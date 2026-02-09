@@ -131,17 +131,8 @@ class DBManager {
             console.error('Migration warning: Could not drop payment_method column:', error);
         }
 
-        // 7. Standardize Sync Status tracking Early
-        const tablesToMirror = [
-            'customers', 'payments', 'memberships', 'tariffs',
-            'exercises', 'exercise_categories', 'exercise_subcategories',
-            'training_mesocycles', 'training_routines', 'routine_items' // Fixed table names
-        ];
-
-        tablesToMirror.forEach(table => {
-            this.safeAddColumn(table, 'synced', 'INTEGER DEFAULT 0');
-            this.safeAddColumn(table, 'updated_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
-        });
+        // Standard sync tracking columns will be added at the end of runMigrations
+        // after all tables are guaranteed to exist.
 
         // FORCE FIX for updated_at column on critical tables 
         // (Sometimes safeAddColumn fails on older schemas or locking issues)
@@ -222,9 +213,53 @@ class DBManager {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE
             );
+
+            -- INVENTORY MODULE
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
+                name TEXT NOT NULL,
+                description TEXT,
+                sku TEXT,
+                purchase_price REAL DEFAULT 0,
+                sale_price REAL DEFAULT 0,
+                stock INTEGER DEFAULT 0,
+                min_stock INTEGER DEFAULT 0,
+                category TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                synced INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS inventory_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
+                product_id INTEGER NOT NULL,
+                customer_id INTEGER, -- Optional: link sale to a user
+                type TEXT NOT NULL, -- 'purchase' (buy), 'adjustment' (correction), 'sale' (automatic if sold)
+                quantity INTEGER NOT NULL,
+                unit_cost REAL,
+                total_cost REAL,
+                notes TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                synced INTEGER DEFAULT 0,
+                FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
+                FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS product_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                synced INTEGER DEFAULT 0
+            );
         `);
 
         this.safeAddColumn('payments', 'tariff_name', 'TEXT');
+        this.safeAddColumn('inventory_orders', 'customer_id', 'INTEGER REFERENCES customers(id)');
 
         // 9. Auto-Healing: Fix Missing Memberships
         // Ensure every active customer has an open membership record OR a future scheduled one.
@@ -442,20 +477,35 @@ class DBManager {
         const tables = [
             'tariffs', 'customers', 'payments', 'memberships', 'exercises',
             'mesocycles', 'routines', 'routine_items', 'file_history',
-            'exercise_categories', 'exercise_subcategories'
+            'exercise_categories', 'exercise_subcategories',
+            'products', 'inventory_orders', 'product_categories'
         ];
         tables.forEach(t => this.safeAddColumn(t, 'gym_id', 'TEXT'));
 
-        // Populación masiva de gym_id para registros huérfanos
+        // Populación masiva de gym_id para registros huérfanos o de desarrollo
         try {
             const licenseService = require('../services/local/license.service');
             const licData = licenseService.getLicenseData();
             const currentGymId = licData ? licData.gym_id : 'LOCAL_DEV';
 
-            tables.forEach(t => {
-                this.db.prepare(`UPDATE ${t} SET gym_id = ? WHERE gym_id IS NULL`).run(currentGymId);
-            });
-            console.log(`Migration: gym_id populated with ${currentGymId} for existing records.`);
+            if (currentGymId) {
+                this.db.transaction(() => {
+                    tables.forEach(t => {
+                        // Reclaim ANY record that doesn't belong to the current gym IF AND ONLY IF 
+                        // those records were marked as LOCAL_DEV or were NULL.
+                        // Or if we have a currentGymId and the table ONLY has orphans?
+                        const info = this.db.prepare(`
+                            UPDATE ${t} 
+                            SET gym_id = ? 
+                            WHERE gym_id IS NULL OR gym_id = '' OR gym_id = 'LOCAL_DEV'
+                        `).run(currentGymId);
+
+                        if (info.changes > 0) {
+                            console.log(`[LOCAL_DB] Reclaimed ${info.changes} records for table ${t} -> ${currentGymId}`);
+                        }
+                    });
+                })();
+            }
         } catch (e) {
             console.error('Migration Warning: Could not populate gym_id:', e.message);
         }
@@ -472,6 +522,32 @@ class DBManager {
         console.log('Initializing Seeding...');
         try {
             require('../services/local/seed.service').init();
+
+            // Seed default exercise fields if empty
+            // Seed default exercise fields disabled by user request
+            /*
+            const fieldCount = this.db.prepare('SELECT count(*) as count FROM exercise_field_config').get().count;
+            if (fieldCount === 0) {
+                console.log('[LOCAL_DB] Seeding default exercise fields...');
+                const gymId = this.getGymId();
+                const insertField = this.db.prepare(`
+                    INSERT INTO exercise_field_config (gym_id, field_key, label, type, is_active, is_mandatory_in_template) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `);
+
+                const defaults = [
+                    [gymId, 'peso', 'Peso', 'text', 1, 1],
+                    [gymId, 'descanso', 'Descanso', 'text', 1, 1],
+                    [gymId, 'rpe', 'RPE', 'text', 1, 1],
+                    [gymId, 'tempo', 'Tempo', 'text', 1, 0]
+                ];
+
+                const transaction = this.db.transaction((data) => {
+                    for (const f of data) insertField.run(...f);
+                });
+                transaction(defaults);
+            }
+            */
         } catch (err) {
             console.error('Seeding failed:', err);
         }
@@ -545,6 +621,66 @@ class DBManager {
             )
         `);
 
+        // 20. Exercise Field Configuration
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS exercise_field_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT,
+                field_key TEXT UNIQUE NOT NULL,
+                label TEXT NOT NULL,
+                type TEXT DEFAULT 'text', -- text, number, select
+                is_active INTEGER DEFAULT 1,
+                is_mandatory_in_template INTEGER DEFAULT 0,
+                options TEXT, -- JSON array of strings for 'select' type
+                is_deleted INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Seed default field configs disabled by user request
+        /*
+        const seedFields = [
+            { key: 'series', label: 'Series', type: 'number', mandatory: 1 },
+            { key: 'reps', label: 'Reps', type: 'text', mandatory: 1 },
+            { key: 'fallo', label: 'Fallo', type: 'text', mandatory: 0 },
+            { key: 'intensidad', label: 'Intensidad', type: 'text', mandatory: 0 }
+        ];
+
+        const checkField = this.db.prepare('SELECT id FROM exercise_field_config WHERE field_key = ?');
+        const insertField = this.db.prepare(`
+            INSERT INTO exercise_field_config (gym_id, field_key, label, type, is_active, is_mandatory_in_template)
+            VALUES (?, ?, ?, ?, 1, ?)
+        `);
+
+        seedFields.forEach(f => {
+            const exists = checkField.get(f.key);
+            if (!exists) {
+                insertField.run('LOCAL_DEV', f.key, f.label, f.type, f.mandatory);
+            }
+        });
+        */
+
+        this.safeAddColumn('exercises', 'custom_fields', 'TEXT'); // JSON storage
+        this.safeAddColumn('routine_items', 'custom_fields', 'TEXT'); // JSON storage
+
+        // 20b. Ensure exercise_field_config has is_deleted column (for DBs created before this column existed)
+        this.safeAddColumn('exercise_field_config', 'is_deleted', 'INTEGER DEFAULT 0');
+
+        // 21. Performance Indexes for Production
+        this.safeCreateIndex('idx_customers_gym', 'customers', 'gym_id');
+        this.safeCreateIndex('idx_customers_active', 'customers', 'active');
+        this.safeCreateIndex('idx_payments_customer', 'payments', 'customer_id');
+        this.safeCreateIndex('idx_payments_date', 'payments', 'payment_date');
+        this.safeCreateIndex('idx_memberships_customer', 'memberships', 'customer_id');
+        this.safeCreateIndex('idx_memberships_end', 'memberships', 'end_date');
+        this.safeCreateIndex('idx_exercises_subcategory', 'exercises', 'subcategory_id');
+        this.safeCreateIndex('idx_routine_items_routine', 'routine_items', 'routine_id');
+        this.safeCreateIndex('idx_routine_items_exercise', 'routine_items', 'exercise_id');
+        this.safeCreateIndex('idx_mesocycles_customer', 'mesocycles', 'customer_id');
+        this.safeCreateIndex('idx_mesocycles_template', 'mesocycles', 'is_template');
+        this.safeCreateIndex('idx_routines_mesocycle', 'routines', 'mesocycle_id');
+        this.safeCreateIndex('idx_field_config_deleted', 'exercise_field_config', 'is_deleted');
+
         this.verifySystemSettings();
     }
 
@@ -575,7 +711,7 @@ class DBManager {
             const lic = licenseService.getLicenseData();
             const currentGymId = lic ? lic.gym_id : null;
 
-            const tables = ['customers', 'payments', 'memberships', 'training_routines', 'training_mesocycles'];
+            const tables = ['customers', 'payments', 'memberships', 'routines', 'mesocycles'];
             let issuesFound = 0;
             let fixedCount = 0;
 
@@ -584,6 +720,15 @@ class DBManager {
                     // Check if table exists
                     const exists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
                     if (!exists) return;
+
+                    // DEBUG: Check distribution
+                    if (table === 'customers') {
+                        const total = this.db.prepare('SELECT count(*) as count FROM customers').get().count;
+                        const match = currentGymId ? this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id = ?').get(currentGymId).count : 0;
+                        const dev = this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id = "LOCAL_DEV"').get().count;
+                        const orphans = this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id IS NULL OR gym_id = ""').get().count;
+                        console.log(`[LOCAL_DB] Data Visibility Check [${table}]: Total: ${total} | Matches active [${currentGymId}]: ${match} | LOCAL_DEV: ${dev} | Orphans: ${orphans}`);
+                    }
 
                     // 1. Check for Orphans (Missing gym_id)
                     const orphans = this.db.prepare(`SELECT count(*) as count FROM ${table} WHERE gym_id IS NULL OR gym_id = ''`).get();
@@ -608,13 +753,22 @@ class DBManager {
                 console.log('[LOCAL_DB] Integrity: ✅ OK');
             } else {
                 if (fixedCount > 0) {
-                    console.log(`[LOCAL_DB] Integrity: 🛡️ FIXED ${fixedCount} issues automatically.`);
+                    console.log(`[LOCAL_DB] Integrity: 🛡️ FIXED ${fixedCount} issues automatically (Reclaimed orphans).`);
                 } else {
-                    console.warn(`[LOCAL_DB] Integrity: ❌ WARNING (${issuesFound} issues remain, no Gym ID to fix)`);
+                    console.warn(`[LOCAL_DB] Integrity: ❌ WARNING (${issuesFound} records have a different GYM_ID than active license)`);
                 }
             }
         } catch (error) {
             console.error('[LOCAL_DB] Integrity check failed:', error);
+        }
+    }
+
+    safeCreateIndex(indexName, tableName, columns) {
+        try {
+            const cols = Array.isArray(columns) ? columns.join(', ') : columns;
+            this.db.exec(`CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName} (${cols})`);
+        } catch (error) {
+            console.warn(`[LOCAL_DB] Index ${indexName} creation skipped:`, error.message);
         }
     }
 

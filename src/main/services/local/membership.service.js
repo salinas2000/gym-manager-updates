@@ -1,7 +1,19 @@
 const dbManager = require('../../db/database');
+const z = require('zod');
+
+const updateMembershipSchema = z.object({
+    start_date: z.string().min(1, "La fecha de inicio es requerida"),
+    end_date: z.string().nullable().or(z.literal('')),
+});
 
 class MembershipService {
-    update(id, { start_date, end_date }) {
+    update(id, data) {
+        const validation = updateMembershipSchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        const { start_date, end_date } = validation.data;
         const db = dbManager.getInstance();
         const stmt = db.prepare(`
             UPDATE memberships 
@@ -9,7 +21,7 @@ class MembershipService {
             WHERE id = ?
         `);
         // Handle empty string as null for end_date
-        const finalEndDate = end_date === '' ? null : end_date;
+        const finalEndDate = (end_date === '' || end_date === null) ? null : end_date;
 
         stmt.run(start_date, finalEndDate, id);
 

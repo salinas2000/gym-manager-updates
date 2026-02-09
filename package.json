@@ -9,7 +9,8 @@
         "release": "npm version patch && npm run build",
         "ship": "npm version patch && vite build && dotenv -- electron-builder --publish always",
         "postinstall": "electron-rebuild",
-        "rebuild": "electron-rebuild"
+        "rebuild": "electron-rebuild",
+        "migrate-credentials": "node scripts/migrate-credentials.js"
     },
     "repository": {
         "type": "git",

@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Video, FileText, Dumbbell } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { X, Save, Video, FileText, Dumbbell, ChevronDown } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../context/ToastContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
 export default function ExerciseModal({
     isOpen,
     onClose,
+    onSuccess = null,              // Callback for external handling
     initialCategory = null,       // pre-select category ID
     initialSubcategory = null,    // pre-select subcategory ID
     exerciseToEdit = null         // If provided, we are in EDIT mode
 }) {
-    // if (!isOpen) return null; // Removed early return to fix Hook rule violation
-
     const toast = useToast();
     const queryClient = useQueryClient();
     const [name, setName] = useState('');
@@ -20,14 +19,21 @@ export default function ExerciseModal({
     const [subcategoryId, setSubcategoryId] = useState(initialSubcategory || '');
     const [videoUrl, setVideoUrl] = useState('');
     const [notes, setNotes] = useState('');
-    // Defaults
-    const [defaultSets, setDefaultSets] = useState(4);
-    const [defaultReps, setDefaultReps] = useState('');
-    const [isFailure, setIsFailure] = useState(false);
-    const [defaultIntensity, setDefaultIntensity] = useState('');
+    const [customFields, setCustomFields] = useState({});
 
-    // Fetch Categories (assuming they are already cached, but fine to fetch again or use context)
-    // We can access the cache directly or use useQuery. Since this is a modal, minimal fetch is fine.
+    // Fetch Field Configurations
+    const { data: fieldConfigs = [] } = useQuery({
+        queryKey: ['exercise-field-configs'],
+        queryFn: async () => {
+            const res = await window.api.training.getFieldConfigs();
+            return res.success ? res.data : [];
+        },
+        enabled: isOpen
+    });
+
+    const activeFields = fieldConfigs.filter(f => f.is_active);
+
+    // Fetch Categories
     const categories = queryClient.getQueryData(['categories']) || [];
 
     // Derived subcategories based on selection
@@ -37,10 +43,11 @@ export default function ExerciseModal({
     // --- MUTATIONS ---
     const createExercise = useMutation({
         mutationFn: (data) => window.api.training.createExercise(data),
-        onSuccess: (res) => {
+        onSuccess: (res, variables) => {
             if (res.success) {
-                queryClient.invalidateQueries(['exercises']);
+                queryClient.invalidateQueries({ queryKey: ['exercises'] });
                 toast.success('Ejercicio creado con éxito');
+                if (onSuccess) onSuccess({ ...variables, id: res.id });
                 onCloseModal();
             } else {
                 toast.error('Error al crear: ' + res.error);
@@ -53,10 +60,11 @@ export default function ExerciseModal({
 
     const updateExercise = useMutation({
         mutationFn: (data) => window.api.training.updateExercise(exerciseToEdit.id, data),
-        onSuccess: (res) => {
+        onSuccess: (res, variables) => {
             if (res.success) {
-                queryClient.invalidateQueries(['exercises']);
+                queryClient.invalidateQueries({ queryKey: ['exercises'] });
                 toast.success('Ejercicio actualizado');
+                if (onSuccess) onSuccess({ ...variables, id: exerciseToEdit.id });
                 onCloseModal();
             } else {
                 toast.error('Error al actualizar: ' + res.error);
@@ -82,10 +90,7 @@ export default function ExerciseModal({
             subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
             videoUrl,
             notes,
-            default_sets: defaultSets,
-            default_reps: defaultReps,
-            is_failure: isFailure,
-            default_intensity: defaultIntensity
+            custom_fields: customFields
         };
 
         if (exerciseToEdit) {
@@ -100,6 +105,7 @@ export default function ExerciseModal({
         setName('');
         setVideoUrl('');
         setNotes('');
+        setCustomFields({});
         onClose();
     };
 
@@ -107,27 +113,19 @@ export default function ExerciseModal({
     useEffect(() => {
         if (isOpen) {
             if (exerciseToEdit) {
-                // Edit Mode
                 setName(exerciseToEdit.name);
                 setCategoryId(exerciseToEdit.category_id);
                 setSubcategoryId(exerciseToEdit.subcategory_id || '');
                 setVideoUrl(exerciseToEdit.video_url || '');
                 setNotes(exerciseToEdit.notes || '');
-                setDefaultSets(exerciseToEdit.default_sets || 4);
-                setDefaultReps(exerciseToEdit.default_reps || '');
-                setIsFailure(!!exerciseToEdit.is_failure);
-                setDefaultIntensity(exerciseToEdit.default_intensity || '');
+                setCustomFields(exerciseToEdit.custom_fields || {});
             } else {
-                // Create Mode
                 setName('');
                 setCategoryId(initialCategory || '');
                 setSubcategoryId(initialSubcategory || '');
                 setVideoUrl('');
                 setNotes('');
-                setDefaultSets(4);
-                setDefaultReps('');
-                setIsFailure(false);
-                setDefaultIntensity('');
+                setCustomFields({});
             }
         }
     }, [isOpen, initialCategory, initialSubcategory, exerciseToEdit]);
@@ -150,15 +148,15 @@ export default function ExerciseModal({
                 </div>
 
                 {/* BODY */}
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 overflow-y-auto max-h-[75vh] space-y-4">
 
                     {/* Name */}
                     <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nombre del Ejercicio</label>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 tracking-wider">Nombre del Ejercicio</label>
                         <input
                             autoFocus
                             type="text"
-                            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none"
+                            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-blue-500 outline-none transition-all"
                             placeholder="Ej. Press Banca..."
                             value={name}
                             onChange={e => setName(e.target.value)}
@@ -168,109 +166,99 @@ export default function ExerciseModal({
                     {/* Category Selection */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Categoría</label>
-                            <select
-                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none appearance-none"
-                                value={categoryId}
-                                onChange={e => {
-                                    setCategoryId(e.target.value);
-                                    setSubcategoryId(''); // Reset sub on cat change
-                                }}
-                            >
-                                <option value="">Seleccionar...</option>
-                                {categories.map(cat => (
-                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                ))}
-                            </select>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 tracking-wider">Categoría</label>
+                            <div className="relative">
+                                <select
+                                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-blue-500 outline-none appearance-none transition-all pr-10"
+                                    value={categoryId}
+                                    onChange={e => {
+                                        setCategoryId(e.target.value);
+                                        setSubcategoryId('');
+                                    }}
+                                >
+                                    <option value="">Seleccionar...</option>
+                                    {categories.map(cat => (
+                                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
+                            </div>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Subcategoría</label>
-                            <select
-                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none appearance-none"
-                                value={subcategoryId || ''}
-                                onChange={e => setSubcategoryId(e.target.value)}
-                                disabled={!categoryId}
-                            >
-                                <option value="">(Opcional)</option>
-                                {availableSubcategories.map(sub => (
-                                    <option key={sub.id} value={sub.id}>{sub.name}</option>
-                                ))}
-                            </select>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 tracking-wider">Subcategoría</label>
+                            <div className="relative">
+                                <select
+                                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-blue-500 outline-none appearance-none transition-all pr-10 disabled:opacity-30"
+                                    value={subcategoryId || ''}
+                                    onChange={e => setSubcategoryId(e.target.value)}
+                                    disabled={!categoryId}
+                                >
+                                    <option value="">(Opcional)</option>
+                                    {availableSubcategories.map(sub => (
+                                        <option key={sub.id} value={sub.id}>{sub.name}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
+                            </div>
                         </div>
                     </div>
 
-                    {/* Default Reps, Failure, & Intensity */}
-                    <div className="grid grid-cols-3 gap-4 pt-2">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Series Default</label>
-                            <input
-                                type="number"
-                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none"
-                                placeholder="4"
-                                value={defaultSets}
-                                onChange={e => setDefaultSets(parseInt(e.target.value) || 0)}
-                            />
+                    {/* DYNAMIC FIELDS */}
+                    {activeFields.length > 0 && (
+                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                            <h3 className="col-span-2 text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-1">Parámetros de Entrenamiento</h3>
+                            {activeFields.map(field => (
+                                <div key={field.field_key}>
+                                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5 truncate" title={field.label}>
+                                        {field.label}
+                                    </label>
+                                    {field.type === 'select' ? (
+                                        <div className="relative">
+                                            <select
+                                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm appearance-none transition-all pr-10"
+                                                value={customFields[field.field_key] || ''}
+                                                onChange={e => setCustomFields({ ...customFields, [field.field_key]: e.target.value })}
+                                            >
+                                                <option value="">Seleccionar...</option>
+                                                {field.options?.map(opt => (
+                                                    <option key={opt} value={opt}>{opt}</option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
+                                        </div>
+                                    ) : (
+                                        <input
+                                            type={field.type === 'number' ? 'number' : 'text'}
+                                            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm transition-all"
+                                            placeholder={`${field.label}...`}
+                                            value={customFields[field.field_key] || ''}
+                                            onChange={e => setCustomFields({ ...customFields, [field.field_key]: e.target.value })}
+                                        />
+                                    )}
+                                </div>
+                            ))}
                         </div>
-                        <div>
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="block text-xs font-bold text-slate-400 uppercase">Rango Reps</label>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const newVal = !isFailure;
-                                        setIsFailure(newVal);
-                                        if (newVal) setDefaultReps('∞');
-                                        else setDefaultReps('');
-                                    }}
-                                    className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors ${isFailure ? 'bg-red-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                        }`}
-                                >
-                                    {isFailure ? '🔥 Fallo' : '⭕ Normal'}
-                                </button>
-                            </div>
-                            <input
-                                type="text"
-                                className={`w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none ${isFailure ? 'font-bold text-red-400' : ''}`}
-                                placeholder={isFailure ? '∞' : '8-12'}
-                                value={defaultReps}
-                                onChange={e => setDefaultReps(e.target.value)}
-                                disabled={isFailure}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Intensidad Def.</label>
-                            <select
-                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-2 py-2 text-white focus:border-blue-500 outline-none appearance-none text-sm"
-                                value={defaultIntensity}
-                                onChange={e => setDefaultIntensity(e.target.value)}
-                            >
-                                <option value="">-</option>
-                                <option value="Baja">Baja</option>
-                                <option value="Media">Media</option>
-                                <option value="Alta">Alta</option>
-                                <option value="Máxima">Máxima</option>
-                            </select>
-                        </div>
-                    </div>
+                    )}
 
                     {/* Meta */}
-                    <div className="space-y-3 pt-2">
+                    <div className="space-y-4 pt-2 border-t border-white/5">
+                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-1">Multimedia y Notas</h3>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1 flex items-center gap-2">
-                                <Video size={14} /> URL de Video (YouTube/Drive)
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-2">
+                                <Video size={14} className="text-red-500" /> URL de Video
                             </label>
                             <input
                                 type="text"
-                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm"
-                                placeholder="https://..."
+                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm font-mono"
+                                placeholder="https://youtube.com/..."
                                 value={videoUrl}
                                 onChange={e => setVideoUrl(e.target.value)}
                             />
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1 flex items-center gap-2">
-                                <FileText size={14} /> Notas / Tips
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-2">
+                                <FileText size={14} className="text-amber-500" /> Notas / Tips
                             </label>
                             <textarea
                                 rows={3}
@@ -283,23 +271,23 @@ export default function ExerciseModal({
                     </div>
 
                     {/* FOOTER */}
-                    <div className="pt-4 flex justify-end gap-3">
+                    <div className="pt-4 flex justify-end gap-3 border-t border-white/10">
                         <button
                             type="button"
                             onClick={onCloseModal}
-                            className="px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                            className="px-6 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all font-semibold"
                         >
                             Cancelar
                         </button>
                         <button
                             type="submit"
                             disabled={isPending}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-transform active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[140px] justify-center"
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2 rounded-xl font-bold shadow-lg transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px] justify-center"
                         >
                             {isPending ? (
                                 <LoadingSpinner size="sm" color="white" />
                             ) : (
-                                <><Save size={18} /> {exerciseToEdit ? 'Actualizar' : 'Guardar Ejercicio'}</>
+                                <><Save size={18} /> {exerciseToEdit ? 'Actualizar' : 'Guardar'}</>
                             )}
                         </button>
                     </div>

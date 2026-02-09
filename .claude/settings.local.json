@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm rebuild:*)",
+      "Bash(npm run dev:*)",
+      "Bash(node -e:*)",
+      "Bash(node add_default_fields.js:*)",
+      "Bash(dir \"%USERPROFILE%\\\\coreBuild_data\\\\templates\\\\LOCAL_DEV\\\\org_template.xlsx\" /T:W)",
+      "Bash(cmd /c \"dir /T:W C:\\\\Users\\\\franc\\\\coreBuild_data\\\\templates\\\\LOCAL_DEV\\\\org_template.xlsx 2>NUL || echo No existe la plantilla\")",
+      "Bash(dir:*)",
+      "Bash(git mv:*)",
+      "Bash(move CREDENTIALS_SETUP.md docs )",
+      "Bash(move:*)",
+      "Bash(move START_HERE.md docs )"
+    ]
+  }
+}

@@ -136,18 +136,32 @@ export function NotificationProvider({ children }) {
         }
     };
 
-    const addNotification = (notif) => {
+    const addNotification = (notifOrMessage, type = 'info') => {
+        // Support both object {message, type} and string "Message", "type" signatures
+        let finalNotif;
+        if (typeof notifOrMessage === 'string') {
+            finalNotif = { message: notifOrMessage, type };
+        } else {
+            finalNotif = { ...notifOrMessage };
+        }
+
+        // Validate: No message, no notification
+        if (!finalNotif.message || finalNotif.message.trim() === '') {
+            console.warn('[NotificationContext] Blocked empty notification:', finalNotif);
+            return;
+        }
+
         setNotifications(prev => {
             // Generate unique ID if none provided
-            const id = notif.id || `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const finalNotif = { ...notif, id };
+            const id = finalNotif.id || `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const fullNotif = { ...finalNotif, id };
 
             // Check if it already exists (prevent duplicates for same ID)
             const exists = prev.find(n => n.id === id);
             if (exists) {
-                return prev.map(n => n.id === id ? { ...n, ...finalNotif, timestamp: new Date() } : n);
+                return prev.map(n => n.id === id ? { ...n, ...fullNotif, timestamp: new Date() } : n);
             }
-            return [{ ...finalNotif, timestamp: new Date() }, ...prev];
+            return [{ ...fullNotif, timestamp: new Date() }, ...prev];
         });
     };
 

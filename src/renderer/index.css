@@ -59,3 +59,25 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .animate-spin-slow {
     animation: spin-slow 3s linear infinite;
 }
+
+/* Recharts / Tremor Visibility Fixes for Dark Mode */
+.recharts-cartesian-axis-tick-value {
+    fill: #f1f5f9 !important;
+    /* slate-100 */
+    font-size: 11px !important;
+}
+
+.recharts-legend-item-text,
+.tremor-legend-item {
+    color: #f8fafc !important;
+    /* Higher contrast white */
+    font-weight: 500 !important;
+}
+
+.recharts-text {
+    fill: #f8fafc !important;
+}
+
+.recharts-tooltip-cursor {
+    stroke: rgba(255, 255, 255, 0.1);
+}

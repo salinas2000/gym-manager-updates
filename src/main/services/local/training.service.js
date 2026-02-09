@@ -6,10 +6,12 @@ const exerciseSchema = z.object({
     name: z.string().min(1, "El nombre del ejercicio es obligatorio"),
     subcategoryId: z.number().int().positive("La subcategoría es obligatoria"),
     video_url: z.string().url().optional().nullable().or(z.literal('')),
-    default_sets: z.number().int().min(1).optional(),
-    default_reps: z.string().optional(),
-    is_failure: z.boolean().optional(),
-    default_intensity: z.string().optional()
+    // Legacy fields made optional
+    default_sets: z.any().optional(),
+    default_reps: z.any().optional(),
+    is_failure: z.any().optional(),
+    default_intensity: z.any().optional(),
+    custom_fields: z.record(z.any()).optional()
 });
 
 const categorySchema = z.object({
@@ -21,6 +23,10 @@ const subcategorySchema = z.object({
     categoryId: z.number().int().positive(),
     name: z.string().min(1, "El nombre de la subcategoría es obligatorio")
 });
+
+const updateExerciseSchema = exerciseSchema.partial();
+const updateCategorySchema = categorySchema.partial();
+const updateSubcategorySchema = z.string().min(1, "El nombre de la subcategoría es obligatorio");
 
 const mesocycleSchema = z.object({
     id: z.number().optional(),
@@ -89,7 +95,25 @@ class TrainingService {
         }
 
         query += ' ORDER BY e.name ASC';
-        return this.db.prepare(query).all(...params);
+        const rows = this.db.prepare(query).all(...params);
+
+        // Get deleted field keys to filter them out from results
+        const deletedKeys = new Set(
+            this.db.prepare('SELECT field_key FROM exercise_field_config WHERE is_deleted = 1').all().map(r => r.field_key)
+        );
+
+        return rows.map(r => {
+            let fields = {};
+            if (r.custom_fields) {
+                try { fields = JSON.parse(r.custom_fields); } catch { /* malformed JSON, skip */ }
+            }
+            if (deletedKeys.size > 0) {
+                for (const key of deletedKeys) {
+                    delete fields[key];
+                }
+            }
+            return { ...r, custom_fields: fields };
+        });
     }
 
     createExercise(data) {
@@ -100,48 +124,44 @@ class TrainingService {
 
         const gymId = this.getGymId();
         const stmt = this.db.prepare(`
-            INSERT INTO exercises (gym_id, name, subcategory_id, video_url, default_sets, default_reps, is_failure, default_intensity) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO exercises (gym_id, name, subcategory_id, video_url, custom_fields) 
+            VALUES (?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
             gymId,
             data.name,
             data.subcategoryId,
             data.video_url,
-            data.default_sets || 4,
-            data.default_reps || '',
-            data.is_failure ? 1 : 0,
-            data.default_intensity || ''
+            data.custom_fields ? JSON.stringify(data.custom_fields) : null
         );
         return { id: info.lastInsertRowid, ...data };
     }
 
     updateExercise(id, data) {
-        console.log('[TrainingService] updateExercise:', id, data);
+        const validation = updateExerciseSchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+        const validatedData = validation.data;
+
         const stmt = this.db.prepare(`
             UPDATE exercises 
             SET name = @name, subcategory_id = @subcategoryId, video_url = @video_url, 
-                default_sets = @default_sets, default_reps = @default_reps, 
-                is_failure = @is_failure, default_intensity = @default_intensity,
+                custom_fields = @custom_fields,
                 synced = 0, updated_at = datetime('now')
             WHERE id = @id
         `);
-        const info = stmt.run({
-            name: data.name,
-            subcategoryId: data.subcategoryId,
-            video_url: data.video_url,
-            default_sets: data.default_sets,
-            default_reps: data.default_reps,
-            is_failure: data.is_failure ? 1 : 0,
-            default_intensity: data.default_intensity,
+        stmt.run({
+            name: validatedData.name,
+            subcategoryId: validatedData.subcategoryId,
+            video_url: validatedData.video_url,
+            custom_fields: validatedData.custom_fields ? JSON.stringify(validatedData.custom_fields) : null,
             id
         });
-        console.log('[TrainingService] update info:', info);
         return { id, ...data };
     }
 
     deleteExercise(id) {
-        // ... (keep existing) ...
         // Manual Cascade: Remove from routine_items first
         const deleteItems = this.db.prepare('DELETE FROM routine_items WHERE exercise_id = ?');
         const deleteEx = this.db.prepare('DELETE FROM exercises WHERE id = ?');
@@ -190,10 +210,14 @@ class TrainingService {
     }
 
     updateCategory(id, data) {
+        const validation = updateCategorySchema.safeParse(data);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
         // Prevent changing is_system
         const stmt = this.db.prepare('UPDATE exercise_categories SET name = ?, icon = ? WHERE id = ?');
-        stmt.run(data.name, data.icon, id);
-        return { id, ...data };
+        stmt.run(validation.data.name, validation.data.icon, id);
+        return { id, ...validation.data };
     }
 
     createSubcategory(data) {
@@ -209,9 +233,13 @@ class TrainingService {
     }
 
     updateSubcategory(id, name) {
+        const validation = updateSubcategorySchema.safeParse(name);
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
         const stmt = this.db.prepare('UPDATE exercise_subcategories SET name = ? WHERE id = ?');
-        stmt.run(name, id);
-        return { id, name };
+        stmt.run(validation.data, id);
+        return { id, name: validation.data };
     }
 
     deleteCategory(id) {
@@ -265,33 +293,51 @@ class TrainingService {
     }
 
     getRoutinesByMesocycle(mesocycleId) {
+        const deletedKeys = new Set(
+            this.db.prepare('SELECT field_key FROM exercise_field_config WHERE is_deleted = 1').all().map(r => r.field_key)
+        );
+
         const routines = this.db.prepare('SELECT * FROM routines WHERE mesocycle_id = ? ORDER BY id ASC').all(mesocycleId);
         return routines.map(r => ({
             ...r,
             items: this.db.prepare(`
-                SELECT ri.*, e.name as exercise_name, e.category 
+                SELECT ri.*, e.name as exercise_name, e.category
                 FROM routine_items ri
                 LEFT JOIN exercises e ON ri.exercise_id = e.id
                 WHERE ri.routine_id = ?
                 ORDER BY ri.order_index ASC
-             `).all(r.id)
+             `).all(r.id).map(item => {
+                let fields = {};
+                if (item.custom_fields) {
+                    try { fields = JSON.parse(item.custom_fields); } catch { /* malformed JSON, skip */ }
+                }
+                if (deletedKeys.size > 0) {
+                    for (const key of deletedKeys) {
+                        delete fields[key];
+                    }
+                }
+                return { ...item, custom_fields: fields };
+            })
         }));
     }
 
     checkMesocycleOverlap(customerId, startDate, endDate, excludeId = null) {
-        // Overlap logic: (StartA <= EndB) and (EndA >= StartB)
+        // Overlap: two ranges [A_start, A_end] and [B_start, B_end] overlap when:
+        // A_start <= B_end AND A_end >= B_start
+        // Here: existing.start_date <= newEndDate AND (existing.end_date >= newStartDate OR existing.end_date IS NULL)
         if (!customerId) return { hasOverlap: false }; // Templates don't overlap
+        if (!startDate) return { hasOverlap: false }; // No start date = no range to check
 
         let query = `
             SELECT id FROM mesocycles
             WHERE customer_id = ?
             AND active = 1
-            AND (
-                (start_date <= ? AND (end_date >= ? OR end_date IS NULL))
-            )
+            AND is_template = 0
+            AND start_date <= ?
+            AND (end_date >= ? OR end_date IS NULL)
         `;
-        console.log('[checkMesocycleOverlap] Checking:', { customerId, startDate, endDate, excludeId });
-        const params = [customerId, endDate || '9999-12-31', startDate];
+        const newEndDate = endDate || '9999-12-31';
+        const params = [customerId, newEndDate, startDate];
 
         if (excludeId) {
             query += ' AND id != ?';
@@ -299,7 +345,6 @@ class TrainingService {
         }
 
         const conflict = this.db.prepare(query).get(...params);
-        console.log('[checkMesocycleOverlap] Result:', conflict);
         return conflict ? { hasOverlap: true, conflictId: conflict.id } : { hasOverlap: false };
     }
 
@@ -396,8 +441,8 @@ class TrainingService {
         `);
 
         const insertItem = this.db.prepare(`
-            INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity)
-            VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity)
+            INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity, custom_fields)
+            VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity, @customFields)
         `);
 
         // EXECUTE TRANSACTION
@@ -457,7 +502,8 @@ class TrainingService {
                                 rpe: item.rpe || '',
                                 notes: item.notes || '',
                                 orderIndex: order++,
-                                intensity: item.intensity || ''
+                                intensity: item.intensity || '',
+                                customFields: item.customFields || item.custom_fields ? JSON.stringify(item.customFields || item.custom_fields) : null
                             });
                         }
                     }
@@ -479,6 +525,160 @@ class TrainingService {
         const db = require('../../db/database').getInstance();
         const stmt = db.prepare('UPDATE mesocycles SET drive_link = ? WHERE id = ?');
         stmt.run(publicUrl, mesoId);
+    }
+
+    // --- FIELD CONFIGURATION ---
+    getExerciseFieldConfigs() {
+        const configs = this.db.prepare('SELECT * FROM exercise_field_config WHERE is_deleted = 0 ORDER BY created_at ASC').all();
+        return configs.map(c => ({
+            ...c,
+            options: c.options ? JSON.parse(c.options) : null
+        }));
+    }
+
+    // New method to get ALL configs including deleted ones for rendering history
+    getAllExerciseFieldConfigs() {
+        const configs = this.db.prepare('SELECT * FROM exercise_field_config ORDER BY created_at ASC').all();
+        return configs.map(c => ({
+            ...c,
+            options: c.options ? JSON.parse(c.options) : null
+        }));
+    }
+
+    updateExerciseFieldConfig(key, data) {
+        const stmt = this.db.prepare(`
+            UPDATE exercise_field_config 
+            SET label = @label, type = @type, is_active = @is_active, 
+                is_mandatory_in_template = @is_mandatory_in_template, options = @options
+            WHERE field_key = @field_key
+        `);
+        stmt.run({
+            label: data.label,
+            type: data.type || 'text',
+            is_active: data.is_active ? 1 : 0,
+            is_mandatory_in_template: data.is_mandatory_in_template ? 1 : 0,
+            options: data.options ? JSON.stringify(data.options) : null,
+            field_key: key
+        });
+        return { success: true };
+    }
+
+    addFieldConfig(label, type, options = null) {
+        const key = label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+        const gymId = this.getGymId();
+        const stmt = this.db.prepare(`
+            INSERT INTO exercise_field_config (gym_id, field_key, label, type, options, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
+        `);
+        stmt.run(gymId, key, label, type || 'text', options ? JSON.stringify(options) : null);
+        return { success: true, key };
+    }
+
+    deleteFieldConfig(key) {
+        const transaction = this.db.transaction(() => {
+            // 1. Mark field config as deleted
+            this.db.prepare('UPDATE exercise_field_config SET is_deleted = 1, is_active = 0 WHERE field_key = ?').run(key);
+
+            // 2. Remove field from exercises.custom_fields JSON
+            const exercises = this.db.prepare("SELECT id, custom_fields FROM exercises WHERE custom_fields IS NOT NULL AND custom_fields != '{}'").all();
+            const updateExStmt = this.db.prepare('UPDATE exercises SET custom_fields = ? WHERE id = ?');
+            for (const ex of exercises) {
+                try {
+                    const fields = JSON.parse(ex.custom_fields);
+                    if (key in fields) {
+                        delete fields[key];
+                        updateExStmt.run(Object.keys(fields).length > 0 ? JSON.stringify(fields) : null, ex.id);
+                    }
+                } catch { /* skip malformed JSON */ }
+            }
+
+            // 3. Remove field from routine_items.custom_fields JSON
+            const items = this.db.prepare("SELECT id, custom_fields FROM routine_items WHERE custom_fields IS NOT NULL AND custom_fields != '{}'").all();
+            const updateItemStmt = this.db.prepare('UPDATE routine_items SET custom_fields = ? WHERE id = ?');
+            for (const item of items) {
+                try {
+                    const fields = JSON.parse(item.custom_fields);
+                    if (key in fields) {
+                        delete fields[key];
+                        updateItemStmt.run(Object.keys(fields).length > 0 ? JSON.stringify(fields) : null, item.id);
+                    }
+                } catch { /* skip malformed JSON */ }
+            }
+        });
+
+        transaction();
+        return { success: true };
+    }
+
+    // --- PRIORITIES & MANAGEMENT ---
+    getTrainingPriorities() {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+
+        // Last day of current month
+        const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        const lastDayStr = lastDayOfMonth.toISOString().split('T')[0];
+
+        // Get active customers who are NOT scheduled to cancel this month
+        // Using NOT EXISTS instead of NOT IN to avoid NULL pitfalls
+        const query = `
+            SELECT
+                c.id,
+                c.first_name,
+                c.last_name,
+                (SELECT end_date FROM mesocycles m
+                 WHERE m.customer_id = c.id AND m.is_template = 0 AND m.active = 1
+                 ORDER BY m.end_date DESC LIMIT 1) as plan_end_date
+            FROM customers c
+            WHERE c.active = 1
+            AND NOT EXISTS (
+                SELECT 1 FROM memberships mb
+                WHERE mb.customer_id = c.id
+                AND mb.end_date IS NOT NULL
+                AND mb.end_date <= ?
+                AND mb.end_date >= DATE('now', 'start of month')
+            )
+        `;
+
+        const rawData = this.db.prepare(query).all(lastDayStr);
+
+        const priorityList = rawData.map(c => {
+            let status = 'none'; // No active plan found
+            let daysRemaining = 999;
+
+            if (c.plan_end_date) {
+                const end = new Date(c.plan_end_date);
+                const diffTime = end - today;
+                daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (c.plan_end_date < todayStr) {
+                    status = 'expired';
+                } else if (daysRemaining <= 7) {
+                    status = 'urgent';
+                } else {
+                    status = 'good';
+                }
+            } else {
+                daysRemaining = -1; // No plan means highest priority
+            }
+
+            return {
+                ...c,
+                status,
+                daysRemaining
+            };
+        });
+
+        // Priority Sorting:
+        // 1. Expired/None (Status order: expired -> none -> urgent -> good)
+        // 2. Shortest remaining days
+        return priorityList.sort((a, b) => {
+            const order = { 'expired': 0, 'none': 1, 'urgent': 2, 'good': 3 };
+            if (order[a.status] !== order[b.status]) {
+                return order[a.status] - order[b.status];
+            }
+            return a.daysRemaining - b.daysRemaining;
+        });
     }
 }
 

@@ -2,12 +2,29 @@ node_modules
 dist
 release
 build
+
+# ===== SENSITIVE CREDENTIALS - NEVER COMMIT =====
 .env
+.env.local
+.env.*.local
+credentials.json
+
+# Logs
 *.log
+
+# Databases
 *.db
 *.sqlite
 *.sqlite3
+
+# OS Files
 .DS_Store
 thumbs.db
+
+# App Data
 src/main/db/seeds/*.json
 !src/main/db/seeds/example.json
+
+# Electron Store (contains encrypted credentials)
+# Uncomment if you don't want to share user preferences
+# electron-store/

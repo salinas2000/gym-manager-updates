@@ -9,6 +9,11 @@ const createPaymentSchema = z.object({
     payment_date: z.string().optional(), // ISO string from frontend
 });
 
+const monthlyReportSchema = z.object({
+    year: z.number().int().min(2000).max(2100),
+    month: z.number().int().min(1).max(12)
+});
+
 class PaymentService {
     getGymId() {
         try {
@@ -70,6 +75,11 @@ class PaymentService {
     }
 
     async getMonthlyReport(year, month) {
+        const validation = monthlyReportSchema.safeParse({ year, month });
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
         const db = dbManager.getInstance();
 
         // months are 1-12
@@ -92,7 +102,10 @@ class PaymentService {
                 (SELECT SUM(amount) FROM payments p 
                  WHERE p.customer_id = c.id 
                  AND p.payment_date >= ? AND p.payment_date < ?) as paid_amount,
-                (SELECT MAX(payment_date) FROM payments p WHERE p.customer_id = c.id) as last_payment_date,
+                (SELECT id FROM payments p 
+                 WHERE p.customer_id = c.id 
+                 AND p.payment_date >= ? AND p.payment_date < ?
+                 ORDER BY payment_date DESC LIMIT 1) as payment_id,
                 (SELECT start_date FROM memberships m 
                  WHERE m.customer_id = c.id 
                  AND (m.end_date IS NULL OR m.end_date >= ?)
@@ -109,49 +122,48 @@ class PaymentService {
             ORDER BY c.last_name ASC, c.first_name ASC
         `);
 
-        const data = stmt.all(startDate, endDate, startDate, endDate, startDate, endDate);
+        const data = stmt.all(startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate);
 
         return data.map(item => {
             let targetAmount = item.tariff_amount || 0;
 
             // Proration Logic: If joined mid-month, calculate percentage of month
             if (item.joined_date) {
-                const joinDate = new Date(item.joined_date);
-                const monthStart = new Date(startDate);
-                const nextMonth = new Date(endDate);
+                // Robust parsing of "YYYY-MM-DD" ignoring timezones
+                const joinParts = item.joined_date.split(/[-T ]/);
+                const joinYear = parseInt(joinParts[0], 10);
+                const joinMonth = parseInt(joinParts[1], 10);
+                const joinDay = parseInt(joinParts[2], 10);
 
-                if (joinDate >= monthStart && joinDate < nextMonth) {
+                if (joinYear === year && joinMonth === month) {
                     // Joined exactly in this month -> Prorate
-                    const daysInMonth = new Date(year, month + 1, 0).getDate();
-                    const remainingDays = daysInMonth - joinDate.getDate() + 1;
+                    const daysInMonth = new Date(year, month, 0).getDate();
+                    const remainingDays = daysInMonth - joinDay + 1;
 
-                    if (remainingDays < daysInMonth) {
+                    if (remainingDays < daysInMonth && remainingDays > 0) {
                         targetAmount = (targetAmount / daysInMonth) * remainingDays;
-                        targetAmount = parseFloat(targetAmount.toFixed(2));
+                        targetAmount = Math.round(targetAmount * 100) / 100;
                     }
-                } else if (joinDate >= nextMonth) {
-                    // This customer shouldn't even be in the report (filtered by WHERE EXISTS already, but double check)
-                    targetAmount = 0;
                 }
-                // If joinDate < monthStart, targetAmount remains baseAmount (100%)
             }
 
             return {
                 ...item,
                 tariff_amount: targetAmount,
                 paid_amount: item.paid_amount || 0,
-                is_paid: (item.paid_amount || 0) >= (targetAmount - 0.05), // Small margin for rounding
-                debt: Math.max(0, targetAmount - (item.paid_amount || 0))
+                is_paid: (item.paid_amount || 0) >= (targetAmount - 0.5), // Increased tolerance to 0.50€ for small discrepancies
+                debt: Math.max(0, Math.round((targetAmount - (item.paid_amount || 0)) * 100) / 100)
             };
         });
     }
 
-    getDebtors() {
+    async getDebtors() {
         const db = dbManager.getInstance();
         const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
 
         // 1. Get all active customers with their tariff and Join Date
-        // We only care about customers who HAVE a joined_date (active membership history)
         const customers = db.prepare(`
             SELECT 
                 c.id, 
@@ -167,6 +179,23 @@ class PaymentService {
             WHERE c.active = 1 AND joined_date IS NOT NULL
         `).all();
 
+        // 2. Fetch ALL payments from the last 2 years in one go for these customers
+        const twoYearsAgo = new Date(currentYear - 2, currentMonth, 1).toISOString();
+        const allPayments = db.prepare(`
+            SELECT customer_id, amount, payment_date,
+                   strftime('%Y', payment_date) as year,
+                   strftime('%m', payment_date) as month
+            FROM payments
+            WHERE payment_date >= ?
+        `).all(twoYearsAgo);
+
+        // Group payments by customer and month
+        const paymentMap = new Map();
+        allPayments.forEach(p => {
+            const key = `${p.customer_id}-${p.year}-${parseInt(p.month, 10)}`;
+            paymentMap.set(key, (paymentMap.get(key) || 0) + p.amount);
+        });
+
         const debtors = [];
         const monthLetters = ['E', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
@@ -177,45 +206,26 @@ class PaymentService {
 
             // Iterator date: Start from the 1st of the join month
             let iterDate = new Date(joinDate.getFullYear(), joinDate.getMonth(), 1);
+            const stopDate = new Date(currentYear, currentMonth, 1);
 
-            // Limit: Up to current month (inclusive)
-            const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            // Safety back-limit
+            const startLimit = new Date(currentYear - 2, currentMonth, 1);
+            if (iterDate < startLimit) iterDate = startLimit;
 
-            // Safety: Don't go back more than 2 years to avoid performance kills
-            const minDate = new Date(now.getFullYear() - 2, now.getMonth(), 1);
-            if (iterDate < minDate) iterDate = minDate;
-
-            while (iterDate <= currentMonthStart) {
+            while (iterDate <= stopDate) {
                 const y = iterDate.getFullYear();
                 const m = iterDate.getMonth();
+                const monthDisplay = m + 1;
 
-                // Define the window for this month's payment
-                // (e.g. 2024-01-01 to 2024-02-01)
-                const monthStartStr = iterDate.toISOString().slice(0, 10);
-                const nextMonthDate = new Date(y, m + 1, 1);
-                const monthEndStr = nextMonthDate.toISOString().slice(0, 10);
-
-                // Check if paid in this window
-                // We assume one payment covers one month for simplicity in this logic
-                const payment = db.prepare(`
-                    SELECT SUM(amount) as paidTotal FROM payments 
-                    WHERE customer_id = ? 
-                    AND payment_date >= ? AND payment_date < ?
-                `).get(customer.id, monthStartStr, monthEndStr);
-
-                const paid = payment.paidTotal || 0;
-
-                // If paid less than 95% of tariff, it's unpaid
-                // (Using 95% to allow small caching/rounding diffs)
+                const key = `${customer.id}-${y}-${monthDisplay}`;
+                const paid = paymentMap.get(key) || 0;
                 const tariff = customer.tariff_amount || 0;
 
-                // Special Proration Logic for Join Month only:
-                // If joined on day 20, they should only pay ~33%
                 let requiredAmount = tariff;
 
+                // Proration Join Month
                 if (y === joinDate.getFullYear() && m === joinDate.getMonth()) {
                     const dayOfJoin = joinDate.getDate();
-                    // If joined after day 1, checks proration
                     if (dayOfJoin > 1) {
                         const daysInMonth = new Date(y, m + 1, 0).getDate();
                         const daysToPay = daysInMonth - dayOfJoin + 1;
@@ -228,24 +238,20 @@ class PaymentService {
                         year: y,
                         month: m,
                         letter: monthLetters[m],
-                        amount: requiredAmount - paid
+                        amount: Math.round((requiredAmount - paid) * 100) / 100
                     });
                     totalDebt += (requiredAmount - paid);
                 }
 
-                // Next month
                 iterDate.setMonth(iterDate.getMonth() + 1);
             }
 
-            // Filter Criteria: Must owe more than 2 months equivalent OR have more than 2 distinct unpaid months?
-            // User requirement: "estado mas de 2 meses sin pagar"
-            // Let's stick to "More than 2 unpaid periods"
             if (unpaidMonths.length > 2) {
                 debtors.push({
                     ...customer,
-                    unpaid_months: unpaidMonths, // List of objects {year, month, letter}
+                    unpaid_months: unpaidMonths,
                     total_debt: parseFloat(totalDebt.toFixed(2)),
-                    last_payment_date: null // Not strictly needed for new UI but safe to keep schema
+                    last_payment_date: null
                 });
             }
         });

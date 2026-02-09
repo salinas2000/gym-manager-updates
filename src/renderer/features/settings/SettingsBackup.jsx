@@ -43,16 +43,15 @@ export default function SettingsBackup() {
             if (result.success) {
                 setStatus('success');
                 const time = new Date().toLocaleTimeString();
-                const tables = result.data?.data?.tables || result.data?.tables || {};
                 const fileUploaded = result.data?.data?.fileBackup || result.data?.fileBackup;
 
-                setStatusMessage(`Backup COMPLETADO a las ${time}. 
-                \n• Sincronización Exacta: OK
-                \n• Snapshot .db: ${fileUploaded ? 'SUBIDO' : 'Error'}
+                setStatusMessage(`Snapshot COMPLETADO a las ${time}. 
+                \n• Estado: El archivo .db ha sido guardado de forma segura en la nube.
+                \n• Archivo: ${fileUploaded || 'gym_manager.db'}
                 `);
             } else {
                 setStatus('error');
-                setStatusMessage(`Error en el backup: ${result.error}`);
+                setStatusMessage(`Error en el snapshot: ${result.error}`);
             }
         } catch (error) {
             setStatus('error');
@@ -67,10 +66,10 @@ export default function SettingsBackup() {
             <div className="mb-8">
                 <h2 className="text-2xl font-bold text-white flex items-center gap-2 mb-2">
                     <Cloud className="text-blue-400" />
-                    Copia Completa & Snapshot
+                    Snapshot en la Nube
                 </h2>
                 <p className="text-slate-400">
-                    Sincronización exacta (elimina lo que sobra en la nube) + Subida de archivo físico (.db) para restauración total.
+                    Crea una copia de seguridad física de tu base de datos (.db) y súbela a la nube de forma segura para una restauración total en cualquier momento.
                 </p>
             </div>
 

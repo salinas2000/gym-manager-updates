@@ -31,16 +31,11 @@ export default function SettingsPage({ initialTab = 'general' }) {
         role: ''
     });
 
-    // Password & Activation State
-    const [isLocked, setIsLocked] = useState(true);
-    const [passwordInput, setPasswordInput] = useState('');
-    const [newPassword, setNewPassword] = useState('');
     const [licenseKey, setLicenseKey] = useState('');
 
     // UI State
     const [isSaving, setIsSaving] = useState(false);
     const [message, setMessage] = useState(null);
-    const [unlockError, setUnlockError] = useState(null);
 
     // Status (Derived from both local settings and license service)
     const isActivated = !!licenseData;
@@ -78,48 +73,16 @@ export default function SettingsPage({ initialTab = 'general' }) {
 
     // --- ACTIONS ---
 
-    const handleUnlock = async () => {
-        setUnlockError(null);
-        try {
-            const res = await window.api.settings.verifyPassword(passwordInput);
-            if (res.success && res.data) {
-                setIsLocked(false);
-                setPasswordInput('');
-            } else {
-                setUnlockError('Contraseña incorrecta');
-            }
-        } catch (e) {
-            setUnlockError('Error al verificar');
-        }
-    };
+    // --- ACTIONS ---
 
     const handleSaveGeneral = async (e) => {
         e.preventDefault();
-        if (isLocked) return;
-
         setIsSaving(true);
         const success = await updateSettings(formData);
         if (success) {
             showMsg('success', 'Información actualizada.');
-            setIsLocked(true);
         } else {
             showMsg('error', 'Error al guardar.');
-        }
-        setIsSaving(false);
-    };
-
-    const handleChangePassword = async (e) => {
-        e.preventDefault();
-        if (!newPassword) return;
-
-        setIsSaving(true);
-        const success = await updateSettings({ admin_password: newPassword });
-        if (success) {
-            showMsg('success', 'Contraseña de administrador actualizada.');
-            setNewPassword('');
-            setIsLocked(true);
-        } else {
-            showMsg('error', 'Error al cambiar contraseña.');
         }
         setIsSaving(false);
     };
@@ -170,7 +133,7 @@ export default function SettingsPage({ initialTab = 'general' }) {
             {/* TABS */}
             <div className="flex gap-4 border-b border-white/10 pb-1">
                 <button onClick={() => setActiveTab('general')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 ${activeTab === 'general' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
-                    General e Identidad
+                    Identidad Corporativa
                 </button>
                 <button onClick={() => setActiveTab('license')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'license' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     <Key size={16} /> Licencia
@@ -186,174 +149,56 @@ export default function SettingsPage({ initialTab = 'general' }) {
             {/* TAB CONTENT: GENERAL */}
             {activeTab === 'general' && (
                 <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-                    {/* Lock Overlay / Unlocked State */}
-                    {isLocked ? (
-                        <div className="bg-slate-900/50 rounded-2xl p-8 border border-white/5 border-dashed flex flex-col items-center justify-center text-center space-y-4">
-                            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center text-slate-500">
-                                <Lock size={32} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-white">Edición Bloqueada</h3>
-                                <p className="text-slate-400 text-sm max-w-sm mx-auto">Esta sección es exclusiva para el instalador del sistema.</p>
-                            </div>
-                            <div className="flex gap-2 w-full max-w-xs">
-                                <input
-                                    type="password"
-                                    placeholder="Clave de Instalador..."
-                                    value={passwordInput}
-                                    onChange={e => setPasswordInput(e.target.value)}
-                                    className="bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white w-full"
-                                />
-                                <button onClick={handleUnlock} className="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded-lg font-bold">
-                                    <Unlock size={18} />
-                                </button>
-                            </div>
-                            {unlockError && <p className="text-red-400 text-xs">{unlockError}</p>}
-                        </div>
-                    ) : (
-                        <form onSubmit={handleSaveGeneral} className="space-y-6">
-                            <div className="flex justify-between items-center mb-4">
-                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 flex items-center gap-2 text-emerald-400 text-sm">
-                                    <Unlock size={16} />
-                                    <span>Modo Instalador: Edición habilitada.</span>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsLocked(true)}
-                                    className="text-slate-400 hover:text-white flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors"
-                                >
-                                    <Lock size={16} /> Bloquear
-                                </button>
-                            </div>
+                    <form onSubmit={handleSaveGeneral} className="space-y-6">
 
-                            <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-32 bg-blue-600/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <Building2 className="text-blue-400" /> Identidad Corporativa
-                                </h3>
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-400 block">Nombre del Gimnasio</label>
+                        {/* CORPORATE IDENTITY */}
+                        <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-32 bg-blue-600/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                            <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                <Building2 className="text-blue-400" /> Identidad Corporativa
+                            </h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-sm font-medium text-slate-400 block mb-2">Nombre del Gimnasio</label>
                                     <input
                                         type="text" name="gym_name" value={formData.gym_name} onChange={handleChange}
-                                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
+                                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none transition-all"
+                                        placeholder="Ej: Iron Gym"
                                     />
-                                    <p className="text-xs text-slate-500">Se usará como identificador para los backups en la nube.</p>
+                                    <p className="text-xs text-slate-500 mt-2">Este nombre será visible en todas las rutinas exportadas.</p>
                                 </div>
                             </div>
+                        </div>
 
-                            <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <UserCircle className="text-emerald-400" /> Responsable
-                                </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-slate-400 block">Nombre</label>
-                                        <input
-                                            type="text" name="manager_name" value={formData.manager_name} onChange={handleChange}
-                                            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-emerald-500 outline-none"
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-slate-400 block">Rol / Cargo</label>
-                                        <input
-                                            type="text" name="role" value={formData.role} onChange={handleChange}
-                                            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-emerald-500 outline-none"
-                                        />
-                                    </div>
+                        {/* RESPONSIBLE INFO */}
+                        <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
+                            <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                <UserCircle className="text-emerald-400" /> Responsable
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-400 block">Nombre</label>
+                                    <input
+                                        type="text" name="manager_name" value={formData.manager_name} onChange={handleChange}
+                                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-emerald-500 outline-none"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-400 block">Rol / Cargo</label>
+                                    <input
+                                        type="text" name="role" value={formData.role} onChange={handleChange}
+                                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-emerald-500 outline-none"
+                                    />
                                 </div>
                             </div>
+                        </div>
 
-                            <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <Briefcase className="text-purple-400" /> Documentos y Plantillas
-                                </h3>
-                                <div className="space-y-4">
-                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-slate-950 rounded-xl border border-white/5">
-                                        <div>
-                                            <h4 className="text-sm font-bold text-white mb-1">Plantilla de Rutinas (Excel)</h4>
-                                            <p className="text-xs text-slate-500 font-mono break-all max-w-lg">
-                                                {settings.excel_template_path
-                                                    ? settings.excel_template_path
-                                                    : 'Ubicación: Interna (Predeterminada)'}
-                                            </p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={async () => {
-                                                const path = await window.api.settings.selectExcelTemplate();
-                                                if (path) {
-                                                    showMsg('success', 'Plantilla actualizada correctamente');
-                                                    refreshData(); // Reload settings
-                                                }
-                                            }}
-                                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg transition-colors border border-white/10"
-                                        >
-                                            Cambiar Plantilla...
-                                        </button>
-                                    </div>
-                                    <p className="text-[10px] text-slate-500 italic">
-                                        Puedes seleccionar un archivo .xlsx personalizado para usar como base en la generación de rutinas.
-                                        Asegúrate de mantener la estructura de celdas original.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel relative overflow-hidden">
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                    <Database className="text-amber-400" /> Gestión de Datos
-                                </h3>
-                                <div className="space-y-4">
-                                    <p className="text-sm text-slate-400">Funciones para importar o exportar manualmente la base de datos local.</p>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <button
-                                            type="button"
-                                            onClick={async () => {
-                                                const res = await window.api.cloud.exportLocal();
-                                                if (res.success) {
-                                                    alert('Backup exportado exitosamente');
-                                                }
-                                            }}
-                                            className="flex items-center justify-center gap-2 p-4 bg-slate-800 hover:bg-slate-700 rounded-xl text-white font-medium transition-colors border border-white/5"
-                                        >
-                                            <Save size={18} /> Exportar Backup (.db)
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                requestConfirm({
-                                                    title: '¡ADVERTENCIA CRÍTICA!',
-                                                    message: 'Estás a punto de IMPORTAR una base de datos externa. Esto SOBREESCRIBIRÁ todos los datos actuales del gimnasio (socios, pagos, rutinas). Esta acción es irreversible.',
-                                                    type: 'danger',
-                                                    confirmText: 'Entiendo, importar ahora',
-                                                    onConfirm: async () => {
-                                                        const res = await window.api.cloud.importLocal();
-                                                        if (res.success) {
-                                                            alert('Base de datos importada exitosamente. La aplicación se reiniciará.');
-                                                            window.location.reload();
-                                                        } else if (res.error) {
-                                                            alert('Error al importar: ' + res.error);
-                                                        }
-                                                    }
-                                                });
-                                            }}
-                                            className="flex items-center justify-center gap-2 p-4 bg-red-900/20 hover:bg-red-900/40 border border-red-500/30 rounded-xl text-red-100 font-medium transition-colors"
-                                        >
-                                            <HardDrive size={18} /> Importar Backup (.db)
-                                        </button>
-                                    </div>
-                                    <p className="text-[10px] text-slate-500 italic text-center">Usa la importación con cuidado. Asegúrate de que el archivo .db sea una copia válida generada por esta misma aplicación.</p>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end pt-4">
-                                <button type="submit" disabled={isSaving} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-blue-500/20 transition-all">
-                                    <Save size={20} /> Guardar Cambios
-                                </button>
-                            </div>
-                        </form>
-                    )}
+                        <div className="flex justify-end pt-4">
+                            <button type="submit" disabled={isSaving} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-blue-500/20 transition-all">
+                                <Save size={20} /> Guardar Cambios
+                            </button>
+                        </div>
+                    </form>
                 </div>
             )}
 

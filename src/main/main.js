@@ -1,29 +1,8 @@
-// CRITICAL: Load .env BEFORE any other requires
-// This must happen first to ensure Google OAuth credentials are available
+// CRITICAL: Initialize secure credential system FIRST
 const path = require('path');
 const fs = require('fs');
 
-// Determine environment path
-// In development: .env is in project root (../../.env from src/main/main.js)
-// In production: .env is copied to process.resourcesPath by electron-builder
-let envPath;
-const devEnvPath = path.join(__dirname, '../../.env');
-
-// Check if we're running from ASAR (production)
-if (__dirname.includes('app.asar')) {
-    // Production: Use process.resourcesPath which points to the resources folder
-    // This is where electron-builder copies extraResources
-    envPath = path.join(process.resourcesPath, '.env');
-    console.log('🏭 PRODUCTION MODE DETECTED');
-    console.log('📁 Resources path:', process.resourcesPath);
-} else {
-    // Development: .env is in project root
-    envPath = devEnvPath;
-    console.log('🛠️ DEVELOPMENT MODE DETECTED');
-}
-
-// Load environment variables
-require('dotenv').config({ path: envPath });
+console.log('🔐 Initializing Secure Credential Manager...');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LOGGING CONFIGURATION - Redirect ALL console output to file
@@ -52,16 +31,25 @@ console.log('📁 Log file location:', log.transports.file.getFile().path);
 console.log('💡 To view logs, open this file in a text editor');
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-// Validate critical environment variables
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('🔧 Environment loaded from:', envPath);
-console.log('📁 File exists:', fs.existsSync(envPath) ? '✅' : '❌');
-console.log('🔑 GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? '✅ LOADED' : '❌ MISSING');
-console.log('🔐 GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? '✅ LOADED' : '❌ MISSING');
-console.log('☁️ SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ LOADED' : '❌ MISSING');
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
 const { app, BrowserWindow } = require('electron');
+
+// Initialize secure credential manager AFTER electron app is loaded
+const credentialManager = require('./config/credentials');
+const credentialsLoaded = credentialManager.init();
+
+console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+console.log('🔐 SECURE CREDENTIALS STATUS');
+if (credentialsLoaded) {
+    const creds = credentialManager.get();
+    console.log('✅ Credentials loaded successfully');
+    console.log('☁️ Supabase:', creds.supabase?.url ? '✅ Configured' : '❌ Missing');
+    console.log('🔑 Google OAuth:', creds.google?.clientId ? '✅ Configured' : 'ℹ️ Optional (not configured)');
+    console.log('🐙 GitHub Token:', creds.github?.token ? '✅ Configured' : 'ℹ️ Optional (not configured)');
+} else {
+    console.warn('⚠️ Credentials not loaded - App may have limited functionality');
+    console.warn('ℹ️ See documentation for credential configuration');
+}
+console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
 const dbManager = require('./db/database');
 const { registerHandlers } = require('./ipc/handlers');
@@ -131,9 +119,6 @@ function createWindow() {
         mainWindow.loadFile(distIndex).catch(e => {
             console.error('FAILED to load index.html:', e);
         });
-
-        // TEMPORARY: Enable DevTools in production for debugging
-        mainWindow.webContents.openDevTools();
     }
 
     mainWindow.once('ready-to-show', () => {
@@ -200,11 +185,11 @@ app.whenReady().then(() => {
 
         // 5. App Version Update Check
         const runUpdateCheck = () => {
-            if (app.isPackaged) {
-                autoUpdater.checkForUpdatesAndNotify().catch(err => console.error('Update check failed:', err));
-            } else {
-                console.log('📡 [Updater] Update check skipped in Development mode.');
-            }
+            // Allow checking in Dev to test notifications
+            console.log('📡 [Updater] Checking for updates...');
+            autoUpdater.checkForUpdatesAndNotify().catch(err => {
+                console.warn('📡 [Updater] Check failed (Common in Dev if not configured):', err.message);
+            });
         };
 
         // 6. Remote Database Load Check (Realtime & Polling)

@@ -1,21 +1,27 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
 import GlobalBanner from './ui/GlobalBanner';
 
-const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
+const SidebarItem = ({ icon: Icon, label, active, onClick, color = "text-slate-500" }) => (
     <div
         onClick={onClick}
         className={`
-    flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all group
+    flex items-center gap-3 px-4 py-2.5 rounded-xl cursor-pointer transition-all group
     ${active
                 ? 'bg-blue-600 shadow-[0_0_20px_rgba(37,99,235,0.3)] text-white'
                 : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
   `}>
-        <Icon size={20} className={active ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'} />
-        <span className="font-medium text-sm">{label}</span>
+        <Icon size={18} className={active ? 'text-white' : `${color} group-hover:text-slate-200`} />
+        <span className="font-medium text-xs uppercase tracking-wider">{label}</span>
+    </div>
+);
+
+const SectionLabel = ({ label }) => (
+    <div className="px-4 mt-6 mb-2">
+        <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">{label}</span>
     </div>
 );
 
@@ -80,7 +86,7 @@ export default function Layout({ children, currentView, onNavigate }) {
                                         {settings?.gym_name || 'Gym Manager'}
                                     </h1>
                                     <div className="flex items-center gap-2 mt-1">
-                                        <p className="text-[10px] font-medium text-blue-400/80 uppercase tracking-widest">PRO SUITE</p>
+
                                         <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded shadow-sm shadow-emerald-500/5">
                                             v{appVersion}
                                         </span>
@@ -92,67 +98,95 @@ export default function Layout({ children, currentView, onNavigate }) {
                         </div>
                     </div>
 
-                    <nav className="flex-1 space-y-2">
+                    <nav className="flex-1 space-y-1 overflow-y-auto pr-2 custom-scrollbar">
                         {/* Dashboard - Highlighted for Statistics */}
                         <div
                             onClick={() => onNavigate('dashboard')}
                             className={`
-                            flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all group
+                            flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all group mb-4
                             ${currentView === 'dashboard'
                                     ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] text-white'
-                                    : 'text-slate-400 hover:bg-emerald-900/20 hover:text-emerald-300 border border-emerald-500/20'
+                                    : 'text-slate-400 hover:bg-emerald-900/20 hover:text-emerald-300 border border-emerald-500/10'
                                 }
                         `}
                         >
                             <LayoutDashboard size={20} className={currentView === 'dashboard' ? 'text-white' : 'text-emerald-500 group-hover:text-emerald-300'} />
-                            <span className="font-medium text-sm">{t('sidebar.dashboard')}</span>
+                            <span className="font-bold text-sm tracking-tight">{t('sidebar.dashboard')}</span>
                         </div>
 
+                        <SectionLabel label="Gestión" />
                         <SidebarItem
                             icon={Users}
                             label={t('sidebar.customers')}
                             active={currentView === 'customers'}
                             onClick={() => onNavigate('customers')}
+                            color="text-blue-400"
                         />
                         <SidebarItem
+                            icon={Package}
+                            label="Almacén / Stock"
+                            active={currentView === 'inventory'}
+                            onClick={() => onNavigate('inventory')}
+                            color="text-indigo-400"
+                        />
+
+                        <SectionLabel label="Pagos" />
+                        <SidebarItem
                             icon={CreditCard}
-                            label="Pagos"
+                            label="Gestión de Pagos"
                             active={currentView === 'finance'}
                             onClick={() => onNavigate('finance')}
+                            color="text-emerald-400"
                         />
                         <SidebarItem
                             icon={Settings}
-                            label={t('sidebar.tariffs')}
+                            label="Gestión de Tarifas"
                             active={currentView === 'tariffs'}
                             onClick={() => onNavigate('tariffs')}
+                            color="text-amber-400"
                         />
+
+                        <SectionLabel label="Entrenamiento" />
                         <SidebarItem
-                            icon={LayoutDashboard}
-                            label={t('sidebar.library')}
-                            active={currentView === 'library'}
-                            onClick={() => onNavigate('library')}
+                            icon={ListTodo}
+                            label="Prioridades"
+                            active={currentView === 'priorities'}
+                            onClick={() => onNavigate('priorities')}
+                            color="text-rose-400"
                         />
                         <SidebarItem
                             icon={Dumbbell}
-                            label={t('sidebar.training')}
+                            label="Centro Entrenam."
                             active={currentView === 'training'}
                             onClick={() => onNavigate('training')}
+                            color="text-blue-400"
                         />
+                        <SidebarItem
+                            icon={LayoutDashboard}
+                            label="Biblioteca"
+                            active={currentView === 'library'}
+                            onClick={() => onNavigate('library')}
+                            color="text-purple-400"
+                        />
+                        <SidebarItem
+                            icon={Clock}
+                            label="Historial"
+                            active={currentView === 'history'}
+                            onClick={() => onNavigate('history')}
+                            color="text-slate-400"
+                        />
+
+                        <SectionLabel label="Herramientas" />
                         <SidebarItem
                             icon={Palette}
                             label="Diseñador"
                             active={currentView === 'templates'}
                             onClick={() => onNavigate('templates')}
-                        />
-                        <SidebarItem
-                            icon={Clock}
-                            label={t('sidebar.history')}
-                            active={currentView === 'history'}
-                            onClick={() => onNavigate('history')}
+                            color="text-pink-400"
                         />
 
                         {settings?.isMaster && (
-                            <div className="pt-4 mt-4 border-t border-white/5">
+                            <div className="pt-2">
                                 <div
                                     onClick={() => onNavigate('admin')}
                                     className={`
@@ -164,19 +198,18 @@ export default function Layout({ children, currentView, onNavigate }) {
                                 `}
                                 >
                                     <Settings size={20} className={currentView === 'admin' ? 'text-white' : 'text-indigo-500 group-hover:text-indigo-300'} />
-                                    <span className="font-bold text-sm">Panel Maestro</span>
+                                    <span className="font-bold text-xs uppercase tracking-wider">Panel Maestro</span>
                                 </div>
                             </div>
                         )}
 
-                        <div className="pt-4 border-t border-white/5 mt-4">
-                            <SidebarItem
-                                icon={Settings}
-                                label="Configuración"
-                                active={currentView === 'settings'}
-                                onClick={() => onNavigate('settings')}
-                            />
-                        </div>
+                        <SidebarItem
+                            icon={Settings}
+                            label="Configuración"
+                            active={currentView === 'settings'}
+                            onClick={() => onNavigate('settings')}
+                            color="text-slate-400"
+                        />
                     </nav>
 
                     <div className="mt-auto pt-6 border-t border-white/5 space-y-3">

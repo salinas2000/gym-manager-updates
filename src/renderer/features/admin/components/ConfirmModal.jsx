@@ -12,8 +12,14 @@ export function ConfirmModal({ action, onConfirm, onCancel }) {
                 </div>
                 <h3 className="text-lg font-bold text-white mb-2">¿Estás seguro?</h3>
                 <p className="text-slate-400 text-sm mb-6">
-                    Vas a <span className="text-white font-bold">{action.type === 'revoke' ? 'REVOCAR LA LICENCIA' : 'DESVINCULAR EL HARDWARE'}</span> de <span className="text-indigo-400">{action.gymName}</span>.
-                    Esta acción puede interrumpir el servicio.
+                    Vas a <span className="text-white font-bold underline">
+                        {action.type === 'revoke' ? 'REVOCAR LA LICENCIA' :
+                            action.type === 'delete_license' ? 'ELIMINAR DEFINITIVAMENTE' :
+                                'DESVINCULAR EL HARDWARE'}
+                    </span> de <span className="text-indigo-400 font-bold">{action.gymName}</span>.
+                    {action.type === 'delete_license' ?
+                        ' Esta acción es irreversible y borrará la clave de la base de datos.' :
+                        ' Esta acción puede interrumpir el servicio temporalmente.'}
                 </p>
                 <div className="flex gap-2 justify-center">
                     <button

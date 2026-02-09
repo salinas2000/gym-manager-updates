@@ -21,65 +21,52 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
         if (!selectedTariff) return null;
 
         const baseAmount = selectedTariff.amount;
-
-        // Strict Type Coercion for comparison
-        const targetMonth = Number(month);
+        const targetMonth = Number(month) + 1; // Convert 0-indexed to 1-indexed for logic consistency
         const targetYear = Number(year);
 
-        // 1. Determine the "Start Date" for this payment window (The key logic)
-        // If customer joined this month, start counting from join date.
-        // Otherwise, start from 1st of month.
-        let startDate = 1;
-        let isProrated = false;
-        let joinDateObj = null;
+        let joinDay = 1;
+        let isProratedInThisMonth = false;
+        let displayJoinDate = null;
 
-        // Use fetched fresh date if passed explicitly, otherwise fallback to prop
         const rawDate = overrideDate || fetchedJoinDate || customer.joined_date;
 
         if (rawDate) {
-            // Robust Date Parsing (YYYY-MM-DD) avoiding timezone shifts
-            // e.g. "2026-01-05" -> Year 0 (Jan), Day 5
             const parts = rawDate.split(/[-T ]/);
             if (parts.length >= 3) {
                 const y = parseInt(parts[0], 10);
-                const m = parseInt(parts[1], 10) - 1; // 0-indexed
+                const m = parseInt(parts[1], 10); // 1-indexed month
                 const d = parseInt(parts[2], 10);
 
-                joinDateObj = new Date(y, m, d); // Local time construction
-
-                // Check if joined in THIS payment month/year
                 if (m === targetMonth && y === targetYear) {
-                    startDate = d;
-                    // If joined after day 1, it's prorated
-                    if (startDate > 1) {
-                        isProrated = true;
+                    joinDay = d;
+                    if (joinDay > 1) {
+                        isProratedInThisMonth = true;
                     }
+                    displayJoinDate = `${d}/${m}/${y}`;
                 }
             }
         }
-        // If no joined_date (legacy), assume full month (startDate = 1)
 
         let finalPrice = baseAmount;
         let info = { isProrated: false, daysRemaining: 0, fromDate: null };
 
-        if (isProrated) {
-            const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-            // Days to pay = Total days - Start Day + 1
-            // Example: Month 30 days. Joined 15th. Pay 15,16...30 = 16 days.
-            // 30 - 15 + 1 = 16.
-            const daysToPay = daysInMonth - startDate + 1;
+        if (isProratedInThisMonth) {
+            const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+            const daysToPay = daysInMonth - joinDay + 1;
 
             finalPrice = (baseAmount / daysInMonth) * daysToPay;
+            finalPrice = Math.round(finalPrice * 100) / 100;
+
             info = {
                 isProrated: true,
                 daysRemaining: daysToPay,
-                fromDate: joinDateObj ? joinDateObj.toLocaleDateString() : null
+                fromDate: displayJoinDate
             };
         }
 
         return {
             base: baseAmount,
-            charged: parseFloat(finalPrice.toFixed(2)),
+            charged: finalPrice,
             info
         };
     };

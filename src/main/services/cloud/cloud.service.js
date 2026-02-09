@@ -1,15 +1,11 @@
 const { createClient } = require('@supabase/supabase-js');
 const dbManager = require('../../db/database');
 const settingsService = require('../local/settings.service');
+const credentialManager = require('../../config/credentials');
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
-// Ensure dotenv is loaded if main.js hasn't loaded it yet (safety)
-require('dotenv').config({ path: path.join(__dirname, '../../../../.env') });
 
-// NOTE: Credentials now loaded from .env
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const DEFAULT_GYM_ID = 'GYM-PRO-MAIN';
 
 class CloudService {
@@ -17,6 +13,7 @@ class CloudService {
         this.supabase = null;
         this.mainWindow = null;
         this.activeChannels = new Set(); // Track active subscriptions
+        this.credentials = null;
         this.init();
     }
 
@@ -25,11 +22,27 @@ class CloudService {
     }
 
     init() {
-        if (!SUPABASE_URL || !SUPABASE_KEY) {
-            console.warn('[CLOUD_SYNC] Supabase credentials not found in .env');
+        try {
+            // Load credentials from secure manager
+            if (!credentialManager.isLoaded()) {
+                console.warn('[CLOUD_SYNC] ⚠️ Credentials not loaded. Supabase disabled.');
+                return;
+            }
+
+            this.credentials = credentialManager.get();
+            const { supabase } = this.credentials;
+
+            if (!supabase?.url || !supabase?.key) {
+                console.warn('[CLOUD_SYNC] ⚠️ Supabase credentials incomplete');
+                return;
+            }
+
+            console.log('[CLOUD_SYNC] ✅ Initializing with secure credentials');
+            this.supabase = createClient(supabase.url, supabase.key);
+        } catch (error) {
+            console.error('[CLOUD_SYNC] ❌ Failed to initialize:', error.message);
             return;
         }
-        this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // Setup Realtime if gym_id is known
         const gymId = settingsService.get('gym_id');
@@ -111,124 +124,33 @@ class CloudService {
             return { success: false, error: 'Supabase client not initialized.' };
         }
 
-        const db = dbManager.getInstance();
-        const results = {
-            tables: {},
-            fileBackup: null,
-            errors: []
-        };
-
         try {
-            console.log(`[CLOUD_SYNC] Starting FULL SYNC for ${targetGymId}`);
+            console.log(`[CLOUD_SYNC] Starting SIMPLE FILE SNAPSHOT for ${targetGymId}`);
 
-            // === PART 1: ROW SYNC (Upsert + Prune) ===
-
-            // Helper to sync a table
-            const syncTable = async (localTable, cloudTable, mapFn, rowsOverride = null) => {
-                const rows = rowsOverride || db.prepare(`SELECT * FROM ${localTable}`).all();
-                const localIds = rows.map(r => r.id);
-
-                // 1. Upsert
-                if (rows.length > 0) {
-                    const cloudRows = rows.map(r => ({
-                        ...mapFn(r),
-                        gym_id: targetGymId,
-                        synced_at: new Date().toISOString()
-                    }));
-                    const { error } = await this.supabase.from(cloudTable).upsert(cloudRows, { onConflict: 'gym_id, local_id' });
-                    if (error) throw new Error(`${localTable} Upsert: ${error.message}`);
-                }
-
-                // 2. Prune (Delete from cloud what is not in local)
-                let deleteQuery = this.supabase.from(cloudTable).delete().eq('gym_id', targetGymId);
-
-                if (localIds.length > 0) {
-                    deleteQuery = deleteQuery.not('local_id', 'in', `(${localIds.join(',')})`);
-                }
-
-                const { error: deleteError } = await deleteQuery;
-                if (deleteError) throw new Error(`${localTable} Prune: ${deleteError.message}`);
-
-                return rows.length;
-            };
-
-            // 1. Tariffs
-            results.tables.tariffs = await syncTable('tariffs', 'cloud_tariffs', t => ({
-                local_id: t.id, name: t.name, amount: t.amount, color_theme: t.color_theme
-            }));
-
-            // 2. Customers
-            results.tables.customers = await syncTable('customers', 'cloud_customers', c => ({
-                local_id: c.id, first_name: c.first_name, last_name: c.last_name, email: c.email,
-                phone: c.phone, active: c.active, tariff_id: c.tariff_id, created_at: c.created_at
-            }));
-
-            // 3. Memberships
-            results.tables.memberships = await syncTable('memberships', 'cloud_memberships', m => ({
-                local_id: m.id, customer_id: m.customer_id, start_date: m.start_date, end_date: m.end_date
-            }));
-
-            // 4. Payments
-            results.tables.payments = await syncTable('payments', 'cloud_payments', p => ({
-                local_id: p.id, customer_id: p.customer_id, amount: p.amount,
-                payment_date: p.payment_date, tariff_name: p.tariff_name
-            }));
-
-            // 5. Training
-            results.tables.categories = await syncTable('exercise_categories', 'cloud_exercise_categories', c => ({
-                local_id: c.id, name: c.name, icon: c.icon, is_system: c.is_system ? 1 : 0
-            }));
-
-            results.tables.subcategories = await syncTable('exercise_subcategories', 'cloud_exercise_subcategories', s => ({
-                local_id: s.id, category_id: s.category_id, name: s.name
-            }));
-
-            results.tables.exercises = await syncTable('exercises', 'cloud_exercises', e => ({
-                local_id: e.id, name: e.name, subcategory_id: e.subcategory_id, video_url: e.video_url,
-                default_sets: e.default_sets, default_reps: e.default_reps, is_failure: e.is_failure ? 1 : 0
-            }));
-
-            // FILTERING TEMPLATES (Require customer_id NOT NULL in cloud)
-            const allMesocycles = db.prepare('SELECT * FROM mesocycles').all();
-            const validMesocycles = allMesocycles.filter(m => m.customer_id != null);
-            const validMesoIds = validMesocycles.map(m => m.id);
-
-            results.tables.mesocycles = await syncTable('mesocycles', 'cloud_mesocycles', m => ({
-                local_id: m.id, customer_id: m.customer_id, name: m.name, start_date: m.start_date,
-                end_date: m.end_date, active: m.active, notes: m.notes, created_at: m.created_at
-            }), validMesocycles); // Pass filtered list
-
-            // Filter Routines (Only those belonging to valid mesocycles)
-            const allRoutines = db.prepare('SELECT * FROM routines').all();
-            const validRoutines = allRoutines.filter(r => validMesoIds.includes(r.mesocycle_id));
-            const validRoutineIds = validRoutines.map(r => r.id);
-
-            results.tables.routines = await syncTable('routines', 'cloud_routines', r => ({
-                local_id: r.id, mesocycle_id: r.mesocycle_id, name: r.name, day_group: r.day_group,
-                notes: r.notes, created_at: r.created_at
-            }), validRoutines);
-
-            // Filter Routine Items (Only those belonging to valid routines)
-            const allItems = db.prepare('SELECT * FROM routine_items').all();
-            const validItems = allItems.filter(i => validRoutineIds.includes(i.routine_id));
-
-            results.tables.items = await syncTable('routine_items', 'cloud_routine_items', i => ({
-                local_id: i.id, routine_id: i.routine_id, exercise_id: i.exercise_id, series: i.series,
-                reps: i.reps, rpe: i.rpe, notes: i.notes, order_index: i.order_index
-            }), validItems);
-
-
-            // === PART 2: FILE SNAPSHOT (Physical DB) ===
             console.log('[CLOUD_SYNC] Starting DB Snapshot Upload...');
             const snapshotUrl = await this.backupDatabaseFile(targetGymId);
-            results.fileBackup = snapshotUrl;
 
-            const finalResult = { success: true, data: results };
-            console.log('[CLOUD_SYNC] Sync Complete.', JSON.stringify(finalResult));
+            console.log('[CLOUD_SYNC] Starting Template Config Upload...');
+            const configUrl = await this.backupTemplateConfig(targetGymId);
+
+            console.log('[CLOUD_SYNC] Starting Template Excel Upload...');
+            const excelUrl = await this.backupTemplateExcel(targetGymId);
+
+            const finalResult = {
+                success: true,
+                data: {
+                    tables: {}, // Empty for compatibility
+                    fileBackup: snapshotUrl,
+                    configBackup: configUrl,
+                    excelBackup: excelUrl
+                }
+            };
+
+            console.log('[CLOUD_SYNC] Snapshot Upload Complete.', JSON.stringify(finalResult));
             return finalResult;
 
         } catch (error) {
-            console.error('[CLOUD_SYNC] Backup failed.', error);
+            console.error('[CLOUD_SYNC] Backup snapshot failed.', error);
             return { success: false, error: error.message };
         }
     }
@@ -269,6 +191,65 @@ class CloudService {
         } catch (err) {
             console.error('Snapshot Upload Error:', err);
             throw new Error('Error subiendo archivo .db: ' + err.message);
+        }
+    }
+
+    async backupTemplateConfig(targetGymId) {
+        try {
+            const userDataPath = app.getPath('userData');
+            const configPath = path.join(userDataPath, 'templates', targetGymId, 'template_config.json');
+
+            if (!fs.existsSync(configPath)) {
+                console.log('[CLOUD_SYNC] No template config found for gym:', targetGymId);
+                return null;
+            }
+
+            const fileBuffer = fs.readFileSync(configPath);
+            const fileName = `${targetGymId}/sys_backups/template_config_${Date.now()}.json`;
+
+            const { error } = await this.supabase
+                .storage
+                .from('training_files')
+                .upload(fileName, fileBuffer, {
+                    contentType: 'application/json',
+                    upsert: true
+                });
+
+            if (error) throw error;
+            return fileName;
+        } catch (err) {
+            console.error('[CLOUD_SYNC] Template Config Backup Error:', err);
+            // Don't fail the whole backup if this fails, but log it
+            return null;
+        }
+    }
+
+    async backupTemplateExcel(targetGymId) {
+        try {
+            const userDataPath = app.getPath('userData');
+            const excelPath = path.join(userDataPath, 'templates', targetGymId, 'org_template.xlsx');
+
+            if (!fs.existsSync(excelPath)) {
+                console.log('[CLOUD_SYNC] No template excel found for gym:', targetGymId);
+                return null;
+            }
+
+            const fileBuffer = fs.readFileSync(excelPath);
+            const fileName = `${targetGymId}/sys_backups/org_template_${Date.now()}.xlsx`;
+
+            const { error } = await this.supabase
+                .storage
+                .from('training_files')
+                .upload(fileName, fileBuffer, {
+                    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    upsert: true
+                });
+
+            if (error) throw error;
+            return fileName;
+        } catch (err) {
+            console.error('[CLOUD_SYNC] Template Excel Backup Error:', err);
+            return null;
         }
     }
 
@@ -318,17 +299,51 @@ class CloudService {
                 throw new Error('Archivo de origen no encontrado');
             }
 
+            // Validate the imported file is a valid SQLite database
+            const Database = require('better-sqlite3');
+            let testDb;
+            try {
+                testDb = new Database(sourcePath, { readonly: true });
+                // Check it has at least one expected table
+                const tables = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+                const tableNames = tables.map(t => t.name);
+                const requiredTables = ['customers', 'payments', 'memberships'];
+                const missing = requiredTables.filter(t => !tableNames.includes(t));
+                if (missing.length > 0) {
+                    throw new Error(`Base de datos inválida: faltan tablas requeridas (${missing.join(', ')})`);
+                }
+                // Quick integrity check
+                const integrity = testDb.pragma('integrity_check');
+                if (integrity[0]?.integrity_check !== 'ok') {
+                    throw new Error('Base de datos corrupta: integrity check fallido');
+                }
+            } catch (validationErr) {
+                if (validationErr.message.includes('inválida') || validationErr.message.includes('corrupta')) {
+                    throw validationErr;
+                }
+                throw new Error(`El archivo seleccionado no es una base de datos SQLite válida: ${validationErr.message}`);
+            } finally {
+                if (testDb) try { testDb.close(); } catch (e) { }
+            }
+
             const userDataPath = app.getPath('userData');
             const dbPath = path.join(userDataPath, 'gym_manager.db');
+            const backupPath = path.join(userDataPath, 'gym_manager_pre_import.bak');
 
-            // 1. Close current connection
+            // 1. Backup current DB before overwriting
+            if (fs.existsSync(dbPath)) {
+                fs.copyFileSync(dbPath, backupPath);
+                console.log('[Import] Pre-import backup created at:', backupPath);
+            }
+
+            // 2. Close current connection
             dbManager.close();
 
-            // 2. Overwrite file
+            // 3. Overwrite file
             fs.copyFileSync(sourcePath, dbPath);
             console.log('Database file overwritten successfully.');
 
-            // 3. Re-initialize
+            // 4. Re-initialize
             dbManager.init();
 
             return { success: true };
@@ -395,7 +410,10 @@ class CloudService {
             // 4. Cleanup cloud (Delete the load file so it doesn't trigger again)
             await this.supabase.storage.from('training_files').remove([remotePath]);
 
-            // 5. Update status in tracking table
+            // 5. Restore Templates (Mirror Logic)
+            await this._restoreTemplateFiles(gymId);
+
+            // 6. Update status in tracking table
             if (loadId) {
                 await this.supabase
                     .from('cloud_remote_loads')
@@ -432,6 +450,48 @@ class CloudService {
                     .eq('id', loadId);
             }
             throw err;
+        }
+    }
+
+    async _restoreTemplateFiles(gymId) {
+        try {
+            console.log(`[CLOUD_SYNC] Attempting to restore template files for gym: ${gymId}`);
+            const { data: files, error } = await this.supabase
+                .storage
+                .from('training_files')
+                .list(`${gymId}/sys_backups/`, {
+                    limit: 100,
+                    sortBy: { column: 'name', order: 'desc' }
+                });
+
+            if (error) throw error;
+            if (!files || files.length === 0) return;
+
+            // Find latest config and excel
+            const latestConfig = files.find(f => f.name.startsWith('template_config_'));
+            const latestExcel = files.find(f => f.name.startsWith('org_template_'));
+
+            const userDataPath = app.getPath('userData');
+            const targetDir = path.join(userDataPath, 'templates', gymId);
+            if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+            if (latestConfig) {
+                console.log('[CLOUD_SYNC] Downloading latest template_config.json...');
+                const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestConfig.name}`);
+                if (data) {
+                    fs.writeFileSync(path.join(targetDir, 'template_config.json'), Buffer.from(await data.arrayBuffer()));
+                }
+            }
+
+            if (latestExcel) {
+                console.log('[CLOUD_SYNC] Downloading latest org_template.xlsx...');
+                const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestExcel.name}`);
+                if (data) {
+                    fs.writeFileSync(path.join(targetDir, 'org_template.xlsx'), Buffer.from(await data.arrayBuffer()));
+                }
+            }
+        } catch (err) {
+            console.error('[CLOUD_SYNC] Template Restoration failed:', err);
         }
     }
 }

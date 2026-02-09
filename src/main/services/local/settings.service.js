@@ -42,15 +42,6 @@ class SettingsService {
         return this.getAll();
     }
 
-    // Security
-    async verifyPassword(inputPassword) {
-        // GLOBAL MASTER PASSWORD (For Installer/Creator)
-        // Hardcoded to ensure only the creator can change identity settings
-        const MASTER_PASSWORD = 'admin';
-
-        return inputPassword === MASTER_PASSWORD;
-    }
-
     setActivation(key) {
         // Here you could call an external API to validate the key
         // For now, we simulate success if key is not empty

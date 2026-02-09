@@ -3,12 +3,28 @@ const fs = require('fs');
 const licenseService = require('./license.service');
 const path = require('path');
 const crypto = require('crypto');
+const z = require('zod');
 require('dotenv').config({ path: path.join(__dirname, '../../../../.env') });
 
 let supabase = null;
 if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
     supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 }
+
+// Validation Schemas
+const createOrgSchema = z.object({
+    name: z.string().min(1, "El nombre de la organización es obligatorio"),
+    email: z.string().email("Correo electrónico inválido").nullable().optional(),
+    templatePath: z.string().nullable().optional()
+});
+
+const updateOrgSchema = createOrgSchema.partial();
+
+const createLicenseSchema = z.object({
+    organizationId: z.string().min(1, "El ID de la organización es obligatorio"),
+    monthsValidity: z.number().int().min(0).default(1),
+    amount: z.number().int().min(1).max(50).default(1)
+});
 
 class AdminService {
     /**
@@ -33,23 +49,44 @@ class AdminService {
 
         if (gymError) throw gymError;
 
-        // 2. Fetch Global Counts
-        const { count: totalCustomers } = await supabase.from('cloud_customers').select('*', { count: 'exact', head: true });
-        const { count: totalPayments } = await supabase.from('cloud_payments').select('*', { count: 'exact', head: true });
+        // 2. Fetch Global Counts (Graceful handling if tables are gone)
+        let totalCustomers = 0;
+        let totalPayments = 0;
+        let totalRevenue = 0;
 
-        // 3. Aggregate Revenue (Using Supabase RPC or direct sum if data is small enough)
-        // For robustness, let's fetch the sum directly
-        const { data: revenueData, error: revError } = await supabase
-            .from('cloud_payments')
-            .select('amount');
+        try {
+            const { count } = await supabase.from('cloud_customers').select('*', { count: 'exact', head: true });
+            totalCustomers = count || 0;
+        } catch (e) {
+            console.warn('[AdminService] cloud_customers table not found or inaccessible.');
+        }
 
-        const totalRevenue = (revenueData || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+        try {
+            const { count } = await supabase.from('cloud_payments').select('*', { count: 'exact', head: true });
+            totalPayments = count || 0;
+
+            const { data: revenueData } = await supabase.from('cloud_payments').select('amount');
+            totalRevenue = (revenueData || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+        } catch (e) {
+            console.warn('[AdminService] cloud_payments table not found or inaccessible.');
+        }
+
+        // 3. Get Latest Version (from package.json as fallback)
+        let latestVersion = '1.0.0';
+        try {
+            const packageJson = require('../../../../package.json');
+            latestVersion = packageJson.version;
+        } catch (e) {
+            console.warn('[AdminService] Could not read package.json version');
+        }
 
         return {
             totalGyms: gyms.length,
-            totalCustomers: totalCustomers || 0,
-            totalPayments: totalPayments || 0,
-            totalRevenue: totalRevenue || 0,
+            activeGyms: gyms.filter(g => g.active).length,
+            totalCustomers,
+            totalPayments,
+            totalRevenue,
+            latestVersion,
             gyms
         };
     }
@@ -61,12 +98,15 @@ class AdminService {
         const { data: gyms, error } = await supabase
             .from('licenses')
             .select(`
+                id,
+                license_key,
                 gym_id, 
                 gym_name, 
                 created_at, 
                 hardware_id,
                 active,
-                app_version
+                app_version,
+                expires_at
             `)
             .eq('is_master', false)
             .order('created_at', { ascending: false });
@@ -74,21 +114,40 @@ class AdminService {
         if (error) throw error;
 
         const gymsWithStatus = await Promise.all(gyms.map(async (gym) => {
-            const { data: lastPayment } = await supabase
-                .from('cloud_payments')
-                .select('created_at')
-                .eq('gym_id', gym.gym_id)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .single();
+            let lastSync = gym.created_at;
+            try {
+                const { data: lastPayment } = await supabase
+                    .from('cloud_payments')
+                    .select('created_at')
+                    .eq('gym_id', gym.gym_id)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+                if (lastPayment) lastSync = lastPayment.created_at;
+            } catch (e) {
+                // Ignore missing table error
+            }
 
             return {
                 ...gym,
-                last_sync: lastPayment ? lastPayment.created_at : gym.created_at
+                last_sync: lastSync
             };
         }));
 
         return gymsWithStatus;
+    }
+
+    async deleteLicense(licenseKey) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        const { error } = await supabase
+            .from('licenses')
+            .delete()
+            .eq('license_key', licenseKey);
+
+        if (error) throw error;
+        return { success: true };
     }
 
 
@@ -97,18 +156,27 @@ class AdminService {
      * Creates a new Organization (Gym Tenant).
      */
     async createOrganization(name, email = null, templatePath = null) {
+        const validation = createOrgSchema.safeParse({ name, email, templatePath });
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        const validatedName = validation.data.name;
+        const validatedEmail = validation.data.email;
+        const validatedTemplatePath = validation.data.templatePath;
+
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
 
         let publicUrl = null;
 
         // 1. Upload Template if provided
-        if (templatePath) {
-            console.log('[AdminService] Uploading Organization Template:', templatePath);
-            if (!fs.existsSync(templatePath)) throw new Error('Template file not found');
+        if (validatedTemplatePath) {
+            console.log('[AdminService] Uploading Organization Template:', validatedTemplatePath);
+            if (!fs.existsSync(validatedTemplatePath)) throw new Error('Template file not found');
 
-            const buffer = fs.readFileSync(templatePath);
-            const fileName = `templates/${Date.now()}_${path.basename(templatePath).replace(/[^a-zA-Z0-9._-]/g, '')}`;
+            const buffer = fs.readFileSync(validatedTemplatePath);
+            const fileName = `templates/${Date.now()}_${path.basename(validatedTemplatePath).replace(/[^a-zA-Z0-9._-]/g, '')}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('org_assets')
@@ -143,20 +211,26 @@ class AdminService {
     }
 
     async updateOrganization(id, { name, email, templatePath }) {
+        const validation = updateOrgSchema.safeParse({ name, email, templatePath });
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        const validatedData = validation.data;
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
 
         const updates = {};
-        if (name !== undefined) updates.name = name;
-        if (email !== undefined) updates.contact_email = email;
+        if (validatedData.name !== undefined) updates.name = validatedData.name;
+        if (validatedData.email !== undefined) updates.contact_email = validatedData.email;
 
         // 1. Upload Template if provided (Overrides existing)
-        if (templatePath) {
-            console.log('[AdminService] Uploading NEW Organization Template:', templatePath);
-            if (!fs.existsSync(templatePath)) throw new Error('Template file not found');
+        if (validatedData.templatePath) {
+            console.log('[AdminService] Uploading NEW Organization Template:', validatedData.templatePath);
+            if (!fs.existsSync(validatedData.templatePath)) throw new Error('Template file not found');
 
-            const buffer = fs.readFileSync(templatePath);
-            const fileName = `templates/${Date.now()}_${path.basename(templatePath).replace(/[^a-zA-Z0-9._-]/g, '')}`;
+            const buffer = fs.readFileSync(validatedData.templatePath);
+            const fileName = `templates/${Date.now()}_${path.basename(validatedData.templatePath).replace(/[^a-zA-Z0-9._-]/g, '')}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('org_assets')
@@ -183,9 +257,19 @@ class AdminService {
     }
 
     /**
-     * Issues a new license for an existing Organization.
+     * Issues one or more new licenses for an existing Organization.
+     * @param {string} organizationId
+     * @param {number} monthsValidity - 0 for permanent, or number of months
+     * @param {number} amount - Number of licenses to generate
      */
-    async createLicense(organizationId) {
+    async createLicense(organizationId, monthsValidity = 1, amount = 1) {
+        const validation = createLicenseSchema.safeParse({ organizationId, monthsValidity, amount });
+        if (!validation.success) {
+            throw new Error(validation.error.errors[0].message);
+        }
+
+        const { organizationId: validatedOrgId, monthsValidity: vMonths, amount: vAmount } = validation.data;
+
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
 
@@ -193,29 +277,42 @@ class AdminService {
         const { data: org, error: orgError } = await supabase
             .from('organizations')
             .select('name')
-            .eq('id', organizationId)
+            .eq('id', validatedOrgId)
             .single();
 
         if (orgError || !org) throw new Error('Organización no encontrada.');
 
-        const newKey = `GYM-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        const licensesToInsert = [];
+        let expirationDate = null;
 
-        const { data, error } = await supabase
-            .from('licenses')
-            .insert([{
+        if (vMonths > 0) {
+            const date = new Date();
+            date.setMonth(date.getMonth() + vMonths);
+            expirationDate = date.toISOString();
+        }
+
+        for (let i = 0; i < vAmount; i++) {
+            const newKey = `GYM-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+            licensesToInsert.push({
                 license_key: newKey,
-                gym_id: organizationId, // Legacy compatibility: gym_id IS the org_id
+                gym_id: organizationId, // Legacy: gym_id is org_id
                 organization_id: organizationId,
                 gym_name: org.name,
                 is_master: false,
                 active: true,
-                app_version: '1.0.1'
-            }])
-            .select()
-            .single();
+                app_version: '1.0.1',
+                expires_at: expirationDate
+            });
+        }
+
+        const { data, error } = await supabase
+            .from('licenses')
+            .insert(licensesToInsert)
+            .select();
 
         if (error) throw error;
-        return data;
+        // Return first one if amount=1, or full list
+        return amount === 1 ? data[0] : data;
     }
 
     /**

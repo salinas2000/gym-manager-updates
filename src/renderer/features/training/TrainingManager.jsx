@@ -1,15 +1,24 @@
 import React, { useState } from 'react';
+import ExerciseLibraryPage from './ExerciseLibraryPage';
 import MesocycleEditor from './MesocycleEditor';
 import TemplateManager from './TemplateManager';
-import { Layout, PlusCircle, Search, ChevronRight } from 'lucide-react';
+import TrainingPriorities from './TrainingPriorities';
+import { Layout, PlusCircle, Search, ChevronRight, ListTodo, Dumbbell } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 
-export default function TrainingManager({ onNavigate }) {
+export default function TrainingManager({ onNavigate, initialTab }) {
     // Mode: 'hub' (Tabs) | 'editor' (MesocycleEditor)
     const [view, setView] = useState('hub');
 
     // Hub State
-    const [activeTab, setActiveTab] = useState('templates'); // 'templates' | 'create'
+    const [activeTab, setActiveTab] = useState(initialTab || 'priorities'); // 'priorities' | 'templates' | 'create' | 'exercises'
+
+    // Sync activeTab when initialTab prop changes (e.g. from Sidebar)
+    React.useEffect(() => {
+        if (initialTab) {
+            setActiveTab(initialTab);
+        }
+    }, [initialTab]);
 
     // Editor State
     const [editingMeso, setEditingMeso] = useState(null);
@@ -86,6 +95,20 @@ export default function TrainingManager({ onNavigate }) {
 
                 <div className="flex bg-slate-900/50 p-1 rounded-xl border border-white/5">
                     <button
+                        onClick={() => setActiveTab('exercises')}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'exercises' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                            }`}
+                    >
+                        <Dumbbell size={16} /> Ejercicios
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('priorities')}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'priorities' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                            }`}
+                    >
+                        <ListTodo size={16} /> Prioridades
+                    </button>
+                    <button
                         onClick={() => setActiveTab('templates')}
                         className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'templates' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
                             }`}
@@ -104,6 +127,19 @@ export default function TrainingManager({ onNavigate }) {
 
             {/* TABS CONTENT */}
             <div className="flex-1 relative overflow-hidden">
+
+                {/* -1. EXERCISES TAB (Library) */}
+                {activeTab === 'exercises' && (
+                    <ExerciseLibraryPage />
+                )}
+
+                {/* 0. PRIORITIES TAB */}
+                {activeTab === 'priorities' && (
+                    <TrainingPriorities
+                        onStartPlan={handleStartPlan}
+                        onNavigate={onNavigate}
+                    />
+                )}
 
                 {/* 1. TEMPLATES TAB */}
                 {activeTab === 'templates' && (

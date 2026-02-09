@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Layout from './components/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
 import { GymProvider } from './context/GymContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { ToastProvider } from './context/ToastContext';
@@ -20,6 +21,7 @@ import GeneralSettings from './features/settings/SettingsPage'; // New Config Pa
 // Admin Module
 import AdminDashboard from './features/admin/AdminDashboard';
 import TemplatesPage from './features/templates/TemplatesPage';
+import InventoryPage from './features/inventory/InventoryPage';
 
 function Dashboard() {
     const [currentView, setCurrentView] = useState('customers');
@@ -39,6 +41,8 @@ function Dashboard() {
                 return <AdminDashboard />;
             case 'dashboard':
                 return <DashboardPage />;
+            case 'inventory':
+                return <InventoryPage />;
             case 'finance':
                 return <PaymentsPage />;
             case 'tariffs':
@@ -48,7 +52,9 @@ function Dashboard() {
             case 'settings':
                 return <GeneralSettings initialTab={selectedCustomer} />;
             case 'training':
-                return <TrainingPage onNavigate={handleNavigate} />;
+                return <TrainingPage key="training-center" onNavigate={handleNavigate} initialTab="templates" />;
+            case 'priorities':
+                return <TrainingPage key="training-priorities" onNavigate={handleNavigate} initialTab="priorities" />;
             case 'history':
                 return <TrainingHistoryPage initialCustomer={selectedCustomer} onNavigate={handleNavigate} />;
             case 'library':
@@ -65,9 +71,11 @@ function Dashboard() {
 
     return (
         <Layout currentView={currentView} onNavigate={handleNavigate}>
-            <div className="h-full">
-                {renderContent()}
-            </div>
+            <ErrorBoundary key={currentView}>
+                <div className="h-full">
+                    {renderContent()}
+                </div>
+            </ErrorBoundary>
             <ToastContainer />
             <NotificationCenter onNavigate={handleNavigate} />
         </Layout>
@@ -76,14 +84,16 @@ function Dashboard() {
 
 export default function App() {
     return (
-        <LanguageProvider>
-            <GymProvider>
-                <ToastProvider>
-                    <NotificationProvider>
-                        <Dashboard />
-                    </NotificationProvider>
-                </ToastProvider>
-            </GymProvider>
-        </LanguageProvider>
+        <ErrorBoundary>
+            <LanguageProvider>
+                <GymProvider>
+                    <ToastProvider>
+                        <NotificationProvider>
+                            <Dashboard />
+                        </NotificationProvider>
+                    </ToastProvider>
+                </GymProvider>
+            </LanguageProvider>
+        </ErrorBoundary>
     );
 }

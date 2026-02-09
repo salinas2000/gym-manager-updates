@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, RefreshCw, Key, Store } from 'lucide-react';
+import { Building2, RefreshCw, Key, ShieldCheck, Search, Filter, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useNotifications } from '../../context/NotificationContext';
 
@@ -8,7 +8,8 @@ import { AdminStats } from './components/AdminStats';
 import { OrganizationsTab } from './components/OrganizationsTab';
 import { LicensesTab } from './components/LicensesTab';
 import { EditOrgModal } from './components/EditOrgModal';
-import { CreateModal } from './components/CreateModal';
+import { CreateOrgModal } from './components/CreateOrgModal';
+import { IssueLicenseModal } from './components/IssueLicenseModal';
 import { BackupModal } from './components/BackupModal';
 import { ConfirmModal } from './components/ConfirmModal';
 
@@ -22,12 +23,15 @@ export default function AdminDashboard() {
     const [organizations, setOrganizations] = useState([]);
     const [releases, setReleases] = useState([]);
 
-    // UI States
+    // Search & Filter States
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active' | 'revoked'
     const [activeTab, setActiveTab] = useState('licenses'); // 'licenses' | 'orgs'
     const [activeGymId, setActiveGymId] = useState(null); // For Dropdown in Licenses
 
     // Modal States
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isCreateOrgOpen, setIsCreateOrgOpen] = useState(false);
+    const [isIssueLicenseOpen, setIsIssueLicenseOpen] = useState(false);
     const [editingOrg, setEditingOrg] = useState(null);
     const [selectedGymForBackup, setSelectedGymForBackup] = useState(null);
     const [confirmAction, setConfirmAction] = useState(null); // { type, gymId, gymName }
@@ -65,8 +69,11 @@ export default function AdminDashboard() {
                 await window.api.admin.revokeLicense(confirmAction.gymId);
                 addNotification('Licencia revocada', 'success');
             } else if (confirmAction.type === 'unbind') {
-                await window.api.admin.resetHardwareId(confirmAction.gymId);
+                await window.api.admin.unbindHardware(confirmAction.gymId);
                 addNotification('Hardware desvinculado', 'success');
+            } else if (confirmAction.type === 'delete_license') {
+                await window.api.admin.deleteLicense(confirmAction.licenseKey);
+                addNotification('Licencia eliminada permanentemente', 'success');
             }
             loadData();
         } catch (error) {
@@ -75,6 +82,17 @@ export default function AdminDashboard() {
             setConfirmAction(null);
         }
     };
+
+    const filteredGyms = gyms.filter(gym => {
+        const matchesSearch =
+            (gym.gym_name?.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (gym.license_key?.toLowerCase().includes(searchQuery.toLowerCase()));
+
+        const isRevoked = !gym.active;
+        if (statusFilter === 'active') return matchesSearch && !isRevoked;
+        if (statusFilter === 'revoked') return matchesSearch && isRevoked;
+        return matchesSearch;
+    });
 
     if (loading) {
         return (
@@ -99,12 +117,18 @@ export default function AdminDashboard() {
                         <p className="text-xs text-slate-500 font-medium">Control Centralizado de Infraestructura</p>
                     </div>
                 </div>
-                <div className="flex gap-4">
+                <div className="flex gap-3">
                     <button
-                        onClick={() => setIsCreateModalOpen(true)}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
+                        onClick={() => setIsCreateOrgOpen(true)}
+                        className="px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl text-xs font-bold transition-all border border-indigo-500/20 flex items-center gap-2 group"
                     >
-                        <Store size={14} /> Gestión Global
+                        <Building2 size={14} className="group-hover:scale-110 transition-transform" /> Nueva Empresa
+                    </button>
+                    <button
+                        onClick={() => setIsIssueLicenseOpen(true)}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-600/20 flex items-center gap-2"
+                    >
+                        <ShieldCheck size={14} /> Emitir Licencia
                     </button>
                 </div>
             </div>
@@ -137,11 +161,56 @@ export default function AdminDashboard() {
                         </button>
                     </div>
 
+                    {/* Filters Bar */}
+                    {activeTab === 'licenses' && (
+                        <div className="px-8 py-4 bg-white/[0.02] border-b border-white/5 flex flex-wrap gap-4 items-center justify-between">
+                            <div className="relative flex-1 max-w-md">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar por nombre o licencia..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-slate-950/50 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:border-indigo-500 outline-none transition-all"
+                                />
+                            </div>
+                            <div className="flex bg-slate-950/50 rounded-xl p-1 border border-white/10">
+                                <button
+                                    onClick={() => setStatusFilter('all')}
+                                    className={cn(
+                                        "px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
+                                        statusFilter === 'all' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+                                    )}
+                                >
+                                    TODAS
+                                </button>
+                                <button
+                                    onClick={() => setStatusFilter('active')}
+                                    className={cn(
+                                        "px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
+                                        statusFilter === 'active' ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+                                    )}
+                                >
+                                    ACTIVAS
+                                </button>
+                                <button
+                                    onClick={() => setStatusFilter('revoked')}
+                                    className={cn(
+                                        "px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
+                                        statusFilter === 'revoked' ? "bg-red-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+                                    )}
+                                >
+                                    REVOCADAS
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* View Content */}
                     <div className="min-h-[400px]">
                         {activeTab === 'licenses' ? (
                             <LicensesTab
-                                gyms={gyms}
+                                gyms={filteredGyms}
                                 releases={releases}
                                 currentVersion={stats?.latestVersion || '1.0.0'}
                                 activeGymId={activeGymId}
@@ -163,11 +232,18 @@ export default function AdminDashboard() {
 
             {/* --- Modals Area --- */}
 
-            <CreateModal
-                isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
+            <CreateOrgModal
+                isOpen={isCreateOrgOpen}
+                onClose={() => setIsCreateOrgOpen(false)}
                 onSuccess={() => {
-                    setIsCreateModalOpen(false);
+                    loadData();
+                }}
+            />
+
+            <IssueLicenseModal
+                isOpen={isIssueLicenseOpen}
+                onClose={() => setIsIssueLicenseOpen(false)}
+                onSuccess={() => {
                     loadData();
                 }}
                 organizations={organizations}

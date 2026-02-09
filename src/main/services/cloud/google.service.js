@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const Store = require('electron-store');
+const credentialManager = require('../../config/credentials');
 const fs = require('fs');
 const http = require('http');
 const url = require('url');
@@ -11,38 +12,76 @@ const store = new Store({ name: 'google_data' });
 
 class GoogleDriveService {
     constructor() {
-        // Lazy-load credentials to ensure .env is loaded in production
-        // This prevents undefined values when module is first required
-        const credentials = {
-            client_id: process.env.GOOGLE_CLIENT_ID,
-            project_id: process.env.GOOGLE_PROJECT_ID,
-            auth_uri: "https://accounts.google.com/o/oauth2/auth",
-            token_uri: "https://oauth2.googleapis.com/token",
-            auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-            client_secret: process.env.GOOGLE_CLIENT_SECRET,
-            redirect_uris: ["http://localhost"]
-        };
+        this.oauth2Client = null;
+        this.credentials = null;
+        this.isEnabled = false;
 
-        // Validate credentials are loaded
-        if (!credentials.client_id || !credentials.client_secret) {
-            console.error('❌ CRITICAL: Google OAuth credentials not loaded!');
-            console.error('CLIENT_ID:', credentials.client_id ? 'OK' : 'MISSING');
-            console.error('CLIENT_SECRET:', credentials.client_secret ? 'OK' : 'MISSING');
+        try {
+            // Load credentials from secure manager
+            if (!credentialManager.isLoaded()) {
+                console.warn('[GOOGLE_DRIVE] ⚠️ Credentials not loaded. Google Drive disabled.');
+                return;
+            }
+
+            const creds = credentialManager.get();
+            const { google: googleCreds } = creds;
+
+            // Google Drive is optional - check if configured
+            if (!googleCreds?.clientId || !googleCreds?.clientSecret) {
+                console.log('[GOOGLE_DRIVE] ℹ️ Google OAuth not configured (optional feature)');
+                return;
+            }
+
+            this.credentials = {
+                client_id: googleCreds.clientId,
+                project_id: googleCreds.projectId,
+                auth_uri: "https://accounts.google.com/o/oauth2/auth",
+                token_uri: "https://oauth2.googleapis.com/token",
+                auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+                client_secret: googleCreds.clientSecret,
+                redirect_uris: ["http://localhost"]
+            };
+
+            console.log('[GOOGLE_DRIVE] ✅ Initializing with secure credentials');
+
+            this.oauth2Client = new google.auth.OAuth2(
+                this.credentials.client_id,
+                this.credentials.client_secret,
+                'http://localhost'
+            );
+
+            const tokens = store.get('google_tokens');
+            const storedClientId = store.get('last_client_id');
+
+            // FORCE LOGOUT if credentials changed
+            if (storedClientId && storedClientId !== this.credentials.client_id) {
+                console.log('🔄 Google Credentials changed. Resetting session...');
+                this.signOut();
+            } else if (tokens) {
+                this.oauth2Client.setCredentials(tokens);
+            }
+
+            this.isEnabled = true;
+        } catch (error) {
+            console.error('[GOOGLE_DRIVE] ❌ Failed to initialize:', error.message);
+            return;
         }
 
-        this.oauth2Client = new google.auth.OAuth2(
-            credentials.client_id,
-            credentials.client_secret,
-            'http://localhost'
-        );
+        // Save current ID for next check
+        if (this.credentials?.client_id) {
+            store.set('last_client_id', this.credentials.client_id);
+        }
+    }
 
-        const tokens = store.get('google_tokens');
-        if (tokens) {
-            this.oauth2Client.setCredentials(tokens);
+    _checkEnabled() {
+        if (!this.isEnabled || !this.oauth2Client) {
+            throw new Error('Google Drive service not available. Please configure Google OAuth credentials.');
         }
     }
 
     async ensureAuth() {
+        this._checkEnabled();
+
         console.log('━━━ GOOGLE AUTH CHECK ━━━');
         console.log('📍 Environment:', __dirname.includes('app.asar') ? 'PRODUCTION' : 'DEVELOPMENT');
         console.log('🔑 Client ID available:', !!this.oauth2Client._clientId);
@@ -61,6 +100,7 @@ class GoogleDriveService {
     }
 
     authenticate() {
+        this._checkEnabled();
         return new Promise((resolve, reject) => {
             const state = crypto.randomBytes(32).toString('hex');
 

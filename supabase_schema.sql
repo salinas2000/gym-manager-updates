@@ -153,6 +153,49 @@ CREATE TABLE IF NOT EXISTS cloud_file_history (
     PRIMARY KEY (gym_id, local_id)
 );
 
+-- INVENTORY MODULE
+-- PRODUCTS
+CREATE TABLE IF NOT EXISTS cloud_products (
+    gym_id TEXT NOT NULL,
+    local_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    sku TEXT,
+    purchase_price NUMERIC,
+    sale_price NUMERIC,
+    stock INTEGER DEFAULT 0,
+    min_stock INTEGER DEFAULT 0,
+    category TEXT,
+    synced_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (gym_id, local_id)
+);
+
+-- INVENTORY ORDERS
+CREATE TABLE IF NOT EXISTS cloud_inventory_orders (
+    gym_id TEXT NOT NULL,
+    local_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    customer_id BIGINT, -- Added for parity
+    type TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    unit_cost NUMERIC,
+    total_cost NUMERIC,
+    notes TEXT,
+    created_at TIMESTAMPTZ,
+    synced_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (gym_id, local_id)
+);
+
+-- PRODUCT CATEGORIES
+CREATE TABLE IF NOT EXISTS cloud_product_categories (
+    gym_id TEXT NOT NULL,
+    local_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    synced_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (gym_id, local_id)
+);
+
 -- 3. SEGURIDAD (Row Level Security)
 ALTER TABLE cloud_tariffs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_customers ENABLE ROW LEVEL SECURITY;
@@ -166,6 +209,9 @@ ALTER TABLE cloud_routines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_routine_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_file_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cloud_remote_loads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_inventory_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cloud_product_categories ENABLE ROW LEVEL SECURITY;
 
 -- POLICIES
 -- 1. Permitive Policy for Service Role (Backend Access)
@@ -218,6 +264,14 @@ CREATE POLICY "Service Role Full Access" ON cloud_file_history TO service_role U
 -- REMOTE LOADS
 DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_remote_loads;
 CREATE POLICY "Service Role Full Access" ON cloud_remote_loads TO service_role USING (true) WITH CHECK (true);
+
+-- PRODUCTS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_products;
+CREATE POLICY "Service Role Full Access" ON cloud_products TO service_role USING (true) WITH CHECK (true);
+
+-- INVENTORY ORDERS
+DROP POLICY IF EXISTS "Service Role Full Access" ON cloud_inventory_orders;
+CREATE POLICY "Service Role Full Access" ON cloud_inventory_orders TO service_role USING (true) WITH CHECK (true);
 
 -- 2. Restrictive Policy for Anon/Public (Prevent accidental leaks)
 -- We explicitly DROP the old "Public Access" if it exists.

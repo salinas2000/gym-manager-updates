@@ -12,14 +12,16 @@ import {
     User,
     TrendingUp,
     AlertTriangle,
-    Download
+    Download,
+    RotateCcw
 } from 'lucide-react';
 import { Card, Title, Text, TabGroup, TabList, Tab, TabPanels, TabPanel, Badge, Button, TextInput } from '@tremor/react';
 import PaymentModal from './PaymentModal';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useLanguage } from '../../context/LanguageContext';
 
 export default function PaymentsManagement() {
-    const { getMonthlyReport, getDebtors, addPayment, getPaymentForMonth, customers, loadPaymentsForCustomer } = useGym();
+    const { getMonthlyReport, getDebtors, addPayment, getPaymentForMonth, customers, loadPaymentsForCustomer, deletePayment } = useGym();
     const { t } = useLanguage();
 
     // State
@@ -34,6 +36,15 @@ export default function PaymentsManagement() {
     // Modal State
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+    // Confirmation Modal State
+    const [confirmModal, setConfirmModal] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        type: 'info',
+        onConfirm: () => { }
+    });
 
     const year = selectedDate.getFullYear();
     const month = selectedDate.getMonth() + 1;
@@ -85,11 +96,45 @@ export default function PaymentsManagement() {
         handleOpenModal(customer);
     };
 
+    const handleRefundDirect = (item) => {
+        if (!item.payment_id) {
+            setConfirmModal({
+                isOpen: true,
+                title: 'Error de Datos',
+                message: 'No se puede anular: No se encontró el registro del pago para este mes.',
+                type: 'danger',
+                showCancel: false,
+                onConfirm: () => { }
+            });
+            return;
+        }
+
+        setConfirmModal({
+            isOpen: true,
+            title: 'Anular Pago',
+            message: `¿Estás seguro de que deseas anular el pago de ${item.paid_amount}€ de ${item.first_name} ${item.last_name}? Esta acción no se puede deshacer.`,
+            type: 'danger',
+            confirmText: 'Anular Pago',
+            showCancel: true,
+            onConfirm: async () => {
+                try {
+                    const success = await deletePayment(item.id, item.payment_id);
+                    if (success) {
+                        fetchData();
+                    }
+                } catch (err) {
+                    console.error('Refund error:', err);
+                }
+            }
+        });
+    };
+
     const filteredReport = monthlyData.filter(item => {
         const matchesSearch = `${item.first_name} ${item.last_name}`.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesStatus = filterStatus === 'all'
             || (filterStatus === 'paid' && item.is_paid)
             || (filterStatus === 'unpaid' && !item.is_paid);
+
         return matchesSearch && matchesStatus;
     });
 
@@ -244,8 +289,17 @@ export default function PaymentsManagement() {
                                                             {t('finance.registerPayment')}
                                                         </button>
                                                     ) : (
-                                                        <div className="text-emerald-500 font-medium text-xs flex items-center justify-end gap-1">
-                                                            Completo <CheckCircle2 size={12} />
+                                                        <div className="flex items-center justify-end gap-3">
+                                                            <div className="text-emerald-500 font-medium text-xs flex items-center gap-1">
+                                                                Completo <CheckCircle2 size={12} />
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleRefundDirect(item)}
+                                                                className="text-slate-500 hover:text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-all"
+                                                                title="Devolver / Anular Pago"
+                                                            >
+                                                                <RotateCcw size={14} />
+                                                            </button>
                                                         </div>
                                                     )}
                                                 </td>
@@ -338,6 +392,19 @@ export default function PaymentsManagement() {
                     existingPayment={getPaymentForMonth(selectedCustomer.id, month - 1, year)}
                 />
             )}
+
+            {/* Modal de Confirmación Genérico */}
+            <ConfirmationModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText}
+                showCancel={confirmModal.showCancel}
+                onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmModal.onConfirm}
+            >
+                {confirmModal.message}
+            </ConfirmationModal>
         </div>
     );
 }
