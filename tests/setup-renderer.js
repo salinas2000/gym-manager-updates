@@ -3,6 +3,9 @@
  * Configures React Testing Library
  */
 
+// Load global test utilities first
+require('./setup.js');
+
 import '@testing-library/jest-dom';
 
 // Mock window.electron (preload API)

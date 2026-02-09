@@ -3,6 +3,9 @@
  * Mocks Electron APIs
  */
 
+// Load global test utilities first
+require('./setup.js');
+
 // Mock Electron
 jest.mock('electron', () => ({
   app: {

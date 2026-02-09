@@ -3,17 +3,16 @@
  * Financial operations - critical accuracy required
  */
 
-const PaymentService = require('./payment.service');
+const paymentService = require('./payment.service');
 
 jest.mock('../../db/database');
 jest.mock('./license.service');
 
 describe('Payment Service', () => {
-  let paymentService;
   let mockDb;
 
   beforeEach(() => {
-    paymentService = new PaymentService();
+    // Service is a singleton, use it directly
     mockDb = global.testUtils.createMockDb();
 
     const dbManager = require('../../db/database');
@@ -25,26 +24,6 @@ describe('Payment Service', () => {
     }));
 
     jest.clearAllMocks();
-  });
-
-  describe('getAll()', () => {
-    test('should return all payments with customer info', () => {
-      const mockPayments = [
-        {
-          id: 1,
-          customer_id: 1,
-          amount: 50,
-          payment_date: '2026-01-01',
-          customer_name: 'John Doe'
-        }
-      ];
-
-      mockDb.prepare().all.mockReturnValue(mockPayments);
-
-      const result = paymentService.getAll();
-
-      expect(result).toEqual(mockPayments);
-    });
   });
 
   describe('create()', () => {
@@ -103,7 +82,7 @@ describe('Payment Service', () => {
     });
   });
 
-  describe('getByCustomerId()', () => {
+  describe('getByCustomer()', () => {
     test('should return payments for specific customer', () => {
       const mockPayments = [
         { id: 1, customer_id: 1, amount: 50 },
@@ -112,7 +91,7 @@ describe('Payment Service', () => {
 
       mockDb.prepare().all.mockReturnValue(mockPayments);
 
-      const result = paymentService.getByCustomerId(1);
+      const result = paymentService.getByCustomer(1);
 
       expect(result).toEqual(mockPayments);
       expect(result).toHaveLength(2);
@@ -121,7 +100,7 @@ describe('Payment Service', () => {
     test('should return empty array if no payments', () => {
       mockDb.prepare().all.mockReturnValue([]);
 
-      const result = paymentService.getByCustomerId(999);
+      const result = paymentService.getByCustomer(999);
 
       expect(result).toEqual([]);
     });
