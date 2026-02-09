@@ -2,6 +2,31 @@ const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
+const z = require('zod');
+
+// Validation Schemas
+const routineItemSchema = z.object({
+    exercise_name: z.string().optional(),
+    exercise_id: z.number().int().optional(),
+    category: z.string().optional(),
+    fields: z.record(z.any()).optional() // Dynamic fields from template
+});
+
+const routineSchema = z.object({
+    id: z.number().int().optional(),
+    name: z.string().optional(),
+    items: z.array(routineItemSchema).optional().default([])
+});
+
+const mesocycleSchema = z.object({
+    customer_name: z.string().optional(),
+    routines: z.array(routineSchema).optional().default([])
+});
+
+const generateRoutineExcelSchema = z.object({
+    mesocycle: mesocycleSchema,
+    destinationPath: z.string().min(1, 'Destination path is required')
+});
 
 class ExcelService {
 
@@ -85,6 +110,12 @@ class ExcelService {
     }
 
     async generateRoutineExcel(mesocycle, destinationPath) {
+        // FIX: Add Zod validation for input parameters
+        const validation = generateRoutineExcelSchema.safeParse({ mesocycle, destinationPath });
+        if (!validation.success) {
+            throw new Error(`Validation failed: ${validation.error.errors[0].message}`);
+        }
+
         try {
             const templatePath = this.getTemplatePath();
             const workbook = new ExcelJS.Workbook();
