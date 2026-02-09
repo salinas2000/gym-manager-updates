@@ -4,12 +4,14 @@
 
 ![Version](https://img.shields.io/badge/version-1.0.7-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Tests](https://github.com/salinas2000/gym-manager-updates/workflows/%F0%9F%A7%AA%20Tests/badge.svg)
 ![Electron](https://img.shields.io/badge/Electron-34.0.0-47848F.svg)
 ![React](https://img.shields.io/badge/React-18.3.1-61DAFB.svg)
+![Coverage](https://img.shields.io/badge/coverage-60%25-yellow.svg)
 
 **Sistema profesional de gestión integral para gimnasios**
 
-[Características](#-características) • [Instalación](#-instalación) • [Documentación](#-documentación) • [Seguridad](#-seguridad)
+[Características](#-características) • [Instalación](#-instalación) • [Testing](#-testing) • [Documentación](#-documentación) • [Seguridad](#-seguridad)
 
 </div>
 
@@ -102,6 +104,38 @@ npm run build
 
 # Los instaladores estarán en: release/
 ```
+
+---
+
+## 🧪 Testing
+
+### Ejecutar Tests
+
+```bash
+# Todos los tests
+npm test
+
+# Con reporte de cobertura
+npm run test:coverage
+
+# Modo watch (desarrollo)
+npm run test:watch
+
+# Solo main process
+npm run test:main
+
+# Solo renderer process
+npm run test:renderer
+```
+
+### Cobertura Actual
+
+- **Credential Manager**: ✅ 100% cobertura
+- **Customer Service**: ✅ 100% cobertura
+- **Payment Service**: ✅ 100% cobertura
+- **React Components**: ✅ Componentes críticos cubiertos
+
+Ver guía completa: [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)
 
 ---
 

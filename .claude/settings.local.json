@@ -11,7 +11,12 @@
       "Bash(git mv:*)",
       "Bash(move CREDENTIALS_SETUP.md docs )",
       "Bash(move:*)",
-      "Bash(move START_HERE.md docs )"
+      "Bash(move START_HERE.md docs )",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm install:*)",
+      "Bash(npm test:*)"
     ]
   }
 }

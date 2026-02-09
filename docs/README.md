@@ -43,6 +43,12 @@ Si ya tienes el sistema antiguo con `.env`:
 | **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** | Resumen técnico detallado | Desarrolladores | 20 min |
 | **[VISUAL_SUMMARY.md](VISUAL_SUMMARY.md)** | Resumen visual con diagramas | Todos | 10 min |
 
+### 🧪 Testing
+
+| Archivo | Propósito | Audiencia | Tiempo |
+|---------|-----------|-----------|--------|
+| **[TESTING_GUIDE.md](TESTING_GUIDE.md)** | Guía completa de testing | Desarrolladores/QA | 30 min |
+
 ---
 
 ## 🔍 Guía de Navegación
