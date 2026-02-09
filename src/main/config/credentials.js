@@ -186,9 +186,11 @@ class CredentialManager {
     isComplete(creds) {
         if (!creds) return false;
 
-        const hasSupabase = creds.supabase?.url && creds.supabase?.key;
-        const hasGoogle = creds.google?.clientId && creds.google?.clientSecret;
-        const hasGitHub = creds.github?.token;
+        // FIX: Use !! to ensure boolean return value
+        // Without !!, this would return the last truthy value (the key string) instead of true
+        const hasSupabase = !!(creds.supabase?.url && creds.supabase?.key);
+        const hasGoogle = !!(creds.google?.clientId && creds.google?.clientSecret);
+        const hasGitHub = !!creds.github?.token;
 
         // Supabase is required, others are optional
         return hasSupabase;

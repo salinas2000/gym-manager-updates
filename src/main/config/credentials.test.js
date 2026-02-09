@@ -9,7 +9,29 @@ describe('Credential Manager', () => {
   beforeEach(() => {
     // Reset singleton state
     credentialManager.credentials = null;
+
+    // Clear all environment variables
+    delete process.env.GYM_SUPABASE_URL;
+    delete process.env.GYM_SUPABASE_KEY;
+    delete process.env.GYM_GOOGLE_CLIENT_ID;
+    delete process.env.GYM_GOOGLE_CLIENT_SECRET;
+    delete process.env.GYM_GOOGLE_PROJECT_ID;
+    delete process.env.GYM_GITHUB_TOKEN;
+
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    // Cleanup after each test
+    credentialManager.credentials = null;
+
+    // Clear environment variables
+    delete process.env.GYM_SUPABASE_URL;
+    delete process.env.GYM_SUPABASE_KEY;
+    delete process.env.GYM_GOOGLE_CLIENT_ID;
+    delete process.env.GYM_GOOGLE_CLIENT_SECRET;
+    delete process.env.GYM_GOOGLE_PROJECT_ID;
+    delete process.env.GYM_GITHUB_TOKEN;
   });
 
   describe('init()', () => {
@@ -33,10 +55,14 @@ describe('Credential Manager', () => {
     });
 
     test('should fallback to .env.local file (Priority 2)', () => {
+      // Ensure no env vars are set (so it falls back to file)
+      delete process.env.GYM_SUPABASE_URL;
+      delete process.env.GYM_SUPABASE_KEY;
+
       // Setup: Mock file system
       const fs = require('fs');
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(`
+      fs.existsSync.mockReturnValueOnce(true);
+      fs.readFileSync.mockReturnValueOnce(`
 SUPABASE_URL=https://local.supabase.co
 SUPABASE_KEY=local_key
       `);
@@ -50,16 +76,19 @@ SUPABASE_KEY=local_key
     });
 
     test('should fallback to electron-store (Priority 3)', () => {
+      // Ensure no env vars or file
+      delete process.env.GYM_SUPABASE_URL;
+      delete process.env.GYM_SUPABASE_KEY;
+
+      const fs = require('fs');
+      fs.existsSync.mockReturnValueOnce(false);
+
       // Setup: Mock electron-store
       const Store = require('electron-store');
       const mockStore = {
         get: jest.fn(() => global.testUtils.createMockCredentials())
       };
-      Store.mockImplementation(() => mockStore);
-
-      // Ensure file doesn't exist
-      const fs = require('fs');
-      fs.existsSync.mockReturnValue(false);
+      Store.mockImplementationOnce(() => mockStore);
 
       const result = credentialManager.init();
 
@@ -68,12 +97,15 @@ SUPABASE_KEY=local_key
     });
 
     test('should return false if no credentials found', () => {
-      // Setup: No credentials anywhere
+      // Ensure no credentials anywhere
+      delete process.env.GYM_SUPABASE_URL;
+      delete process.env.GYM_SUPABASE_KEY;
+
       const fs = require('fs');
-      fs.existsSync.mockReturnValue(false);
+      fs.existsSync.mockReturnValueOnce(false);
 
       const Store = require('electron-store');
-      Store.mockImplementation(() => ({
+      Store.mockImplementationOnce(() => ({
         get: jest.fn(() => null)
       }));
 
