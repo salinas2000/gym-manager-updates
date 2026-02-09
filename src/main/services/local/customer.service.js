@@ -5,7 +5,10 @@ const z = require('zod');
 const createCustomerSchema = z.object({
     first_name: z.string().min(1, "First name is required"),
     last_name: z.string().min(1, "Last name is required"),
-    email: z.string().email("Invalid email address"),
+    // FIX: Normalize email to prevent duplicates (trim + lowercase)
+    email: z.string()
+        .email("Invalid email address")
+        .transform(val => val.toLowerCase().trim()),
     phone: z.string().optional(),
     tariff_id: z.number().optional().nullable(),
 });
@@ -162,21 +165,16 @@ class CustomerService {
 
             } else {
                 // REACTIVATING
-                // Monthly Uniqueness Check:
-                // Check if there is a membership that started this month or ended this month (or is scheduled to end)
-
-                // We are looking for a record where:
-                // (start_date in current month) OR (end_date in current month AND end_date >= now)
-                // Actually, simplest is: Is there a record with start_date in this month? 
-                // OR Is there a record with end_date > start of this month?
+                // FIX: Clear ANY future scheduled cancellations when reactivating
+                // This prevents race conditions where a renewal happens before a scheduled cancellation
 
                 const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
                 const existingThisMonth = db.prepare(`
-                    SELECT id FROM memberships 
-                    WHERE customer_id = ? 
+                    SELECT id FROM memberships
+                    WHERE customer_id = ?
                     AND (
-                        start_date >= ? OR 
+                        start_date >= ? OR
                         (end_date >= ? AND end_date IS NOT NULL)
                     )
                     ORDER BY start_date DESC
@@ -194,6 +192,14 @@ class CustomerService {
                         VALUES (?, ?, ?)
                     `).run(this.getGymId(), id, nowISO);
                 }
+
+                // FIX: Clear ALL future scheduled cancellations for this customer
+                // This prevents the race condition where user renews but old cancellation still fires
+                db.prepare(`
+                    UPDATE memberships
+                    SET end_date = NULL, synced = 0, updated_at = datetime('now')
+                    WHERE customer_id = ? AND end_date > ?
+                `).run(id, nowISO);
 
                 // Always set to active
                 db.prepare('UPDATE customers SET active = 1, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);

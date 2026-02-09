@@ -11,10 +11,41 @@ class AnalyticsService {
         }
     }
 
+    // FIX: Date range validation helper to prevent invalid queries
+    validateDateRange(startDate, endDate) {
+        if (!startDate || !endDate) {
+            throw new Error('Start and end dates are required');
+        }
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            throw new Error('Invalid date format');
+        }
+
+        if (start > end) {
+            throw new Error('Start date must be before or equal to end date');
+        }
+
+        return { start, end };
+    }
+
+    // FIX: Year validation helper
+    validateYear(year) {
+        const yearNum = Number(year);
+        if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+            throw new Error('Invalid year. Must be between 2000 and 2100');
+        }
+        return yearNum;
+    }
+
     // 1. Revenue History (Sum amount group by month)
     getRevenueHistory(year) {
+        // FIX: Validate year before querying
+        const validYear = this.validateYear(year);
         const db = dbManager.getInstance();
-        const yearStr = String(year);
+        const yearStr = String(validYear);
 
         // Initialize array for 12 months
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -42,10 +73,12 @@ class AnalyticsService {
 
     // 2. Active Members History (Complex Overlap Logic)
     getActiveMembersHistory(year) {
+        // FIX: Validate year before querying
+        const validYear = this.validateYear(year);
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
         return months.map((monthName, index) => {
-            const count = this.getActiveCountForMonth(year, index);
+            const count = this.getActiveCountForMonth(validYear, index);
             return {
                 month: monthName,
                 members: count
@@ -137,8 +170,10 @@ class AnalyticsService {
 
     // 6. New Members History (Sign-ups)
     getNewMembersHistory(year) {
+        // FIX: Validate year before querying
+        const validYear = this.validateYear(year);
         const db = dbManager.getInstance();
-        const yearStr = String(year);
+        const yearStr = String(validYear);
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
         const stmt = db.prepare(`
@@ -193,8 +228,10 @@ class AnalyticsService {
     // --- LOGICA DE INVENTARIO (NUEVA) ---
 
     getInventoryDashboardData(year, category = 'all') {
+        // FIX: Validate year before querying
+        const validYear = this.validateYear(year);
         const db = dbManager.getInstance();
-        const yearStr = String(year);
+        const yearStr = String(validYear);
         const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
         // 0. Get available categories

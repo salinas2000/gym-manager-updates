@@ -158,29 +158,40 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
     };
 
     const handlePay = async () => {
+        // FIX: Prevent double-click submission
+        if (loading) return;
+
         setLoading(true);
-        const tariff = tariffs.find(t => t.id === Number(tariffId));
+        try {
+            const tariff = tariffs.find(t => t.id === Number(tariffId));
 
-        // Use UTC date to set to 1st of month correctly in DB
-        const utcDate = new Date(Date.UTC(year, month, 1)).toISOString();
+            // Use UTC date to set to 1st of month correctly in DB
+            const utcDate = new Date(Date.UTC(year, month, 1)).toISOString();
 
-        const success = await addPayment({
-            customer_id: customer.id,
-            amount: parseFloat(price),
-            tariff_name: tariff ? tariff.name : 'Custom',
-            payment_date: utcDate
-        });
+            const success = await addPayment({
+                customer_id: customer.id,
+                amount: parseFloat(price),
+                tariff_name: tariff ? tariff.name : 'Custom',
+                payment_date: utcDate
+            });
 
-        setLoading(false);
-        if (success) onClose();
+            if (success) onClose();
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleRefund = async () => {
-        if (!existingPayment) return;
+        // FIX: Prevent double-click submission
+        if (!existingPayment || loading) return;
+
         setLoading(true);
-        const success = await deletePayment(customer.id, existingPayment.id);
-        setLoading(false);
-        if (success) onClose();
+        try {
+            const success = await deletePayment(customer.id, existingPayment.id);
+            if (success) onClose();
+        } finally {
+            setLoading(false);
+        }
     };
 
     if (!isOpen || !customer) return null;

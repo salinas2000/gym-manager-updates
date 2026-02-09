@@ -4,7 +4,13 @@ const z = require('zod');
 // Validation Schemas
 const createPaymentSchema = z.object({
     customer_id: z.number().int().positive(),
-    amount: z.number().positive(),
+    // FIX: Validate amount has max 2 decimal places to prevent float precision issues
+    amount: z.number()
+        .positive('Amount must be positive')
+        .refine(
+            val => Number.isInteger(val * 100),
+            'Amount must have maximum 2 decimal places'
+        ),
     tariff_name: z.string().optional(),
     payment_date: z.string().optional(), // ISO string from frontend
 });
@@ -40,8 +46,9 @@ class PaymentService {
         const { customer_id, amount, tariff_name, payment_date } = validation.data;
         const db = dbManager.getInstance();
 
-        // Default date if not provided (should be provided for specific month/year payments)
-        const finalDate = payment_date || new Date().toISOString();
+        // FIX: Use date-only format to avoid timezone issues
+        // Store as YYYY-MM-DD instead of full ISO timestamp
+        const finalDate = payment_date || new Date().toISOString().split('T')[0];
 
         const gymId = this.getGymId();
         const stmt = db.prepare(`
