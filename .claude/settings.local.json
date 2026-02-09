@@ -18,7 +18,8 @@
       "Bash(npm install:*)",
       "Bash(npm test:*)",
       "Bash(npm run rebuild:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(ls:*)"
     ]
   }
 }
