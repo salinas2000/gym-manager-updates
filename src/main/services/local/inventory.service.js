@@ -1,6 +1,6 @@
 const dbManager = require('../../db/database');
-const licenseService = require('./license.service');
 const z = require('zod');
+const BaseService = require('../BaseService');
 
 // Validation Schemas
 const productSchema = z.object({
@@ -24,8 +24,9 @@ const orderSchema = z.object({
     notes: z.string().optional().nullable(),
 });
 
-class InventoryService {
+class InventoryService extends BaseService {
     constructor() {
+        super(); // Call parent constructor
         this.db = null;
     }
 
@@ -36,10 +37,7 @@ class InventoryService {
         return this.db;
     }
 
-    getGymId() {
-        const lic = licenseService.getLicenseData();
-        return lic ? lic.gym_id : 'LOCAL_DEV';
-    }
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     // --- PRODUCTS ---
     async getProducts() {

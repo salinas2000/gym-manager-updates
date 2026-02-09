@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
 const z = require('zod');
+const BaseService = require('../BaseService');
 
 // Validation Schemas
 const routineItemSchema = z.object({
@@ -28,21 +29,14 @@ const generateRoutineExcelSchema = z.object({
     destinationPath: z.string().min(1, 'Destination path is required')
 });
 
-class ExcelService {
+class ExcelService extends BaseService {
 
     constructor() {
+        super(); // Call parent constructor
         this.templatePath = null;
     }
 
-    getGymId() {
-        try {
-            const licenseService = require('../local/license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     getTemplatePath() {
         const { app } = require('electron');

@@ -2,21 +2,15 @@ const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
 const dbManager = require('../../db/database');
+const BaseService = require('../BaseService');
 
-class SeedService {
+class SeedService extends BaseService {
     constructor() {
+        super(); // Call parent constructor
         this.db = null;
     }
 
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     init() {
         this.db = dbManager.getInstance();

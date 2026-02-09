@@ -1,5 +1,6 @@
 const dbManager = require('../../db/database');
 const z = require('zod');
+const BaseService = require('../BaseService');
 
 // Validation Schemas
 const createPaymentSchema = z.object({
@@ -20,16 +21,8 @@ const monthlyReportSchema = z.object({
     month: z.number().int().min(1).max(12)
 });
 
-class PaymentService {
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+class PaymentService extends BaseService {
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     getByCustomer(customerId) {
         const db = dbManager.getInstance();

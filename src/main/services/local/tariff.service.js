@@ -1,5 +1,6 @@
 const dbManager = require('../../db/database');
 const z = require('zod');
+const BaseService = require('../BaseService');
 
 const createTariffSchema = z.object({
     name: z.string().min(1, "Name is required"),
@@ -7,16 +8,8 @@ const createTariffSchema = z.object({
     color_theme: z.string().optional(),
 });
 
-class TariffService {
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+class TariffService extends BaseService {
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     getAll() {
         const db = dbManager.getInstance();

@@ -1,5 +1,6 @@
 const dbManager = require('../../db/database');
 const z = require('zod');
+const BaseService = require('../BaseService');
 
 // Validation Schemas
 const createCustomerSchema = z.object({
@@ -15,16 +16,8 @@ const createCustomerSchema = z.object({
 
 const updateCustomerSchema = createCustomerSchema.partial();
 
-class CustomerService {
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+class CustomerService extends BaseService {
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     getAll() {
         const db = dbManager.getInstance();

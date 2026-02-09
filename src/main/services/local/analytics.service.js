@@ -1,15 +1,8 @@
 const dbManager = require('../../db/database');
+const BaseService = require('../BaseService');
 
-class AnalyticsService {
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+class AnalyticsService extends BaseService {
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     // FIX: Date range validation helper to prevent invalid queries
     validateDateRange(startDate, endDate) {

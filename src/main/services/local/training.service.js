@@ -1,5 +1,6 @@
 const dbManager = require('../../db/database');
 const z = require('zod');
+const BaseService = require('../BaseService');
 
 // Validation Schemas
 const exerciseSchema = z.object({
@@ -40,8 +41,9 @@ const mesocycleSchema = z.object({
     routines: z.array(z.any()).optional()
 });
 
-class TrainingService {
+class TrainingService extends BaseService {
     constructor() {
+        super(); // Call parent constructor
         // FIX: Cache for deleted field keys to prevent N+1 query
         this._deletedKeysCache = null;
     }
@@ -50,15 +52,7 @@ class TrainingService {
         return dbManager.getInstance();
     }
 
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+    // FIX: Removed getGymId() - now inherited from BaseService
 
     /**
      * Get cached set of deleted field keys

@@ -3,10 +3,12 @@ const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
 const dbManager = require('../../db/database');
+const BaseService = require('../BaseService');
 
-class TemplateService {
+class TemplateService extends BaseService {
 
     constructor() {
+        super(); // Call parent constructor
         this.defaultConfig = {
             colors: {
                 primary: 'FF000000', // Black
@@ -24,15 +26,7 @@ class TemplateService {
         return dbManager.getInstance();
     }
 
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
-    }
+    // FIX: Removed DUPLICATE getGymId() methods - now inherited from BaseService
 
     /**
      * Helper to read image as Base64 safely.
@@ -49,19 +43,6 @@ class TemplateService {
             console.warn('[TemplateService] Failed to read logo image:', e.message);
         }
         return null;
-    }
-
-    /**
-     * Helper to get the current gym identity.
-     */
-    getGymId() {
-        try {
-            const licenseService = require('./license.service');
-            const data = licenseService.getLicenseData();
-            return data ? data.gym_id : 'LOCAL_DEV';
-        } catch (e) {
-            return 'LOCAL_DEV';
-        }
     }
 
     /**
