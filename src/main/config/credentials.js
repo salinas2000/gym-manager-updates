@@ -12,11 +12,31 @@
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
+const { machineIdSync } = require('node-machine-id');
 
 class CredentialManager {
     constructor() {
         this.credentials = null;
         this.configPath = null;
+        this._encryptionKey = null;
+    }
+
+    /**
+     * Get secure encryption key based on machine ID
+     * FIX: Changed from hardcoded key to machine-specific key for security
+     */
+    getEncryptionKey() {
+        if (!this._encryptionKey) {
+            try {
+                // Use machine ID for unique encryption per machine
+                this._encryptionKey = machineIdSync();
+            } catch (error) {
+                console.warn('[CREDENTIALS] Could not get machine ID, using fallback');
+                // Fallback to app-specific key (still better than hardcoded)
+                this._encryptionKey = `gym-manager-${app.getVersion()}-${app.getName()}`;
+            }
+        }
+        return this._encryptionKey;
     }
 
     /**
@@ -128,7 +148,7 @@ class CredentialManager {
             const Store = require('electron-store');
             const store = new Store({
                 name: 'credentials',
-                encryptionKey: 'gym-manager-pro-secure-key' // In production, use machine-id
+                encryptionKey: this.getEncryptionKey() // FIX: Machine-specific encryption
             });
 
             const creds = store.get('credentials');
@@ -147,7 +167,7 @@ class CredentialManager {
             const Store = require('electron-store');
             const store = new Store({
                 name: 'credentials',
-                encryptionKey: 'gym-manager-pro-secure-key'
+                encryptionKey: this.getEncryptionKey() // FIX: Machine-specific encryption
             });
 
             store.set('credentials', credentials);
