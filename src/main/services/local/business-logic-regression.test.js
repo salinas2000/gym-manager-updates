@@ -322,17 +322,23 @@ describe('Business Logic - Regression Tests', () => {
       expect(sanitizeForExcel(customerName)).toBe('John  Doe');
     });
 
-    test('BUG: CSV export breaks with commas in data', () => {
-      // Real bug: Customer address has comma
+    test('CSV export handles commas correctly', () => {
+      // Customer address has comma
       const address = '123 Main St, Apt 4';
 
-      // WRONG: Just comma-separate
+      // WRONG way: Just comma-separate
       const wrongCsv = `John,Doe,${address}`;
-      expect(wrongCsv.split(',').length).toBe(5); // BROKEN!
+      // This creates 4 fields because comma in address breaks parsing:
+      // ["John", "Doe", "123 Main St", " Apt 4"]
+      expect(wrongCsv.split(',').length).toBe(4);
 
-      // RIGHT: Quote fields with commas
+      // RIGHT way: Quote fields with commas
       const rightCsv = `John,Doe,"${address}"`;
-      // Or use a CSV library that handles this
+      // This creates 3 fields correctly:
+      // ["John", "Doe", "123 Main St, Apt 4"]
+      const fields = rightCsv.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+      expect(fields.length).toBe(3);
+      expect(fields[2]).toBe('"123 Main St, Apt 4"');
     });
   });
 });
