@@ -369,6 +369,7 @@ function registerHandlers() {
         return filePaths[0];
     });
     handle('cloud:applyRemoteLoad', (data) => require('../services/cloud/cloud.service').applyRemoteLoad(data.gym_id, data.load_id));
+    handle('admin:restoreBackup', ({ gymId, fileName }) => adminService.restoreRemoteBackup(gymId, fileName));
 
     // Credentials Management
     const credentialManager = require('../config/credentials');

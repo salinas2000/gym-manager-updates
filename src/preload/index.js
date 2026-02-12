@@ -35,7 +35,11 @@ contextBridge.exposeInMainWorld('api', {
     cloud: {
         backup: (gymId) => ipcRenderer.invoke('cloud:backup', gymId),
         exportLocal: () => ipcRenderer.invoke('cloud:exportLocal'),
-        onRemoteLoadPending: (callback) => ipcRenderer.on('cloud:remote-load-pending', (event, data) => callback(data)),
+        onRemoteLoadPending: (callback) => {
+            const subscription = (event, data) => callback(data);
+            ipcRenderer.on('cloud:remote-load-pending', subscription);
+            return () => ipcRenderer.removeListener('cloud:remote-load-pending', subscription);
+        },
         applyRemoteLoad: (data) => ipcRenderer.invoke('cloud:applyRemoteLoad', data),
     },
     training: {
@@ -114,6 +118,7 @@ contextBridge.exposeInMainWorld('api', {
         getReleases: () => ipcRenderer.invoke('admin:getReleases'),
         listBackups: (gymId) => ipcRenderer.invoke('admin:listBackups', gymId),
         getPushHistory: (gymId) => ipcRenderer.invoke('admin:getPushHistory', gymId),
+        restoreBackup: ({ gymId, fileName }) => ipcRenderer.invoke('admin:restoreBackup', { gymId, fileName }),
         pushDB: (data) => ipcRenderer.invoke('admin:pushDB', data),
         pickDB: () => ipcRenderer.invoke('admin:pickDB'),
     },

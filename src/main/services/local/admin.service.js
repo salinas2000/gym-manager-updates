@@ -4,11 +4,15 @@ const licenseService = require('./license.service');
 const path = require('path');
 const crypto = require('crypto');
 const z = require('zod');
-require('dotenv').config({ path: path.join(__dirname, '../../../../.env') });
+const credentialManager = require('../../config/credentials');
 
+// Initialize only if credentials are loaded
 let supabase = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
-    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+if (credentialManager.init()) {
+    const creds = credentialManager.get();
+    if (creds.supabase?.url && creds.supabase?.key) {
+        supabase = createClient(creds.supabase.url, creds.supabase.key);
+    }
 }
 
 // Validation Schemas
@@ -45,7 +49,7 @@ class AdminService {
         const { data: gyms, error: gymError } = await supabase
             .from('licenses')
             .select('gym_id, gym_name, created_at, active')
-            .eq('is_master', false);
+        //.eq('is_master', false)
 
         if (gymError) throw gymError;
 
@@ -108,7 +112,7 @@ class AdminService {
                 app_version,
                 expires_at
             `)
-            .eq('is_master', false)
+            //.eq('is_master', false) // Show all licenses including Master
             .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -366,8 +370,16 @@ class AdminService {
 
     async getGitHubReleases() {
         this.checkMaster();
-        const token = process.env.GH_TOKEN;
-        if (!token) throw new Error('GH_TOKEN no configurado en el servidor.');
+
+        let token = null;
+        if (credentialManager.isLoaded()) {
+            token = credentialManager.get().github?.token;
+        }
+
+        if (!token) {
+            console.warn('[AdminService] GH_TOKEN no configurado. Releases desactivadas.');
+            return []; // Return empty list instead of crashing
+        }
 
         // Extract owner and repo from package.json or hardcoded
         const owner = 'salinas2000';
@@ -410,11 +422,18 @@ class AdminService {
         const { data, error } = await supabase
             .storage
             .from('training_files')
-            .list(`${gymId}/sys_backups/`, {
+            .list(`${gymId}/sys_backups`, {
                 limit: 100,
                 offset: 0,
                 sortBy: { column: 'name', order: 'desc' }
             });
+
+        console.log(`[AdminService] Searching backups in: training_files/${gymId}/sys_backups`);
+        if (error) {
+            console.error('[AdminService] ❌ ERROR LISTING BACKUPS (Check RLS/Permissions):', error);
+            throw error;
+        }
+        console.log(`[AdminService] ✅ Found ${data?.length || 0} files. (Data: ${JSON.stringify(data)})`);
 
         if (error) {
             console.error('[AdminService] listGymBackups failed:', error);
@@ -509,6 +528,67 @@ class AdminService {
 
         if (error) throw error;
         return data;
+    }
+    async restoreRemoteBackup(gymId, backupFileName) {
+        this.checkMaster();
+        console.log(`🚀 [AdminService] RESTORING BACKUP for Gym: ${gymId} File: ${backupFileName}`);
+
+        if (!gymId || !backupFileName) throw new Error('Parámetros inválidos');
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        const sourcePath = `${gymId}/sys_backups/${backupFileName}`;
+        const targetPath = `${gymId}/remote_load/gym_manager.db`;
+
+        // 1. Restore Database
+        console.log('[AdminService] Restoring Database file...');
+        const { data: dbData, error: dbError } = await supabase.storage.from('training_files').download(sourcePath);
+        if (dbError) throw new Error('Error descargando DB: ' + dbError.message);
+
+        const { error: uploadError } = await supabase.storage.from('training_files').upload(targetPath, dbData, { contentType: 'application/x-sqlite3', upsert: true });
+        if (uploadError) throw new Error('Error subiendo DB a remote_load: ' + uploadError.message);
+
+        // 2. Identify and Restore Companion Files (Templates)
+        // Format: {TIMESTAMP}_gym_manager.db -> {TIMESTAMP}_template_config.json
+        const timestampPrefix = backupFileName.replace('_gym_manager.db', '');
+
+        const filesToRestore = [
+            { suffix: '_template_config.json', target: 'template_config.json', type: 'application/json' },
+            { suffix: '_org_template.xlsx', target: 'org_template.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+        ];
+
+        for (const fileDef of filesToRestore) {
+            const companionName = `${timestampPrefix}${fileDef.suffix}`;
+            const companionSource = `${gymId}/sys_backups/${companionName}`;
+            const companionTarget = `${gymId}/remote_load/${fileDef.target}`;
+
+            console.log(`[AdminService] Checking companion file: ${companionName}`);
+
+            // Check existence first via list (to avoid download errors on missing legacy files)
+            const { data: exists } = await supabase.storage.from('training_files').list(`${gymId}/sys_backups`, { search: companionName });
+
+            if (exists && exists.length > 0) {
+                console.log(`[AdminService] Restoring companion: ${companionName}`);
+                const { data: fileData } = await supabase.storage.from('training_files').download(companionSource);
+                if (fileData) {
+                    await supabase.storage.from('training_files').upload(companionTarget, fileData, { contentType: fileDef.type, upsert: true });
+                }
+            } else {
+                console.log(`[AdminService] Companion ${companionName} not found (Legacy backup?). Skipping.`);
+            }
+        }
+
+        // 3. Register in DB (Triggers Client)
+        const { error: logError } = await supabase
+            .from('cloud_remote_loads')
+            .insert([{
+                gym_id: gymId,
+                status: 'pending',
+                created_at: new Date().toISOString()
+            }]);
+
+        if (logError) console.warn('[AdminService] Warning: Could not log to cloud_remote_loads', logError);
+
+        return { success: true };
     }
 }
 

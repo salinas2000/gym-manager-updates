@@ -192,14 +192,13 @@ app.whenReady().then(() => {
             });
         };
 
-        // 6. Remote Database Load Check (Realtime & Polling)
+        // 6. Remote Database Load Check (Polling + Realtime attempt)
         const runRemoteLoadCheck = () => {
             const lic = licenseService.getLicenseData();
             if (lic) {
-                console.log('📡 [Main] Checking for remote loads for gym:', lic.gym_id);
-                // Ensure Realtime is active
+                // Attempt Realtime (may timeout, polling is the fallback)
                 cloudService.setupRealtime(lic.gym_id);
-                // Manual Polling Fallback (Every 30m)
+                // Polling: Check for pending remote loads
                 cloudService.checkRemoteLoad(lic.gym_id);
             }
         };
@@ -219,7 +218,7 @@ app.whenReady().then(() => {
 
         // Background intervals
         setInterval(runUpdateCheck, 30 * 60 * 1000);
-        setInterval(runRemoteLoadCheck, 30 * 60 * 1000);
+        setInterval(runRemoteLoadCheck, 30 * 1000); // Poll every 30 seconds (Realtime fallback)
         setInterval(runLeaseRenewal, 60 * 60 * 1000); // Check every hour
     }
 

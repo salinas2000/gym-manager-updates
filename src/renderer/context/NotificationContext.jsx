@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useToast } from './ToastContext';
 
 const NotificationContext = createContext();
 
 export function NotificationProvider({ children }) {
     const [notifications, setNotifications] = useState([]);
     const [isDrawerOpen, setDrawerOpen] = useState(false);
+    const { addToast } = useToast();
 
     useEffect(() => {
         // Listen for updater events from main process
@@ -15,6 +17,11 @@ export function NotificationProvider({ children }) {
 
             const cleanupRemote = window.api.on('cloud:remote-load-pending', (data) => {
                 console.log('🔔 [NotificationContext] Remote load signal received:', data);
+
+                // 1. Show immediate Toast (User requested "automatic detection")
+                if (addToast) addToast('Nueva versión de datos disponible. Abre notificaciones.', 'info', 6000);
+
+                // 2. Add Persistent Notification with Action
                 addNotification({
                     id: 'remote-load-pending',
                     type: 'update',
@@ -44,7 +51,9 @@ export function NotificationProvider({ children }) {
                 cleanupRemote();
             };
         }
-    }, []);
+    }, [addToast]);
+
+    // ... rest of the file ...
 
     // Also check for initial status of License and Google Drive
     useEffect(() => {

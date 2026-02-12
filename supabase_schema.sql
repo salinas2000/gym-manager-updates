@@ -87,10 +87,12 @@ CREATE TABLE IF NOT EXISTS cloud_exercises (
     name TEXT NOT NULL,
     subcategory_id BIGINT,
     video_url TEXT,
+    notes TEXT,
     default_sets INTEGER,
     default_reps TEXT,
     is_failure INTEGER DEFAULT 0,
     default_intensity TEXT,
+    custom_fields JSONB,
     synced_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (gym_id, local_id)
 );
@@ -107,6 +109,7 @@ CREATE TABLE IF NOT EXISTS cloud_mesocycles (
     is_template INTEGER DEFAULT 0,
     days_per_week INTEGER DEFAULT 0,
     notes TEXT,
+    drive_link TEXT,
     created_at TIMESTAMPTZ,
     synced_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (gym_id, local_id)
@@ -137,6 +140,7 @@ CREATE TABLE IF NOT EXISTS cloud_routine_items (
     notes TEXT,
     intensity TEXT,
     order_index INTEGER,
+    custom_fields JSONB,
     synced_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (gym_id, local_id)
 );

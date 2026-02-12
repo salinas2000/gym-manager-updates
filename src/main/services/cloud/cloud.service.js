@@ -89,10 +89,18 @@ class CloudService {
                 }
             );
 
-        channel.subscribe((status) => {
+        channel.subscribe((status, err) => {
+            console.log(`📡 [CLOUD_SYNC] Realtime channel status: ${status}`, err || '');
             if (status === 'SUBSCRIBED') {
                 this.activeChannels.add(gymId);
                 console.log('✅ [CLOUD_SYNC] Realtime SUBSCRIBED for gym:', gymId);
+            } else if (status === 'CHANNEL_ERROR') {
+                console.error('❌ [CLOUD_SYNC] Realtime CHANNEL_ERROR:', err);
+            } else if (status === 'TIMED_OUT') {
+                console.error('❌ [CLOUD_SYNC] Realtime TIMED_OUT');
+            } else if (status === 'CLOSED') {
+                console.warn('⚠️ [CLOUD_SYNC] Realtime channel CLOSED');
+                this.activeChannels.delete(gymId);
             }
         });
     }
@@ -125,28 +133,33 @@ class CloudService {
         }
 
         try {
-            console.log(`[CLOUD_SYNC] Starting SIMPLE FILE SNAPSHOT for ${targetGymId}`);
+            console.log(`[CLOUD_SYNC] Starting FULL BACKUP SET for ${targetGymId}`);
+
+            // Unified ID for this backup set
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            // Format: YYYY-MM-DDTHH-mm-ss-msZ
 
             console.log('[CLOUD_SYNC] Starting DB Snapshot Upload...');
-            const snapshotUrl = await this.backupDatabaseFile(targetGymId);
+            const snapshotUrl = await this.backupDatabaseFile(targetGymId, timestamp);
 
             console.log('[CLOUD_SYNC] Starting Template Config Upload...');
-            const configUrl = await this.backupTemplateConfig(targetGymId);
+            const configUrl = await this.backupTemplateConfig(targetGymId, timestamp);
 
             console.log('[CLOUD_SYNC] Starting Template Excel Upload...');
-            const excelUrl = await this.backupTemplateExcel(targetGymId);
+            const excelUrl = await this.backupTemplateExcel(targetGymId, timestamp);
 
             const finalResult = {
                 success: true,
                 data: {
-                    tables: {}, // Empty for compatibility
+                    tables: {},
+                    backupId: timestamp,
                     fileBackup: snapshotUrl,
                     configBackup: configUrl,
                     excelBackup: excelUrl
                 }
             };
 
-            console.log('[CLOUD_SYNC] Snapshot Upload Complete.', JSON.stringify(finalResult));
+            console.log('[CLOUD_SYNC] Backup Set Complete.', JSON.stringify(finalResult));
             return finalResult;
 
         } catch (error) {
@@ -155,37 +168,26 @@ class CloudService {
         }
     }
 
-    async backupDatabaseFile(targetGymId) {
+    async backupDatabaseFile(targetGymId, backupId) {
         try {
             const userDataPath = app.getPath('userData');
             const dbPath = path.join(userDataPath, 'gym_manager.db');
 
-            if (!fs.existsSync(dbPath)) {
-                console.warn('No database file found at ' + dbPath);
-                return null;
-            }
+            if (!fs.existsSync(dbPath)) return null;
 
-            // Read file into buffer
-            // NOTE: In high traffic apps, we might want to copy it first or use sqlite backup API.
-            // For desktop single user, reading is usually fine even if locked (WAL mode allows readers).
             const fileBuffer = fs.readFileSync(dbPath);
+            // Naming convention: {TIMESTAMP}_gym_manager.db
+            const fileName = `${targetGymId}/sys_backups/${backupId}_gym_manager.db`;
 
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const fileName = `${targetGymId}/sys_backups/${timestamp}_gym_manager.db`;
-
-            const { data, error } = await this.supabase
+            const { error } = await this.supabase
                 .storage
-                .from('training_files') // Using existing bucket
+                .from('training_files')
                 .upload(fileName, fileBuffer, {
                     contentType: 'application/x-sqlite3',
                     upsert: true
                 });
 
             if (error) throw error;
-
-            // Get public URL? Sys backups might be better private, but for now we follow pattern
-            // const { data: publicData } = this.supabase.storage.from('training_files').getPublicUrl(fileName);
-            // return publicData.publicUrl;
             return fileName;
 
         } catch (err) {
@@ -194,18 +196,16 @@ class CloudService {
         }
     }
 
-    async backupTemplateConfig(targetGymId) {
+    async backupTemplateConfig(targetGymId, backupId) {
         try {
             const userDataPath = app.getPath('userData');
             const configPath = path.join(userDataPath, 'templates', targetGymId, 'template_config.json');
 
-            if (!fs.existsSync(configPath)) {
-                console.log('[CLOUD_SYNC] No template config found for gym:', targetGymId);
-                return null;
-            }
+            if (!fs.existsSync(configPath)) return null;
 
             const fileBuffer = fs.readFileSync(configPath);
-            const fileName = `${targetGymId}/sys_backups/template_config_${Date.now()}.json`;
+            // Standardized Naming: {TIMESTAMP}_template_config.json
+            const fileName = `${targetGymId}/sys_backups/${backupId}_template_config.json`;
 
             const { error } = await this.supabase
                 .storage
@@ -219,23 +219,20 @@ class CloudService {
             return fileName;
         } catch (err) {
             console.error('[CLOUD_SYNC] Template Config Backup Error:', err);
-            // Don't fail the whole backup if this fails, but log it
             return null;
         }
     }
 
-    async backupTemplateExcel(targetGymId) {
+    async backupTemplateExcel(targetGymId, backupId) {
         try {
             const userDataPath = app.getPath('userData');
             const excelPath = path.join(userDataPath, 'templates', targetGymId, 'org_template.xlsx');
 
-            if (!fs.existsSync(excelPath)) {
-                console.log('[CLOUD_SYNC] No template excel found for gym:', targetGymId);
-                return null;
-            }
+            if (!fs.existsSync(excelPath)) return null;
 
             const fileBuffer = fs.readFileSync(excelPath);
-            const fileName = `${targetGymId}/sys_backups/org_template_${Date.now()}.xlsx`;
+            // Standardized Naming: {TIMESTAMP}_org_template.xlsx
+            const fileName = `${targetGymId}/sys_backups/${backupId}_org_template.xlsx`;
 
             const { error } = await this.supabase
                 .storage
@@ -357,12 +354,12 @@ class CloudService {
 
     /**
      * Periodically checks if the Administrator has pushed a new database version.
+     * Tracks lastModified timestamp to detect re-uploads of the same file.
      */
     async checkRemoteLoad(gymId) {
         if (!this.supabase || !gymId) return;
 
         try {
-            const fileName = `${gymId}/remote_load/gym_manager.db`;
             const { data, error } = await this.supabase
                 .storage
                 .from('training_files')
@@ -370,14 +367,23 @@ class CloudService {
 
             if (error) return;
 
-            const hasRemoteLoad = data && data.some(file => file.name === 'gym_manager.db');
+            const remoteFile = data && data.find(file => file.name === 'gym_manager.db');
 
-            if (hasRemoteLoad && this.mainWindow) {
-                console.log('📡 [CLOUD_SYNC] Remote load detected for gym:', gymId);
-                this.mainWindow.webContents.send('cloud:remote-load-pending', {
-                    gym_id: gymId,
-                    timestamp: new Date().toISOString()
-                });
+            if (remoteFile && this.mainWindow) {
+                const fileTimestamp = remoteFile.updated_at || remoteFile.created_at;
+
+                // Only notify if this is a NEW file or a NEWER version
+                if (fileTimestamp !== this._lastRemoteLoadTimestamp) {
+                    console.log('📡 [CLOUD_SYNC] Remote load detected for gym:', gymId, '| Modified:', fileTimestamp);
+                    this.mainWindow.webContents.send('cloud:remote-load-pending', {
+                        gym_id: gymId,
+                        timestamp: fileTimestamp || new Date().toISOString()
+                    });
+                    this._lastRemoteLoadTimestamp = fileTimestamp;
+                }
+            } else {
+                // File was consumed/cleaned — reset tracker
+                this._lastRemoteLoadTimestamp = null;
             }
         } catch (e) {
             console.error('[CLOUD_SYNC] checkRemoteLoad Error:', e);
@@ -390,7 +396,7 @@ class CloudService {
         const remotePath = `${gymId}/remote_load/gym_manager.db`;
 
         try {
-            // 1. Download the file
+            // 1. Download the Database
             const { data, error } = await this.supabase
                 .storage
                 .from('training_files')
@@ -403,38 +409,31 @@ class CloudService {
             const arrayBuffer = await data.arrayBuffer();
             fs.writeFileSync(tempPath, Buffer.from(arrayBuffer));
 
-            // 3. Import (using existing logic)
+            // 3. Import DB
             const importRes = await this.importDatabase(tempPath);
             if (!importRes.success) throw new Error(importRes.error);
 
-            // 4. Cleanup cloud (Delete the load file so it doesn't trigger again)
+            // 4. Cleanup DB from cloud
             await this.supabase.storage.from('training_files').remove([remotePath]);
 
-            // 5. Restore Templates (Mirror Logic)
+            // 5. Restore Templates (Priority: Remote Load staging -> Fallback: Sys Backups)
             await this._restoreTemplateFiles(gymId);
 
             // 6. Update status in tracking table
             if (loadId) {
                 await this.supabase
                     .from('cloud_remote_loads')
-                    .update({
-                        status: 'applied',
-                        applied_at: new Date().toISOString()
-                    })
+                    .update({ status: 'applied', applied_at: new Date().toISOString() })
                     .eq('id', loadId);
             } else {
-                // If no loadId (legacy poll), update all pending for this gym
                 await this.supabase
                     .from('cloud_remote_loads')
-                    .update({
-                        status: 'applied',
-                        applied_at: new Date().toISOString()
-                    })
+                    .update({ status: 'applied', applied_at: new Date().toISOString() })
                     .eq('gym_id', gymId)
                     .eq('status', 'pending');
             }
 
-            // 6. Cleanup temp file
+            // 7. Cleanup temp file
             if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
 
             return { success: true };
@@ -443,10 +442,7 @@ class CloudService {
             if (loadId) {
                 await this.supabase
                     .from('cloud_remote_loads')
-                    .update({
-                        status: 'failed',
-                        error: err.message
-                    })
+                    .update({ status: 'failed', error: err.message })
                     .eq('id', loadId);
             }
             throw err;
@@ -455,41 +451,63 @@ class CloudService {
 
     async _restoreTemplateFiles(gymId) {
         try {
-            console.log(`[CLOUD_SYNC] Attempting to restore template files for gym: ${gymId}`);
-            const { data: files, error } = await this.supabase
-                .storage
-                .from('training_files')
-                .list(`${gymId}/sys_backups/`, {
-                    limit: 100,
-                    sortBy: { column: 'name', order: 'desc' }
-                });
-
-            if (error) throw error;
-            if (!files || files.length === 0) return;
-
-            // Find latest config and excel
-            const latestConfig = files.find(f => f.name.startsWith('template_config_'));
-            const latestExcel = files.find(f => f.name.startsWith('org_template_'));
-
+            console.log(`[CLOUD_SYNC] Restore Templates for gym: ${gymId}`);
             const userDataPath = app.getPath('userData');
             const targetDir = path.join(userDataPath, 'templates', gymId);
             if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
-            if (latestConfig) {
-                console.log('[CLOUD_SYNC] Downloading latest template_config.json...');
-                const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestConfig.name}`);
-                if (data) {
-                    fs.writeFileSync(path.join(targetDir, 'template_config.json'), Buffer.from(await data.arrayBuffer()));
+            // STRATEGY A: Check for explicitly pushed templates in remote_load/ (Exact Restore)
+            const filesToCheck = ['template_config.json', 'org_template.xlsx'];
+            let restoredCount = 0;
+
+            for (const file of filesToCheck) {
+                const remotePath = `${gymId}/remote_load/${file}`;
+                const { data, error } = await this.supabase.storage.from('training_files').download(remotePath);
+
+                if (data && !error) {
+                    console.log(`[CLOUD_SYNC] ✅ Found EXACT MATCH restore for ${file}`);
+                    fs.writeFileSync(path.join(targetDir, file), Buffer.from(await data.arrayBuffer()));
+                    // Cleanup remote staging
+                    await this.supabase.storage.from('training_files').remove([remotePath]);
+                    restoredCount++;
                 }
             }
 
-            if (latestExcel) {
-                console.log('[CLOUD_SYNC] Downloading latest org_template.xlsx...');
-                const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestExcel.name}`);
-                if (data) {
-                    fs.writeFileSync(path.join(targetDir, 'org_template.xlsx'), Buffer.from(await data.arrayBuffer()));
+            if (restoredCount === 2) {
+                console.log('[CLOUD_SYNC] Full exact template restoration complete.');
+                return;
+            }
+
+            // STRATEGY B: Fallback to latest in sys_backups (Legacy / Partial Restore)
+            if (restoredCount < 2) {
+                console.log('[CLOUD_SYNC] Exact templates not found. Falling back to LATEST from sys_backups (Legacy Mode).');
+                const { data: files, error } = await this.supabase
+                    .storage
+                    .from('training_files')
+                    .list(`${gymId}/sys_backups`, { // Removed trailing slash fix
+                        limit: 100,
+                        sortBy: { column: 'name', order: 'desc' }
+                    });
+
+                if (error || !files) return;
+
+                const latestConfig = files.find(f => f.name.startsWith('template_config_'));
+                const latestExcel = files.find(f => f.name.startsWith('org_template_'));
+
+                // Only download if we didn't already restore the exact one
+                if (latestConfig && !fs.existsSync(path.join(targetDir, 'template_config.json'))) {
+                    console.log('[CLOUD_SYNC] Downloading latest template_config (fallback)...');
+                    const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestConfig.name}`);
+                    if (data) fs.writeFileSync(path.join(targetDir, 'template_config.json'), Buffer.from(await data.arrayBuffer()));
+                }
+
+                if (latestExcel && !fs.existsSync(path.join(targetDir, 'org_template.xlsx'))) {
+                    console.log('[CLOUD_SYNC] Downloading latest org_template (fallback)...');
+                    const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestExcel.name}`);
+                    if (data) fs.writeFileSync(path.join(targetDir, 'org_template.xlsx'), Buffer.from(await data.arrayBuffer()));
                 }
             }
+
         } catch (err) {
             console.error('[CLOUD_SYNC] Template Restoration failed:', err);
         }
