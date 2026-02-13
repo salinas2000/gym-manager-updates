@@ -6,9 +6,9 @@ const crypto = require('crypto');
 const z = require('zod');
 const credentialManager = require('../../config/credentials');
 
-// Initialize only if credentials are loaded
+// Initialize only if credentials are loaded (already init'd in main.js)
 let supabase = null;
-if (credentialManager.init()) {
+if (credentialManager.isLoaded()) {
     const creds = credentialManager.get();
     if (creds.supabase?.url && creds.supabase?.key) {
         supabase = createClient(creds.supabase.url, creds.supabase.key);

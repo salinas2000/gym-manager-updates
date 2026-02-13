@@ -7,7 +7,7 @@
         "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
         "build": "vite build && electron-builder",
         "release": "npm version patch && npm run build",
-        "ship": "npm version patch && vite build && dotenv -- electron-builder --publish always",
+        "ship": "npm version patch && vite build && dotenv -e .env.local -- electron-builder --publish always",
         "postinstall": "electron-rebuild",
         "rebuild": "electron-rebuild",
         "migrate-credentials": "node scripts/migrate-credentials.js",
@@ -43,10 +43,6 @@
             {
                 "from": "src/main/db/seeds",
                 "to": "seeds"
-            },
-            {
-                "from": ".env",
-                "to": "."
             },
             {
                 "from": "src/main/assets/templates",

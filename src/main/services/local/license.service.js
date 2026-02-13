@@ -1,8 +1,7 @@
 const Store = require('electron-store');
 const { machineIdSync } = require('node-machine-id');
 const { createClient } = require('@supabase/supabase-js');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../../../../.env') });
+const credentialManager = require('../../config/credentials');
 
 // Encrypted store for license data
 // SECURITY: We bind the encryption key to the machine ID.
@@ -23,10 +22,18 @@ try {
     store = new Store({ name: 'license_data', clearInvalidConfig: true });
 }
 
-// Initialize Supabase only if env vars are present (to avoid crashes during build/test)
+// Initialize Supabase from credentialManager (works in both dev and production)
 let supabase = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
-    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+try {
+    if (credentialManager.isLoaded()) {
+        const creds = credentialManager.get();
+        if (creds.supabase?.url && creds.supabase?.key) {
+            supabase = createClient(creds.supabase.url, creds.supabase.key);
+            console.log('[LicenseService] ✅ Supabase initialized from credentialManager');
+        }
+    }
+} catch (e) {
+    console.warn('[LicenseService] ⚠️ Could not initialize Supabase:', e.message);
 }
 
 class LicenseService {
