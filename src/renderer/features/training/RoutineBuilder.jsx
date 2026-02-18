@@ -290,7 +290,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                                                 {Object.entries(ex.custom_fields).map(([key, val]) => {
                                                     const config = fieldConfigs.find(f => f.field_key === key);
-                                                    if (!val || !config || config.is_deleted) return null;
+                                                    if (!val || val === '0' || val === 0 || !config || config.is_deleted) return null;
                                                     return (
                                                         <div key={key} className="flex flex-col border-l border-white/5 pl-2">
                                                             <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.15em] mb-0.5">

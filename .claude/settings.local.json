@@ -28,7 +28,13 @@
       "Bash(npx electron:*)",
       "Bash(git tag:*)",
       "Bash(npx jest:*)",
-      "Bash(npm version patch)"
+      "Bash(npm version patch)",
+      "Bash(npx electron-builder)",
+      "Bash(wc:*)",
+      "Bash(gh release:*)",
+      "Bash(gh release create v2.0.0 \"dist/Gym Manager Pro Setup 2.0.0.exe\" --title \"v2.0.0\" --notes \"$\\(cat <<''EOF''\n## Gym Manager Pro v2.0.0\n\n### Cambios\n- Fix: Pantalla de activación ahora aparece correctamente en la primera instalación\n- Fix: Ruta del preload de activación corregida\n- Fix: Eliminado ID Hardware de la pantalla de activación\n- Feat: Barra de título nativa reemplazada por controles custom integrados\n- Fix: Test de race condition con fecha dinámica\n\n### Instalación\nDescarga y ejecuta `Gym-Manager-Pro-Setup-2.0.0.exe`\nEOF\n\\)\")",
+      "Bash(where:*)",
+      "Bash(git remote:*)"
     ]
   }
 }

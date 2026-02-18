@@ -253,7 +253,7 @@ export default function ExerciseLibraryPage() {
                                             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
                                                 {Object.entries(fields).map(([key, val]) => {
                                                     const config = fieldConfigs.find(f => f.field_key === key);
-                                                    if (!val || !config) return null;
+                                                    if (!val || val === '0' || val === 0 || !config) return null;
                                                     return (
                                                         <div key={key} className="flex flex-col">
                                                             <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter truncate">
