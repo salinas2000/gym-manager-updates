@@ -231,7 +231,7 @@ app.whenReady().then(() => {
             webPreferences: {
                 nodeIntegration: false, // SECURITY: Disable Node Integration
                 contextIsolation: true, // SECURITY: Enable Context Isolation
-                preload: path.join(__dirname, '../preload/activation.js') // Use specific preload
+                preload: path.join(__dirname, './preload/activation.js') // Use specific preload
             },
             icon: path.join(__dirname, '../../resources/icon.png'),
             backgroundColor: '#0f172a'

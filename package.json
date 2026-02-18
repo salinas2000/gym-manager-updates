@@ -27,6 +27,7 @@
             "dist/**/*",
             "src/main/**/*",
             "src/preload/**/*",
+            "src/renderer/activation.html",
             "package.json"
         ],
         "appId": "com.gymmanager.pro",

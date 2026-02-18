@@ -19,7 +19,16 @@
       "Bash(npm test:*)",
       "Bash(npm run rebuild:*)",
       "Bash(find:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(vite build:*)",
+      "Bash(dotenv -- electron-builder:*)",
+      "Bash(npx vite:*)",
+      "Bash(npx dotenv:*)",
+      "mcp__431085c6-92f3-4fb8-bfc1-9849ebf9d112__execute_sql",
+      "Bash(npx electron:*)",
+      "Bash(git tag:*)",
+      "Bash(npx jest:*)",
+      "Bash(npm version patch)"
     ]
   }
 }

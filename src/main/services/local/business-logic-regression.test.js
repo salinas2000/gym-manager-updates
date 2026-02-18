@@ -149,11 +149,13 @@ describe('Business Logic - Regression Tests', () => {
       let membershipStatus = 'active';
       let scheduledCancellation = null;
 
-      // User cancels effective Feb 15
-      scheduledCancellation = '2026-02-15';
+      // User cancels effective 30 days from now
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 30);
+      scheduledCancellation = futureDate.toISOString().split('T')[0];
       // Status stays "active" until date arrives
 
-      // User renews on Feb 10 (before cancellation)
+      // User renews before cancellation takes effect
       // Should CLEAR the scheduled cancellation!
       if (scheduledCancellation && new Date() < new Date(scheduledCancellation)) {
         scheduledCancellation = null; // Clear cancellation
