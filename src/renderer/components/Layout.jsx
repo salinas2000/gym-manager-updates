@@ -4,6 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
 import GlobalBanner from './ui/GlobalBanner';
+import WindowControls from './ui/WindowControls';
 
 const SidebarItem = ({ icon: Icon, label, active, onClick, color = "text-slate-500" }) => (
     <div
@@ -71,6 +72,9 @@ export default function Layout({ children, currentView, onNavigate }) {
             <div className="flex h-screen w-full overflow-hidden bg-slate-950 text-slate-100">
                 {/* Glassmorphism Sidebar */}
                 <aside className="w-64 h-full flex flex-col p-6 border-r border-white/5 bg-slate-900/30 backdrop-blur-xl z-10">
+                    {/* Drag region for sidebar top */}
+                    <div className="h-3 -mt-6 -mx-6 mb-3" style={{ WebkitAppRegion: 'drag' }}></div>
+
                     {/* Brand Header */}
                     <div className="mb-10 px-2 relative group cursor-default">
                         <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
@@ -236,6 +240,14 @@ export default function Layout({ children, currentView, onNavigate }) {
 
                 {/* Main Content Area */}
                 <main className="flex-1 h-full overflow-auto relative">
+                    {/* Custom Titlebar - Drag region + Window controls */}
+                    <div className="sticky top-0 z-50 flex items-center justify-end h-9 px-2 bg-slate-950/80 backdrop-blur-sm border-b border-white/5"
+                         style={{ WebkitAppRegion: 'drag' }}>
+                        <div style={{ WebkitAppRegion: 'no-drag' }}>
+                            <WindowControls />
+                        </div>
+                    </div>
+
                     {/* Background ambient glow */}
                     <div className="fixed top-0 left-0 w-full h-[500px] bg-blue-600/10 blur-[100px] -z-10 pointer-events-none rounded-full transform -translate-y-1/2"></div>
 

@@ -144,6 +144,17 @@ contextBridge.exposeInMainWorld('api', {
         updateCategory: (id, data) => ipcRenderer.invoke('inventory:updateCategory', id, data),
         deleteCategory: (id) => ipcRenderer.invoke('inventory:deleteCategory', id),
     },
+    window: {
+        minimize: () => ipcRenderer.send('window:minimize'),
+        maximize: () => ipcRenderer.send('window:maximize'),
+        close: () => ipcRenderer.send('window:close'),
+        isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+        onMaximizeChange: (callback) => {
+            const handler = (event, value) => callback(value);
+            ipcRenderer.on('window:maximized-changed', handler);
+            return () => ipcRenderer.removeListener('window:maximized-changed', handler);
+        }
+    },
     on: (channel, callback) => {
         const subscription = (event, ...args) => callback(...args);
         ipcRenderer.on(channel, subscription);

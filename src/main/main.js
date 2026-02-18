@@ -76,6 +76,7 @@ function createWindow() {
         minWidth: 1024,
         minHeight: 768,
         backgroundColor: '#0f172a',
+        frame: false, // Custom titlebar
         show: false, // Wait until ready-to-show
         icon: path.join(__dirname, '../../resources/icon.png'), // Icon for prod
         webPreferences: {
@@ -124,11 +125,24 @@ function createWindow() {
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
     });
+
+    // Notify renderer when maximize state changes
+    mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximized-changed', true));
+    mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximized-changed', false));
 }
 
 app.whenReady().then(() => {
     const licenseService = require('./services/local/license.service');
     const { ipcMain } = require('electron');
+
+    // 0. Window Control Handlers (custom titlebar)
+    ipcMain.on('window:minimize', () => mainWindow?.minimize());
+    ipcMain.on('window:maximize', () => {
+        if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+        else mainWindow?.maximize();
+    });
+    ipcMain.on('window:close', () => mainWindow?.close());
+    ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
 
     // 1. Initialize Licenser Handlers
     ipcMain.handle('license:activate', async (event, key) => {
