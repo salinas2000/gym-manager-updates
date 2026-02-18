@@ -79,9 +79,7 @@
 
         <div class="mt-8 pt-4 border-t border-slate-800">
             <p class="text-xs text-slate-500">
-                Gym Manager Pro &copy; 2026<br>
-                ID Hardware: <span id="hardwareIdDisplay" class="font-mono text-slate-400 select-all cursor-pointer"
-                    title="Copiar ID">Cargando...</span>
+                Gym Manager Pro &copy; 2026
             </p>
         </div>
     </div>
@@ -96,17 +94,6 @@
         const btnText = document.getElementById('btnText');
         const spinner = document.getElementById('loadingSpinner');
         const statusMsg = document.getElementById('statusMessage');
-        const hardwareIdSpan = document.getElementById('hardwareIdDisplay');
-
-        // Get hardware ID on load
-        api.getHardwareId().then(id => {
-            hardwareIdSpan.textContent = id;
-        });
-
-        // Copy ID on click
-        hardwareIdSpan.addEventListener('click', () => {
-            navigator.clipboard.writeText(hardwareIdSpan.textContent);
-        });
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
