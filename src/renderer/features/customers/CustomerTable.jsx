@@ -18,7 +18,7 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
     const { customers, toggleCustomerStatus, tariffs, deleteCustomer } = useGym();
     const { t } = useLanguage();
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('active'); // Default to active
+    const [statusFilter, setStatusFilter] = useState('all'); // Default to all
     const [tariffFilter, setTariffFilter] = useState('all'); // all, id...
 
     // Modals State

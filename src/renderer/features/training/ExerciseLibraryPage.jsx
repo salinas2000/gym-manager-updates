@@ -22,12 +22,15 @@ export default function ExerciseLibraryPage() {
     const [hoveredExerciseId, setHoveredExerciseId] = useState(null);
 
     // --- QUERIES ---
+    const hasFilter = !!(activeCategory || activeSubcategory || searchTerm);
+
     const { data: exercises = [], isLoading } = useQuery({
         queryKey: ['exercises'],
         queryFn: async () => {
             const res = await window.api.training.getExercises();
             return res.success ? res.data : [];
-        }
+        },
+        enabled: hasFilter
     });
 
     const { data: categories = [] } = useQuery({

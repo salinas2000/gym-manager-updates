@@ -132,13 +132,8 @@ export function NotificationProvider({ children }) {
                 });
                 break;
             case 'error':
-                addNotification({
-                    id: 'update-error',
-                    type: 'error',
-                    title: 'Error de Actualización',
-                    message: error || 'No se pudo procesar la actualización.',
-                    priority: 'medium'
-                });
+                // Silently log update errors (404, network issues) - don't bother the user
+                console.warn('[Updater] Update check failed:', error);
                 break;
             default:
                 break;

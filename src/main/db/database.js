@@ -728,7 +728,7 @@ class DBManager {
                     if (table === 'customers') {
                         const total = this.db.prepare('SELECT count(*) as count FROM customers').get().count;
                         const match = currentGymId ? this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id = ?').get(currentGymId).count : 0;
-                        const dev = this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id = "LOCAL_DEV"').get().count;
+                        const dev = this.db.prepare("SELECT count(*) as count FROM customers WHERE gym_id = 'LOCAL_DEV'").get().count;
                         const orphans = this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id IS NULL OR gym_id = ""').get().count;
                         console.log(`[LOCAL_DB] Data Visibility Check [${table}]: Total: ${total} | Matches active [${currentGymId}]: ${match} | LOCAL_DEV: ${dev} | Orphans: ${orphans}`);
                     }

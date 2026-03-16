@@ -48,6 +48,10 @@
             {
                 "from": "src/main/assets/templates",
                 "to": "templates"
+            },
+            {
+                "from": ".env.local",
+                "to": ".env.local"
             }
         ]
     },

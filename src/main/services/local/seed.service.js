@@ -17,11 +17,8 @@ class SeedService extends BaseService {
 
         console.log('SeedService: Checking seed status...');
 
-        // Always try to seed categories/subcategories (Idempotent)
-        this.seedCategories();
-
-        // Always try to seed exercises (Idempotent - adds missing ones)
-        this.seedExercises();
+        // Categories and exercises seeding disabled - start with empty database
+        console.log('SeedService: All seeding disabled. Starting with empty database.');
     }
 
     getSeedsPath() {

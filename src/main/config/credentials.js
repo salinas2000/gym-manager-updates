@@ -99,20 +99,23 @@ class CredentialManager {
      */
     loadFromLocalEnv() {
         try {
-            // In development: project root
-            // In production: userData directory
-            let envPath;
+            // Search order:
+            // 1. App resources (bundled with the build via extraResources)
+            // 2. userData directory (%APPDATA%/Gym Manager Pro/)
+            // 3. Project root (development only)
+            const candidates = app.isPackaged
+                ? [
+                    path.join(process.resourcesPath, '.env.local'),
+                    path.join(app.getPath('userData'), '.env.local'),
+                ]
+                : [
+                    path.join(__dirname, '../../../.env.local'),
+                ];
 
-            if (app.isPackaged) {
-                // Production: Look in userData
-                envPath = path.join(app.getPath('userData'), '.env.local');
-            } else {
-                // Development: Look in project root
-                envPath = path.join(__dirname, '../../../.env.local');
-            }
+            let envPath = candidates.find(p => fs.existsSync(p));
 
-            if (!fs.existsSync(envPath)) {
-                console.log('[CREDENTIALS] .env.local not found at:', envPath);
+            if (!envPath) {
+                console.log('[CREDENTIALS] .env.local not found in:', candidates);
                 return {};
             }
 
