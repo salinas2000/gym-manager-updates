@@ -81,7 +81,6 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
             // Fetch latest membership to be absolutely sure about Join Date
             if (customer && customer.id) {
                 setIsFetchingHistory(true);
-                setIsFetchingHistory(true);
                 window.api.customers.getHistory(customer.id).then(response => {
                     // Fix: Handle { success: true, data: [...] } structure
                     const history = response.data || response;

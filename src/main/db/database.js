@@ -665,6 +665,7 @@ class DBManager {
 
         this.safeAddColumn('exercises', 'custom_fields', 'TEXT'); // JSON storage
         this.safeAddColumn('routine_items', 'custom_fields', 'TEXT'); // JSON storage
+        this.safeAddColumn('routine_items', 'intensity', 'TEXT'); // Intensity level
 
         // 20b. Ensure exercise_field_config has is_deleted column (for DBs created before this column existed)
         this.safeAddColumn('exercise_field_config', 'is_deleted', 'INTEGER DEFAULT 0');
@@ -777,32 +778,47 @@ class DBManager {
 
     safeAddColumn(tableName, columnName, columnDef) {
         try {
+            // Verify table exists first
+            const tableExists = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(tableName);
+            if (!tableExists) {
+                logger.warn(`safeAddColumn skipped: table ${tableName} does not exist`);
+                return false;
+            }
+
             const tableInfo = this.db.pragma(`table_info(${tableName})`);
             const hasColumn = tableInfo.some(col => col.name === columnName);
 
             if (!hasColumn) {
-                console.log(`Migrating: Adding ${columnName} to ${tableName}...`);
+                logger.info(`Migrating: Adding ${columnName} to ${tableName}...`);
                 try {
                     this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
                 } catch (addError) {
-                    // Ignore error if column default is dynamic (e.g. CURRENT_TIMESTAMP) in some older sqlite versions
-                    // But better-sqlite3 usually handles this. If fails, it might be due to non-constant default.
-                    // Strategy B: If it fails, try adding without default, then defaulting.
                     if (addError.message.includes('non-constant default')) {
-                        // Sqlite limitation: Cannot ADD COLUMN with non-constant default value (like CURRENT_TIMESTAMP)
-                        // Workaround: Add column null, then update it.
-                        // OR: Add as NULL, then create TRIGGER (too complex).
-                        // SIMPLEST: No default, then Update.
-                        this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} DATETIME`);
+                        // Extract base type from columnDef (e.g., "DATETIME DEFAULT CURRENT_TIMESTAMP" -> "DATETIME")
+                        const baseType = columnDef.split(/\s+DEFAULT\s+/i)[0].trim() || 'TEXT';
+                        this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${baseType}`);
                         this.db.exec(`UPDATE ${tableName} SET ${columnName} = datetime('now') WHERE ${columnName} IS NULL`);
                     } else {
                         throw addError;
                     }
                 }
-                console.log('Migration successful.');
+
+                // Verify the column was actually added
+                const verifyInfo = this.db.pragma(`table_info(${tableName})`);
+                const verified = verifyInfo.some(col => col.name === columnName);
+                if (!verified) {
+                    logger.error(`CRITICAL: Column ${columnName} was NOT added to ${tableName} despite no error`);
+                    return false;
+                }
+
+                logger.info(`Migration successful: ${tableName}.${columnName}`);
+                return true;
             }
+            return true; // Column already exists
         } catch (error) {
-            console.error(`Migration failed for ${tableName}.${columnName}:`, error);
+            logger.error(`Migration FAILED for ${tableName}.${columnName}:`, { error: error.message });
+            // Re-throw critical migration failures so they don't go unnoticed
+            throw error;
         }
     }
 

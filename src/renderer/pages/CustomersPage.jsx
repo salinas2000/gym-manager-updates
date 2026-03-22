@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import CustomerTable from '../features/customers/CustomerTable';
 import AddCustomerModal from '../features/customers/AddCustomerModal';
 import CustomerHistoryModal from '../features/customers/CustomerHistoryModal';
+import CustomerProfileCard from '../features/customers/CustomerProfileCard';
 import PaymentDrawer from '../features/finance/PaymentDrawer';
 import PaymentGrid from '../features/finance/PaymentGrid';
 
@@ -9,6 +10,7 @@ export default function CustomersPage({ onNavigate }) {
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [customerToEdit, setCustomerToEdit] = useState(null);
     const [customerHistory, setCustomerHistory] = useState(null);
+    const [profileCustomer, setProfileCustomer] = useState(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -34,12 +36,11 @@ export default function CustomersPage({ onNavigate }) {
     };
 
     const handleOpenTraining = (customer) => {
-        // Navigate to history view for this customer
-        // We need to pass the customer selection to the parent app state?
-        // Or can we navigate with params?
-        // For now, App.jsx handles state. We might need to lift 'onNavigate' to support passing data.
-        // Let's assume onNavigate can accept (view, data).
         onNavigate('history', customer);
+    };
+
+    const handleOpenProfile = (customer) => {
+        setProfileCustomer(customer);
     };
 
     return (
@@ -51,6 +52,7 @@ export default function CustomersPage({ onNavigate }) {
                 onEditCustomer={handleEditCustomer}
                 onEditHistory={handleEditHistory}
                 onOpenTraining={handleOpenTraining}
+                onOpenProfile={handleOpenProfile}
             />
 
             {/* OVERLAYS */}
@@ -72,6 +74,14 @@ export default function CustomersPage({ onNavigate }) {
                 isOpen={isHistoryModalOpen}
                 onClose={() => setIsHistoryModalOpen(false)}
                 customer={customerHistory}
+            />
+
+            <CustomerProfileCard
+                isOpen={!!profileCustomer}
+                onClose={() => setProfileCustomer(null)}
+                customer={profileCustomer}
+                onNavigateTraining={(c) => handleOpenTraining(c)}
+                onOpenPayments={(c) => handleOpenHistory(c)}
             />
         </>
     );

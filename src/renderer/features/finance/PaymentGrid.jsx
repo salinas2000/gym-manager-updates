@@ -20,6 +20,24 @@ export default function PaymentGrid({ customer }) {
         }
     }, [customer]);
 
+    // Find recommended month (first unpaid in current year, default to current month)
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const getRecommendedMonth = () => {
+        if (selectedYear !== currentYear) return -1;
+        // Find first unpaid month up to current month
+        for (let i = 0; i <= currentMonth; i++) {
+            if (!getPaymentForMonth(customer?.id, i, selectedYear)) {
+                return i;
+            }
+        }
+        return -1;
+    };
+
+    const recommendedMonth = customer ? getRecommendedMonth() : -1;
+
     if (!customer) {
         return (
             <div className="h-full flex flex-col items-center justify-center text-slate-500">
@@ -51,6 +69,7 @@ export default function PaymentGrid({ customer }) {
                 {MONTHS.map((month, index) => {
                     const payment = getPaymentForMonth(customer.id, index, selectedYear);
                     const paid = !!payment;
+                    const isRecommended = index === recommendedMonth;
 
                     return (
                         <div
@@ -60,13 +79,18 @@ export default function PaymentGrid({ customer }) {
                                 "aspect-square rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all border group relative overflow-hidden",
                                 paid
                                     ? "bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400"
-                                    : "bg-slate-900/40 border-slate-800 hover:border-slate-700 text-slate-500 hover:text-slate-300"
+                                    : isRecommended
+                                        ? "bg-blue-500/10 border-blue-500/40 hover:bg-blue-500/20 text-blue-400 ring-2 ring-blue-500/30"
+                                        : "bg-slate-900/40 border-slate-800 hover:border-slate-700 text-slate-500 hover:text-slate-300"
                             )}
                         >
+                            {isRecommended && (
+                                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                            )}
                             <span className="text-sm font-semibold mb-2">{month}</span>
                             <div className={cn(
                                 "w-8 h-8 rounded-full flex items-center justify-center transition-all",
-                                paid ? "bg-emerald-500 text-slate-950" : "bg-slate-800"
+                                paid ? "bg-emerald-500 text-slate-950" : isRecommended ? "bg-blue-500/20 text-blue-400" : "bg-slate-800"
                             )}>
                                 {paid ? <Check size={16} strokeWidth={3} /> : <X size={16} />}
                             </div>
@@ -74,7 +98,7 @@ export default function PaymentGrid({ customer }) {
                             {/* Hover Hint */}
                             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[2px]">
                                 <span className="text-xs font-bold text-white tracking-widest uppercase">
-                                    {paid ? 'Details' : 'Pay'}
+                                    {paid ? 'Details' : isRecommended ? 'Cobrar' : 'Pay'}
                                 </span>
                             </div>
                         </div>

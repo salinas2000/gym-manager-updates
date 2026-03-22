@@ -41,10 +41,10 @@ export default function DashboardHome() {
     if (!data) return <div className="p-8 text-slate-400">Failed to load analytics.</div>;
 
     // Calculate basic totals for KPIs
-    const totalRevenue = data.revenue.reduce((acc, curr) => acc + curr.revenue, 0);
+    const totalRevenue = (data.revenue || []).reduce((acc, curr) => acc + curr.revenue, 0);
     const totalMembers = data.activeCount !== undefined
         ? data.activeCount
-        : data.distribution.reduce((acc, curr) => acc + curr.value, 0); // Fallback
+        : (data.distribution || []).reduce((acc, curr) => acc + curr.value, 0); // Fallback
 
     // Quick month trend (Revenue)
     const currentMonthIndex = new Date().getMonth();

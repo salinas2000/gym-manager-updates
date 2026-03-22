@@ -19,6 +19,8 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     const [occupiedRanges, setOccupiedRanges] = useState([]);
     const [suggestedDate, setSuggestedDate] = useState(null);
     const [acceptedOverlap, setAcceptedOverlap] = useState(false);
+    const [previousMesocycles, setPreviousMesocycles] = useState([]);
+    const [showCopyPrevious, setShowCopyPrevious] = useState(false);
 
     React.useEffect(() => {
         if (customerId && !templateMode && !initialData) {
@@ -32,29 +34,66 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                     })).sort((a, b) => new Date(b.end || '9999-12-31') - new Date(a.end || '9999-12-31'));
 
                     setOccupiedRanges(ranges);
+                    // Store full mesocycle data for "copy previous" feature
+                    setPreviousMesocycles(res.data.filter(m => m.routines && m.routines.length > 0));
 
-                    // Find latest end date
+                    // Find latest end date and suggest next start
                     if (ranges.length > 0) {
                         const lastMeso = ranges[0]; // Sorted desc by End Date
                         if (lastMeso.end) {
-                            const lastEnd = new Date(lastMeso.end);
-                            const nextStart = new Date(lastEnd);
-                            nextStart.setDate(lastEnd.getDate() + 1); // Next day
-                            const nextStartStr = nextStart.toISOString().split('T')[0];
+                            // Parse dates without timezone to avoid UTC shifts
+                            const [ey, em, ed] = lastMeso.end.split('T')[0].split('-').map(Number);
+                            const lastEnd = new Date(ey, em - 1, ed);
+                            const nextDay = new Date(ey, em - 1, ed + 1);
 
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+                            let nextStart;
+                            if (nextDay >= firstOfMonth) {
+                                // El mesociclo anterior termina en este mes o después → día siguiente al fin
+                                nextStart = nextDay;
+                            } else {
+                                // La fecha fin del anterior es anterior al 1 de este mes → día 1 del mes actual
+                                nextStart = firstOfMonth;
+                            }
+
+                            const pad = n => String(n).padStart(2, '0');
+                            const nextStartStr = `${nextStart.getFullYear()}-${pad(nextStart.getMonth() + 1)}-${pad(nextStart.getDate())}`;
                             setSuggestedDate(nextStartStr);
-                            setStartDate(nextStartStr); // Auto-apply suggestion
+                            setStartDate(nextStartStr);
 
                             // Recalc End Date based on new Start
                             const end = new Date(nextStart);
                             end.setDate(nextStart.getDate() + (weeks * 7));
-                            setEndDate(end.toISOString().split('T')[0]);
+                            const endStr = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
+                            setEndDate(endStr);
                         }
                     }
                 }
             });
         }
     }, [customerId, templateMode, initialData]);
+
+    const copyFromPreviousMesocycle = (meso) => {
+        if (meso.routines && meso.routines.length > 0) {
+            const newDays = meso.routines.map(r => ({
+                id: Date.now() + Math.random(),
+                name: r.name,
+                items: (r.items || []).map(i => ({
+                    exerciseId: i.exercise_id,
+                    _guiId: crypto.randomUUID(),
+                    exercise_name: i.exercise_name,
+                    notes: i.notes || '',
+                    custom_fields: i.custom_fields || {}
+                }))
+            }));
+            setDays(newDays);
+            setCurrentDayId(newDays[0].id);
+        }
+        setShowCopyPrevious(false);
+    };
 
     // Routine State (must be before daysPerWeek)
     const [days, setDays] = useState(initialData?.routines && initialData.routines.length > 0
@@ -242,15 +281,29 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                     <Calendar className={templateMode ? "text-emerald-400" : "text-blue-400"} />
                                     {templateMode ? 'Configuración de Plantilla' : 'Configuración del Plan'}
                                 </h3>
-                                <button
-                                    onClick={() => {
-                                        setShowTemplates(!showTemplates);
-                                        if (!showTemplates) loadTemplates();
-                                    }}
-                                    className="text-xs font-bold text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-all"
-                                >
-                                    {showTemplates ? 'Cerrar Plantillas' : '📂 Cargar Plantilla'}
-                                </button>
+                                <div className="flex gap-2">
+                                    {!templateMode && previousMesocycles.length > 0 && (
+                                        <button
+                                            onClick={() => {
+                                                setShowCopyPrevious(!showCopyPrevious);
+                                                if (showTemplates) setShowTemplates(false);
+                                            }}
+                                            className="text-xs font-bold text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-600 px-3 py-1.5 rounded-lg transition-all"
+                                        >
+                                            {showCopyPrevious ? 'Cerrar' : '📋 Copiar Anterior'}
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => {
+                                            setShowTemplates(!showTemplates);
+                                            if (!showTemplates) loadTemplates();
+                                            if (showCopyPrevious) setShowCopyPrevious(false);
+                                        }}
+                                        className="text-xs font-bold text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-all"
+                                    >
+                                        {showTemplates ? 'Cerrar Plantillas' : '📂 Cargar Plantilla'}
+                                    </button>
+                                </div>
                             </div>
 
                             {showTemplates && (
@@ -358,6 +411,49 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                                 ))}
                                             </div>
                                         )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {showCopyPrevious && (
+                                <div className="mb-6 bg-gradient-to-br from-slate-900 to-slate-950 rounded-2xl border border-amber-500/20 shadow-2xl overflow-hidden">
+                                    <div className="bg-gradient-to-r from-amber-600/20 to-orange-600/20 border-b border-amber-500/30 p-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                                <span className="text-lg">📋</span>
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-white">Copiar Mesociclo Anterior</h4>
+                                                <p className="text-xs text-slate-400">Reutiliza la estructura de un mesociclo previo</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 max-h-64 overflow-y-auto space-y-2">
+                                        {previousMesocycles.map(meso => (
+                                            <button
+                                                key={meso.id}
+                                                onClick={() => copyFromPreviousMesocycle(meso)}
+                                                className="w-full text-left p-3 bg-slate-800/30 hover:bg-slate-800 rounded-xl transition-all border border-white/5 hover:border-amber-500/50 hover:shadow-lg hover:shadow-amber-500/10 group"
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <h5 className="font-bold text-white text-sm group-hover:text-amber-300 transition-colors">
+                                                            {meso.name}
+                                                        </h5>
+                                                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                                                            <span>{meso.start_date ? new Date(meso.start_date).toLocaleDateString() : 'Sin fecha'}</span>
+                                                            <span>•</span>
+                                                            <span>💪 {meso.routines?.length || 0} rutinas</span>
+                                                            <span>•</span>
+                                                            <span>{meso.routines?.reduce((acc, r) => acc + (r.items?.length || 0), 0) || 0} ejercicios</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-[9px] font-black uppercase tracking-widest text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        Copiar
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             )}

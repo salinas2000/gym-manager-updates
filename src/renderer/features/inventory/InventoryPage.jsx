@@ -181,7 +181,7 @@ export default function InventoryPage() {
                         </div>
                     </div>
                     <div className="text-2xl font-black text-emerald-400">
-                        {products.reduce((acc, p) => acc + (p.stock * p.sale_price), 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                        {products.reduce((acc, p) => acc + ((p.stock || 0) * (p.sale_price || 0)), 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
                     </div>
                 </div>
             </div>
@@ -258,14 +258,14 @@ export default function InventoryPage() {
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="text-sm font-bold text-slate-400">
-                                            {product.purchase_price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                                            {(product.purchase_price || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="text-base font-black text-white">
-                                            {product.sale_price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                                            {(product.sale_price || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
                                         </div>
-                                        {product.sale_price > product.purchase_price && (
+                                        {(product.sale_price || 0) > (product.purchase_price || 0) && product.sale_price > 0 && (
                                             <div className="text-[10px] text-emerald-500 font-bold">
                                                 Margen: {(((product.sale_price - product.purchase_price) / product.sale_price) * 100).toFixed(0)}%
                                             </div>

@@ -48,7 +48,7 @@ export default function OrderModal({ type, product, products, onClose, onSuccess
         const { name, value, type } = e.target;
         setFormData(prev => ({
             ...prev,
-            [name]: type === 'number' ? parseFloat(value) || 0 : value
+            [name]: type === 'number' ? (value === '' ? '' : value) : value
         }));
     };
 
@@ -62,11 +62,15 @@ export default function OrderModal({ type, product, products, onClose, onSuccess
         setError(null);
 
         try {
-            let finalData = { ...formData };
-            // Backend handles signs based on type. 
+            let finalData = {
+                ...formData,
+                quantity: parseInt(formData.quantity) || 0,
+                unit_cost: parseFloat(formData.unit_cost) || 0,
+            };
+            // Backend handles signs based on type.
             // We ensure positive values are sent for purchase/sale to avoid confusion.
             if (formData.type !== 'adjustment') {
-                finalData.quantity = Math.abs(formData.quantity);
+                finalData.quantity = Math.abs(finalData.quantity);
             }
 
             const res = await window.api.inventory.createOrder(finalData);

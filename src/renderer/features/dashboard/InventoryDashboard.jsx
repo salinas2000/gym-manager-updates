@@ -12,8 +12,8 @@ export default function InventoryDashboard({ data: initialData }) {
     // Effect to reload data when category changes
     useEffect(() => {
         const reloadData = async () => {
-            if (selectedCategory === 'all' && initialData && !data?.productAverages) {
-                // Initialize if first load
+            // First load without filter: use initialData directly
+            if (selectedCategory === 'all' && initialData && !data) {
                 setData(initialData);
                 return;
             }
@@ -34,7 +34,7 @@ export default function InventoryDashboard({ data: initialData }) {
             }
         };
         reloadData();
-    }, [selectedCategory, initialData]);
+    }, [selectedCategory]);
 
     if (!data) return null;
 

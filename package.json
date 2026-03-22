@@ -1,6 +1,6 @@
 {
     "name": "gym-manager-pro",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "description": "High-performance Gym Management System",
     "main": "src/main/main.js",
     "scripts": {
@@ -16,7 +16,10 @@
         "test:coverage": "jest --coverage",
         "test:main": "jest --selectProjects main",
         "test:renderer": "jest --selectProjects renderer",
-        "test:ci": "jest --ci --coverage --maxWorkers=2"
+        "test:ci": "jest --ci --coverage --maxWorkers=2",
+        "db:seed": "electron scripts/seed-test-data.js",
+        "db:clear": "electron scripts/clear-all-data.js",
+        "db:reset": "electron scripts/clear-all-data.js --force && electron scripts/seed-test-data.js"
     },
     "repository": {
         "type": "git",

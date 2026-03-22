@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('api', {
         getDashboardData: (year) => ipcRenderer.invoke('analytics:getDashboardData', year),
         getAvailableYears: () => ipcRenderer.invoke('analytics:getAvailableYears'),
         getRecentTransactions: (limit) => ipcRenderer.invoke('analytics:getRecentTransactions', limit),
-        getInventoryDashboardData: (year) => ipcRenderer.invoke('analytics:getInventoryDashboardData', year),
+        getInventoryDashboardData: (year, category) => ipcRenderer.invoke('analytics:getInventoryDashboardData', year, category),
     },
     memberships: {
         update: (id, data) => ipcRenderer.invoke('memberships:update', id, data),
@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('api', {
     cloud: {
         backup: (gymId) => ipcRenderer.invoke('cloud:backup', gymId),
         exportLocal: () => ipcRenderer.invoke('cloud:exportLocal'),
+        importLocal: () => ipcRenderer.invoke('cloud:importLocal'),
         onRemoteLoadPending: (callback) => {
             const subscription = (event, data) => callback(data);
             ipcRenderer.on('cloud:remote-load-pending', subscription);

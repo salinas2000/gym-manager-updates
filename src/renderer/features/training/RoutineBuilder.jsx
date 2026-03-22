@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import TemplateManager from './TemplateManager';
 import ExerciseModal from './ExerciseModal';
 import CategoryManager, { ICON_MAP } from './CategoryManager';
-import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, ChevronDown } from 'lucide-react';
+import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, ChevronDown, GripVertical } from 'lucide-react';
 
 export default function RoutineBuilder({ days, setDays, currentDayId }) {
     const [activeCategory, setActiveCategory] = useState(null); // categoryId
@@ -13,6 +13,8 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
     const [exerciseToEdit, setExerciseToEdit] = useState(null);
     const [showExerciseModal, setShowExerciseModal] = useState(false);
     const [expandedExerciseId, setExpandedExerciseId] = useState(null);
+    const [dragIndex, setDragIndex] = useState(null);
+    const [dragOverIndex, setDragOverIndex] = useState(null);
 
     // Query Exercises
     const { data: exercises = [], isLoading } = useQuery({
@@ -129,6 +131,46 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
         }));
     };
 
+    const reorderItem = (dayId, fromIndex, toIndex) => {
+        if (fromIndex === toIndex) return;
+        setDays(days.map(day => {
+            if (day.id === dayId) {
+                const newItems = [...day.items];
+                const [moved] = newItems.splice(fromIndex, 1);
+                newItems.splice(toIndex, 0, moved);
+                return { ...day, items: newItems };
+            }
+            return day;
+        }));
+    };
+
+    const handleDragStart = (e, idx) => {
+        setDragIndex(idx);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', idx.toString());
+        // Make drag image slightly transparent
+        if (e.target) {
+            setTimeout(() => {
+                e.target.style.opacity = '0.4';
+            }, 0);
+        }
+    };
+
+    const handleDragEnd = (e) => {
+        e.target.style.opacity = '1';
+        if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+            reorderItem(currentDayId, dragIndex, dragOverIndex);
+        }
+        setDragIndex(null);
+        setDragOverIndex(null);
+    };
+
+    const handleDragOver = (e, idx) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDragOverIndex(idx);
+    };
+
     const currentDay = days.find(d => d.id === currentDayId);
 
     return (
@@ -239,7 +281,10 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                     ) : (
                         filteredExercises.map(ex => {
                             const isExpanded = expandedExerciseId === ex.id;
-                            const hasFields = ex.custom_fields && Object.keys(ex.custom_fields).length > 0;
+                            const subtitle = [
+                                ex.subcategory_name || ex.category_name,
+                                ex.default_sets ? `${ex.default_sets}x${ex.default_reps || '?'}` : null
+                            ].filter(Boolean).join(' · ');
 
                             return (
                                 <div
@@ -252,7 +297,6 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                         : 'bg-slate-900/30 border-white/[0.03] hover:border-white/10 hover:bg-slate-800/40'
                                         }`}
                                 >
-                                    {/* Card Header */}
                                     <div
                                         onContextMenu={(e) => {
                                             e.preventDefault();
@@ -269,42 +313,23 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                                 <span className={`text-[13px] font-bold truncate transition-colors ${isExpanded ? 'text-white' : 'text-slate-300 group-hover:text-slate-100'}`}>
                                                     {ex.name}
                                                 </span>
-                                                {ex.is_failure && (
+                                                {subtitle && (
+                                                    <span className="text-[10px] text-slate-500 truncate">
+                                                        {subtitle}
+                                                    </span>
+                                                )}
+                                                {!!ex.is_failure && (
                                                     <span className="text-[8px] text-red-500 font-extrabold uppercase tracking-tighter">
-                                                        🔥 High Intensity / Failure
+                                                        Al fallo
                                                     </span>
                                                 )}
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center gap-2">
-                                            <div className={`text-[9px] font-black uppercase tracking-widest transition-opacity duration-300 ${isExpanded ? 'text-blue-400 opacity-100' : 'opacity-0'}`}>
-                                                Añadir
-                                            </div>
+                                        <div className={`text-[9px] font-black uppercase tracking-widest transition-opacity duration-300 ${isExpanded ? 'text-blue-400 opacity-100' : 'opacity-0'}`}>
+                                            + Añadir
                                         </div>
                                     </div>
-
-                                    {/* Expanded Body */}
-                                    {isExpanded && hasFields && (
-                                        <div className="px-12 pb-3 pt-1 border-t border-white/[0.03] animate-in zoom-in-95 duration-300 fade-in">
-                                            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                                                {Object.entries(ex.custom_fields).map(([key, val]) => {
-                                                    const config = fieldConfigs.find(f => f.field_key === key);
-                                                    if (!val || val === '0' || val === 0 || !config || config.is_deleted) return null;
-                                                    return (
-                                                        <div key={key} className="flex flex-col border-l border-white/5 pl-2">
-                                                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.15em] mb-0.5">
-                                                                {config.label}
-                                                            </span>
-                                                            <span className="text-[11px] text-slate-300 font-medium">
-                                                                {val}
-                                                            </span>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             );
                         })
@@ -334,12 +359,26 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                         </div>
                     ) : (
                         currentDay.items.map((item, idx) => (
-                            <div key={item.id || item._guiId || idx} className="bg-slate-800/80 rounded-xl p-3 border border-white/5 flex flex-col gap-3 shadow-sm hover:border-white/10 transition-all">
+                            <div
+                                key={item.id || item._guiId || idx}
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, idx)}
+                                onDragEnd={handleDragEnd}
+                                onDragOver={(e) => handleDragOver(e, idx)}
+                                onDrop={(e) => { e.preventDefault(); }}
+                                className={`bg-slate-800/80 rounded-xl p-3 border flex flex-col gap-3 shadow-sm transition-all ${dragOverIndex === idx && dragIndex !== idx
+                                    ? 'border-blue-500/60 bg-blue-500/5 scale-[1.01]'
+                                    : 'border-white/5 hover:border-white/10'
+                                }`}
+                            >
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-3">
-                                        <span className="bg-slate-950 text-blue-500 text-[10px] font-black w-6 h-6 rounded-lg flex items-center justify-center border border-white/5">
-                                            {idx + 1}
-                                        </span>
+                                        <div className="flex items-center gap-1 cursor-grab active:cursor-grabbing select-none" title="Arrastrar para reordenar">
+                                            <GripVertical size={14} className="text-slate-600 hover:text-slate-400 transition-colors flex-shrink-0" />
+                                            <span className="bg-slate-950 text-blue-500 text-[10px] font-black w-6 h-6 rounded-lg flex items-center justify-center border border-white/5">
+                                                {idx + 1}
+                                            </span>
+                                        </div>
                                         <span className="font-bold text-slate-100 text-sm">
                                             {item.exercise_name}
                                         </span>

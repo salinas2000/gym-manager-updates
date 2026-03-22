@@ -256,7 +256,7 @@ function registerHandlers() {
         }
     });
 
-    ipcMain.handle('training:validateDriveLink', async (event, mesoId, url) => {
+    handle('training:validateDriveLink', async (mesoId, url) => {
         const isValid = await googleService.checkFileExistsFromUrl(url);
         // Only remove if explicitly false (Confirmed 404/Trash)
         // If null (Disconnected/Network Error) or true (Exists), keep it.

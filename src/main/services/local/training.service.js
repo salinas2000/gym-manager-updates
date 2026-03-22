@@ -523,7 +523,7 @@ class TrainingService extends BaseService {
                                 notes: item.notes || '',
                                 orderIndex: order++,
                                 intensity: item.intensity || '',
-                                customFields: item.customFields || item.custom_fields ? JSON.stringify(item.customFields || item.custom_fields) : null
+                                customFields: (item.customFields || item.custom_fields) ? JSON.stringify(item.customFields || item.custom_fields) : null
                             });
                         }
                     }

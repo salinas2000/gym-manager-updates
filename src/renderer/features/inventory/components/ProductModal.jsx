@@ -48,7 +48,7 @@ export default function ProductModal({ product, onClose, onSuccess }) {
         const { name, value, type } = e.target;
         setFormData(prev => ({
             ...prev,
-            [name]: type === 'number' ? parseFloat(value) || 0 : value
+            [name]: type === 'number' ? (value === '' ? '' : value) : value
         }));
     };
 
@@ -57,12 +57,21 @@ export default function ProductModal({ product, onClose, onSuccess }) {
         setSaving(true);
         setError(null);
 
+        // Ensure numeric fields are proper numbers before submitting
+        const submitData = {
+            ...formData,
+            purchase_price: parseFloat(formData.purchase_price) || 0,
+            sale_price: parseFloat(formData.sale_price) || 0,
+            stock: parseInt(formData.stock) || 0,
+            min_stock: parseInt(formData.min_stock) || 0,
+        };
+
         try {
             let res;
             if (product?.id) {
-                res = await window.api.inventory.updateProduct(product.id, formData);
+                res = await window.api.inventory.updateProduct(product.id, submitData);
             } else {
-                res = await window.api.inventory.createProduct(formData);
+                res = await window.api.inventory.createProduct(submitData);
             }
 
             if (res.success) {

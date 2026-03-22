@@ -76,7 +76,13 @@ export default function TrainingManager({ onNavigate, initialTab }) {
                 customerName={isTemplateMode ? null : (selectedCustomerForPlan ? `${selectedCustomerForPlan.first_name} ${selectedCustomerForPlan.last_name}` : '')}
                 initialData={editingMeso}
                 onBack={handleBackToHub}
-                onSave={handleBackToHub}
+                onSave={() => {
+                    if (!isTemplateMode && selectedCustomerForPlan && onNavigate) {
+                        onNavigate('history', selectedCustomerForPlan);
+                    } else {
+                        handleBackToHub();
+                    }
+                }}
                 onViewHistory={handleViewHistory}
                 templateMode={isTemplateMode}
             />

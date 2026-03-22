@@ -14,7 +14,7 @@ const COLORS = [
     { name: 'Amber', from: 'from-amber-600', to: 'to-amber-900', border: 'border-amber-500', id: 'amber' },
 ];
 
-export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining }) {
+export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining, onOpenProfile }) {
     const { customers, toggleCustomerStatus, tariffs, deleteCustomer } = useGym();
     const { t } = useLanguage();
     const [search, setSearch] = useState('');
@@ -269,11 +269,20 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                         >
                             {/* Member */}
                             <div className="col-span-4 flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-sm font-bold text-slate-300 border border-white/5 shadow-inner">
+                                <div
+                                    onClick={() => onOpenProfile && onOpenProfile(customer)}
+                                    className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-sm font-bold text-slate-300 border border-white/5 shadow-inner cursor-pointer hover:from-blue-700 hover:to-blue-900 hover:text-white transition-all"
+                                    title="Ver Ficha de Cliente"
+                                >
                                     {customer.first_name[0]}{customer.last_name[0]}
                                 </div>
                                 <div>
-                                    <p className="text-sm font-medium text-white group-hover:text-blue-400 transition-colors">{customer.first_name} {customer.last_name}</p>
+                                    <p
+                                        onClick={() => onOpenProfile && onOpenProfile(customer)}
+                                        className="text-sm font-medium text-white group-hover:text-blue-400 transition-colors cursor-pointer hover:underline"
+                                    >
+                                        {customer.first_name} {customer.last_name}
+                                    </p>
                                     <p className="text-xs text-slate-500 font-mono">#{customer.id.toString().padStart(4, '0')}</p>
                                 </div>
                             </div>
