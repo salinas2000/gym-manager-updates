@@ -294,7 +294,12 @@ class CustomerService extends BaseService {
                         c.birth_date || null, medicalJson
                     );
 
-                    insertMembership.run(gymId, info.lastInsertRowid, c.start_date || new Date().toISOString());
+                    // Default start_date: 1st of current month if not specified
+                    const defaultStart = (() => {
+                        const now = new Date();
+                        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                    })();
+                    insertMembership.run(gymId, info.lastInsertRowid, c.start_date || defaultStart);
                     imported++;
                 } catch (err) {
                     skipped++;

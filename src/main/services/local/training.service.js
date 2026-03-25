@@ -182,13 +182,16 @@ class TrainingService extends BaseService {
     }
 
     deleteExercise(id) {
-        // Manual Cascade: Remove from routine_items first
-        const deleteItems = this.db.prepare('DELETE FROM routine_items WHERE exercise_id = ?');
-        const deleteEx = this.db.prepare('DELETE FROM exercises WHERE id = ?');
+        if (!id) throw new Error('ID de ejercicio requerido');
 
         const transaction = this.db.transaction(() => {
-            deleteItems.run(id);
-            deleteEx.run(id);
+            // Verify exercise exists
+            const exercise = this.db.prepare('SELECT id FROM exercises WHERE id = ?').get(id);
+            if (!exercise) throw new Error('Ejercicio no encontrado');
+
+            // Manual Cascade: Remove from routine_items first
+            this.db.prepare('DELETE FROM routine_items WHERE exercise_id = ?').run(id);
+            this.db.prepare('DELETE FROM exercises WHERE id = ?').run(id);
         });
 
         transaction();
@@ -263,12 +266,16 @@ class TrainingService extends BaseService {
     }
 
     deleteCategory(id) {
-        // Users can delete any category, even seeded ones if they wish. Database CASCADE handles children.
+        if (!id) throw new Error('ID de categoría requerido');
+        const cat = this.db.prepare('SELECT id FROM exercise_categories WHERE id = ?').get(id);
+        if (!cat) throw new Error('Categoría no encontrada');
         return this.db.prepare('DELETE FROM exercise_categories WHERE id = ?').run(id);
     }
 
     deleteSubcategory(id) {
-        // Database rules will handle cascade to exercises (now fixed to CASCADE)
+        if (!id) throw new Error('ID de subcategoría requerido');
+        const sub = this.db.prepare('SELECT id FROM exercise_subcategories WHERE id = ?').get(id);
+        if (!sub) throw new Error('Subcategoría no encontrada');
         return this.db.prepare('DELETE FROM exercise_subcategories WHERE id = ?').run(id);
     }
 
@@ -369,6 +376,9 @@ class TrainingService extends BaseService {
     }
 
     deleteMesocycle(id) {
+        if (!id) throw new Error('ID de mesociclo requerido');
+        const meso = this.db.prepare('SELECT id FROM mesocycles WHERE id = ?').get(id);
+        if (!meso) throw new Error('Mesociclo no encontrado');
         return this.db.prepare('DELETE FROM mesocycles WHERE id = ?').run(id);
     }
 
@@ -536,9 +546,18 @@ class TrainingService extends BaseService {
     }
 
     saveFileHistory(customerId, fileName, publicUrl) {
+        if (!customerId || !fileName) return;
         const db = require('../../db/database').getInstance();
-        const stmt = db.prepare('INSERT INTO file_history (customer_id, file_name, public_url) VALUES (?, ?, ?)');
-        stmt.run(customerId, fileName, publicUrl);
+        const gymId = this.getGymId();
+        // Include gym_id if the column exists, fallback to basic insert
+        try {
+            const stmt = db.prepare('INSERT INTO file_history (gym_id, customer_id, file_name, public_url) VALUES (?, ?, ?, ?)');
+            stmt.run(gymId, customerId, fileName, publicUrl);
+        } catch (e) {
+            // Fallback if gym_id column doesn't exist yet
+            const stmt = db.prepare('INSERT INTO file_history (customer_id, file_name, public_url) VALUES (?, ?, ?)');
+            stmt.run(customerId, fileName, publicUrl);
+        }
     }
 
     updateMesocycleLink(mesoId, publicUrl) {

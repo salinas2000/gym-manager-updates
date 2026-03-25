@@ -1,6 +1,6 @@
 {
     "name": "gym-manager-pro",
-    "version": "2.0.2",
+    "version": "2.0.3",
     "description": "High-performance Gym Management System",
     "main": "src/main/main.js",
     "scripts": {

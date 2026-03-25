@@ -70,8 +70,11 @@ function registerHandlers() {
             };
 
             // Map columns by header name patterns
+            // FIX: findIndex returns -1 if not found. +1 because ExcelJS columns are 1-indexed.
+            // If not found, result is 0 which is falsy and getValue will return '' safely.
             const findCol = (patterns) => {
-                return headers.findIndex(h => h && patterns.some(p => h.includes(p))) + 0; // 0 if not found (-1 + 1)
+                const idx = headers.findIndex(h => h && patterns.some(p => h.includes(p)));
+                return idx === -1 ? 0 : idx;
             };
 
             const nameCol = findCol(['nombre']);
@@ -430,7 +433,7 @@ function registerHandlers() {
             properties: ['openFile'],
             filters: [{ name: 'Excel Files', extensions: ['xlsx'] }]
         });
-        if (canceled || filePaths.length === 0) return null;
+        if (canceled || !filePaths || filePaths.length === 0) return null;
         return filePaths[0];
     });
     handle('admin:listOrganizations', () => adminService.listOrganizations());

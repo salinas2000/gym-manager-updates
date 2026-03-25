@@ -7,8 +7,11 @@ import SendCustomersModal from '../features/customers/SendCustomersModal';
 import ImportExcelModal from '../features/customers/ImportExcelModal';
 import PaymentDrawer from '../features/finance/PaymentDrawer';
 import PaymentGrid from '../features/finance/PaymentGrid';
+import { useGym } from '../context/GymContext';
 
 export default function CustomersPage({ onNavigate }) {
+    const { settings } = useGym();
+    const isMaster = settings?.isMaster === true;
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [customerToEdit, setCustomerToEdit] = useState(null);
     const [customerHistory, setCustomerHistory] = useState(null);
@@ -57,8 +60,8 @@ export default function CustomersPage({ onNavigate }) {
                 onEditHistory={handleEditHistory}
                 onOpenTraining={handleOpenTraining}
                 onOpenProfile={handleOpenProfile}
-                onSendCustomers={() => setIsSendModalOpen(true)}
-                onImportExcel={() => setIsImportModalOpen(true)}
+                onSendCustomers={isMaster ? () => setIsSendModalOpen(true) : undefined}
+                onImportExcel={isMaster ? () => setIsImportModalOpen(true) : undefined}
             />
 
             {/* OVERLAYS */}

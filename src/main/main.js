@@ -161,6 +161,21 @@ app.whenReady().then(() => {
 
     ipcMain.handle('license:getHardwareId', () => licenseService.hardwareId);
 
+    // Register Updater IPC EARLY (before any window loads to avoid race condition)
+    ipcMain.handle('updater:getVersion', () => app.getVersion());
+    ipcMain.handle('updater:check', () => {
+        const { autoUpdater } = require('./services/local/updater.service');
+        return autoUpdater.checkForUpdates();
+    });
+    ipcMain.handle('updater:download', () => {
+        const { autoUpdater } = require('./services/local/updater.service');
+        return autoUpdater.downloadUpdate();
+    });
+    ipcMain.handle('updater:install', () => {
+        const { autoUpdater } = require('./services/local/updater.service');
+        return autoUpdater.quitAndInstall();
+    });
+
     // 2. Check License
     if (licenseService.isAuthenticated()) {
         console.log('✅ License Verified. Starting App...');
@@ -254,20 +269,7 @@ app.whenReady().then(() => {
         win.loadFile(path.join(__dirname, '../renderer/activation.html'));
     }
 
-    // Register Updater IPC (Moved here to ensure availability)
-    ipcMain.handle('updater:getVersion', () => app.getVersion());
-    ipcMain.handle('updater:check', () => {
-        const { autoUpdater } = require('./services/local/updater.service');
-        return autoUpdater.checkForUpdates();
-    });
-    ipcMain.handle('updater:download', () => {
-        const { autoUpdater } = require('./services/local/updater.service');
-        return autoUpdater.downloadUpdate();
-    });
-    ipcMain.handle('updater:install', () => {
-        const { autoUpdater } = require('./services/local/updater.service');
-        return autoUpdater.quitAndInstall();
-    });
+    // NOTE: Updater IPC handlers registered at top of whenReady() to avoid race condition
 
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) {
