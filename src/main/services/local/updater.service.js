@@ -1,5 +1,6 @@
 const { autoUpdater } = require("electron-updater");
 const log = require('electron-log');
+const credentialManager = require('../config/credentials');
 
 // Configure logging
 autoUpdater.logger = log;
@@ -10,6 +11,17 @@ autoUpdater.autoDownload = false;
 
 function initUpdater(mainWindow) {
     log.info('App starting...');
+
+    // Configure GitHub token for private repo access
+    if (credentialManager.isLoaded()) {
+        const token = credentialManager.get().github?.token;
+        if (token) {
+            autoUpdater.requestHeaders = { Authorization: `token ${token}` };
+            log.info('[Updater] GitHub token configured for private repo access');
+        } else {
+            log.warn('[Updater] No GitHub token found - updates from private repos will fail');
+        }
+    }
 
     // Event Listeners
     autoUpdater.on('checking-for-update', () => {

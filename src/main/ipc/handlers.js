@@ -33,6 +33,94 @@ function registerHandlers() {
     handle('customers:toggleActive', (id, mode) => customerService.toggleActive(id, mode));
     handle('customers:getHistory', (id) => customerService.getMembershipHistory(id));
     handle('customers:delete', (id) => customerService.delete(id));
+    handle('customers:getById', (id) => customerService.getById(id));
+    handle('customers:bulkImport', (data) => customerService.bulkImport(data));
+    handle('customers:importExcel', async () => {
+        const { dialog } = require('electron');
+        const ExcelJS = require('exceljs');
+
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Importar Ficha de Inscripcion',
+            properties: ['openFile'],
+            filters: [{ name: 'Excel Files', extensions: ['xlsx', 'xls'] }]
+        });
+
+        if (canceled || !filePaths || filePaths.length === 0) return { cancelled: true };
+
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(filePaths[0]);
+        const sheet = workbook.worksheets[0];
+
+        if (!sheet) throw new Error('No se encontro ninguna hoja en el archivo');
+
+        const headers = [];
+        sheet.getRow(1).eachCell((cell, colNumber) => {
+            headers[colNumber] = (cell.value || '').toString().toLowerCase().trim();
+        });
+
+        const customers = [];
+        sheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) return; // skip header
+
+            const getValue = (row, col) => {
+                const cell = row.getCell(col);
+                if (!cell || cell.value === null || cell.value === undefined) return '';
+                if (cell.value instanceof Date) return cell.value.toISOString().split('T')[0];
+                return cell.value.toString().trim();
+            };
+
+            // Map columns by header name patterns
+            const findCol = (patterns) => {
+                return headers.findIndex(h => h && patterns.some(p => h.includes(p))) + 0; // 0 if not found (-1 + 1)
+            };
+
+            const nameCol = findCol(['nombre']);
+            const apellido1Col = findCol(['primer apellido']);
+            const apellido2Col = findCol(['segundo apellido']);
+            const dniCol = findCol(['dni', 'nie']);
+            const addressCol = findCol(['direcci', 'direccion', 'calle']);
+            const emailCol = findCol(['correo', 'email']);
+            const phoneCol = findCol(['tel', 'phone']);
+            const startCol = findCol(['fecha de inicio']);
+            const heightCol = findCol(['altura']);
+            const weightCol = findCol(['peso']);
+            const diseaseCol = findCol(['enfermedad']);
+            const injuryCol = findCol(['lesi']);
+            const allergyCol = findCol(['alergia']);
+            const surgeryCol = findCol(['operaci', 'cirug']);
+
+            const firstName = getValue(row, nameCol);
+            if (!firstName) return;
+
+            const lastName1 = getValue(row, apellido1Col);
+            const lastName2 = getValue(row, apellido2Col);
+            const lastName = [lastName1, lastName2].filter(Boolean).join(' ');
+
+            customers.push({
+                first_name: firstName,
+                last_name: lastName,
+                email: getValue(row, emailCol),
+                phone: getValue(row, phoneCol),
+                dni: getValue(row, dniCol),
+                address: getValue(row, addressCol),
+                height_cm: parseFloat(getValue(row, heightCol)) || null,
+                weight_kg: parseFloat(getValue(row, weightCol)) || null,
+                start_date: getValue(row, startCol) || null,
+                medical_info: {
+                    diseases: getValue(row, diseaseCol) || '',
+                    injuries: getValue(row, injuryCol) || '',
+                    allergies: getValue(row, allergyCol) || '',
+                    surgeries: getValue(row, surgeryCol) || '',
+                }
+            });
+        });
+
+        if (customers.length === 0) throw new Error('No se encontraron clientes en el archivo');
+
+        // Preview - don't import yet, return parsed data
+        return { customers, fileName: filePaths[0] };
+    });
+    handle('customers:getByIds', (ids) => customerService.getByIds(ids));
 
     // Tariffs
     handle('tariffs:getAll', () => tariffService.getAll());
@@ -369,6 +457,7 @@ function registerHandlers() {
         return filePaths[0];
     });
     handle('cloud:applyRemoteLoad', (data) => require('../services/cloud/cloud.service').applyRemoteLoad(data.gym_id, data.load_id));
+    handle('cloud:sendCustomersToGym', ({ targetGymId, customerIds }) => require('../services/cloud/cloud.service').sendCustomersToGym(targetGymId, customerIds));
     handle('admin:restoreBackup', ({ gymId, fileName }) => adminService.restoreRemoteBackup(gymId, fileName));
 
     // Credentials Management

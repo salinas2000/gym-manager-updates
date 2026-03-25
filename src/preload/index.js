@@ -3,11 +3,15 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
     customers: {
         getAll: () => ipcRenderer.invoke('customers:getAll'),
+        getById: (id) => ipcRenderer.invoke('customers:getById', id),
         create: (data) => ipcRenderer.invoke('customers:create', data),
         update: (id, data) => ipcRenderer.invoke('customers:update', id, data),
         toggleActive: (id, mode) => ipcRenderer.invoke('customers:toggleActive', id, mode),
         getHistory: (id) => ipcRenderer.invoke('customers:getHistory', id),
         delete: (id) => ipcRenderer.invoke('customers:delete', id),
+        bulkImport: (data) => ipcRenderer.invoke('customers:bulkImport', data),
+        importExcel: () => ipcRenderer.invoke('customers:importExcel'),
+        getByIds: (ids) => ipcRenderer.invoke('customers:getByIds', ids),
     },
     payments: {
         getByCustomer: (customerId) => ipcRenderer.invoke('payments:getByCustomer', customerId),
@@ -42,6 +46,7 @@ contextBridge.exposeInMainWorld('api', {
             return () => ipcRenderer.removeListener('cloud:remote-load-pending', subscription);
         },
         applyRemoteLoad: (data) => ipcRenderer.invoke('cloud:applyRemoteLoad', data),
+        sendCustomersToGym: (targetGymId, customerIds) => ipcRenderer.invoke('cloud:sendCustomersToGym', { targetGymId, customerIds }),
     },
     training: {
         getExercises: () => ipcRenderer.invoke('training:getExercises'),

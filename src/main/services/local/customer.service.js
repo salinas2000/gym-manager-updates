@@ -12,6 +12,18 @@ const createCustomerSchema = z.object({
         .transform(val => val.toLowerCase().trim()),
     phone: z.string().optional(),
     tariff_id: z.number().optional().nullable(),
+    // Profile fields
+    dni: z.string().optional().nullable(),
+    address: z.string().optional().nullable(),
+    height_cm: z.number().optional().nullable(),
+    weight_kg: z.number().optional().nullable(),
+    birth_date: z.string().optional().nullable(),
+    medical_info: z.object({
+        diseases: z.string().optional().default(''),
+        injuries: z.string().optional().default(''),
+        allergies: z.string().optional().default(''),
+        surgeries: z.string().optional().default(''),
+    }).optional().nullable(),
 });
 
 const updateCustomerSchema = createCustomerSchema.partial();
@@ -39,7 +51,11 @@ class CustomerService extends BaseService {
     getById(id) {
         const db = dbManager.getInstance();
         const stmt = db.prepare('SELECT * FROM customers WHERE id = ?');
-        return stmt.get(id);
+        const customer = stmt.get(id);
+        if (customer && customer.medical_info) {
+            try { customer.medical_info = JSON.parse(customer.medical_info); } catch (e) { /* keep as string */ }
+        }
+        return customer;
     }
 
     create(data) {
@@ -49,18 +65,19 @@ class CustomerService extends BaseService {
             throw new Error(validation.error.errors[0].message);
         }
 
-        const { first_name, last_name, email, phone, tariff_id } = validation.data;
+        const { first_name, last_name, email, phone, tariff_id, dni, address, height_cm, weight_kg, birth_date, medical_info } = validation.data;
         const db = dbManager.getInstance();
 
         try {
             const gymId = this.getGymId();
+            const medicalJson = medical_info ? JSON.stringify(medical_info) : null;
             // Transaction so we create customer AND membership record atomically
             const transaction = db.transaction(() => {
                 const stmt = db.prepare(`
-                    INSERT INTO customers (gym_id, first_name, last_name, email, phone, tariff_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO customers (gym_id, first_name, last_name, email, phone, tariff_id, dni, address, height_cm, weight_kg, birth_date, medical_info)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
-                const info = stmt.run(gymId, first_name, last_name, email, phone || null, tariff_id || null);
+                const info = stmt.run(gymId, first_name, last_name, email, phone || null, tariff_id || null, dni || null, address || null, height_cm || null, weight_kg || null, birth_date || null, medicalJson);
                 const newId = info.lastInsertRowid;
 
                 // Create initial Membership record
@@ -100,6 +117,12 @@ class CustomerService extends BaseService {
         if (validatedData.phone !== undefined) { fields.push('phone = ?'); values.push(validatedData.phone); }
         if (validatedData.active !== undefined) { fields.push('active = ?'); values.push(validatedData.active ? 1 : 0); }
         if (validatedData.tariff_id !== undefined) { fields.push('tariff_id = ?'); values.push(validatedData.tariff_id); }
+        if (validatedData.dni !== undefined) { fields.push('dni = ?'); values.push(validatedData.dni); }
+        if (validatedData.address !== undefined) { fields.push('address = ?'); values.push(validatedData.address); }
+        if (validatedData.height_cm !== undefined) { fields.push('height_cm = ?'); values.push(validatedData.height_cm); }
+        if (validatedData.weight_kg !== undefined) { fields.push('weight_kg = ?'); values.push(validatedData.weight_kg); }
+        if (validatedData.birth_date !== undefined) { fields.push('birth_date = ?'); values.push(validatedData.birth_date); }
+        if (validatedData.medical_info !== undefined) { fields.push('medical_info = ?'); values.push(validatedData.medical_info ? JSON.stringify(validatedData.medical_info) : null); }
 
         // Always reset sync status on update
         fields.push('synced = 0');
@@ -228,6 +251,72 @@ class CustomerService extends BaseService {
         })();
 
         return result;
+    }
+
+    bulkImport(customers) {
+        const db = dbManager.getInstance();
+        const gymId = this.getGymId();
+
+        const insertStmt = db.prepare(`
+            INSERT INTO customers (gym_id, first_name, last_name, email, phone, tariff_id, dni, address, height_cm, weight_kg, birth_date, medical_info)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertMembership = db.prepare(`
+            INSERT INTO memberships (gym_id, customer_id, start_date)
+            VALUES (?, ?, ?)
+        `);
+
+        let imported = 0;
+        let skipped = 0;
+        const errors = [];
+
+        const transaction = db.transaction((items) => {
+            for (const c of items) {
+                try {
+                    const email = (c.email || '').toLowerCase().trim();
+                    if (!email || !c.first_name) {
+                        skipped++;
+                        continue;
+                    }
+
+                    // Check duplicate
+                    const existing = db.prepare('SELECT id FROM customers WHERE email = ?').get(email);
+                    if (existing) {
+                        skipped++;
+                        errors.push(`${c.first_name} ${c.last_name}: email duplicado`);
+                        continue;
+                    }
+
+                    const medicalJson = c.medical_info ? JSON.stringify(c.medical_info) : null;
+                    const info = insertStmt.run(
+                        gymId, c.first_name, c.last_name || '', email, c.phone || null, null,
+                        c.dni || null, c.address || null, c.height_cm || null, c.weight_kg || null,
+                        c.birth_date || null, medicalJson
+                    );
+
+                    insertMembership.run(gymId, info.lastInsertRowid, c.start_date || new Date().toISOString());
+                    imported++;
+                } catch (err) {
+                    skipped++;
+                    errors.push(`${c.first_name || 'Unknown'}: ${err.message}`);
+                }
+            }
+        });
+
+        transaction(customers);
+        return { imported, skipped, errors };
+    }
+
+    getByIds(ids) {
+        if (!ids || ids.length === 0) return [];
+        const db = dbManager.getInstance();
+        const placeholders = ids.map(() => '?').join(',');
+        return db.prepare(`
+            SELECT c.*, t.name as tariff_name, t.amount as tariff_amount
+            FROM customers c
+            LEFT JOIN tariffs t ON c.tariff_id = t.id
+            WHERE c.id IN (${placeholders})
+        `).all(...ids);
     }
 }
 

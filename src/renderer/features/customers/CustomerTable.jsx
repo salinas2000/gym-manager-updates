@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2 } from 'lucide-react';
+import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { cn } from '../../lib/utils';
@@ -14,7 +14,7 @@ const COLORS = [
     { name: 'Amber', from: 'from-amber-600', to: 'to-amber-900', border: 'border-amber-500', id: 'amber' },
 ];
 
-export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining, onOpenProfile }) {
+export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining, onOpenProfile, onSendCustomers, onImportExcel }) {
     const { customers, toggleCustomerStatus, tariffs, deleteCustomer } = useGym();
     const { t } = useLanguage();
     const [search, setSearch] = useState('');
@@ -194,13 +194,35 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                         />
                     </div>
 
-                    <button
-                        onClick={onAddCustomer}
-                        className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2"
-                    >
-                        <Plus size={18} />
-                        <span>{t('customers.newMember')}</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {onImportExcel && (
+                            <button
+                                onClick={onImportExcel}
+                                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium border border-white/10 transition-all flex items-center gap-2"
+                                title="Importar clientes desde Excel"
+                            >
+                                <Upload size={16} />
+                                <span>Importar</span>
+                            </button>
+                        )}
+                        {onSendCustomers && (
+                            <button
+                                onClick={onSendCustomers}
+                                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium border border-white/10 transition-all flex items-center gap-2"
+                                title="Enviar clientes a otro gimnasio"
+                            >
+                                <Send size={16} />
+                                <span>Enviar</span>
+                            </button>
+                        )}
+                        <button
+                            onClick={onAddCustomer}
+                            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2"
+                        >
+                            <Plus size={18} />
+                            <span>{t('customers.newMember')}</span>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Row 2: Filters */}

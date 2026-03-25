@@ -28,10 +28,28 @@ CREATE TABLE IF NOT EXISTS cloud_customers (
     phone TEXT,
     active INTEGER DEFAULT 1,
     tariff_id BIGINT,
+    dni TEXT,
+    address TEXT,
+    height_cm NUMERIC,
+    weight_kg NUMERIC,
+    birth_date TEXT,
+    medical_info JSONB,
     created_at TIMESTAMPTZ,
     synced_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (gym_id, local_id)
 );
+
+-- Migration: Add new profile columns to existing cloud_customers
+DO $$
+BEGIN
+    ALTER TABLE cloud_customers ADD COLUMN IF NOT EXISTS dni TEXT;
+    ALTER TABLE cloud_customers ADD COLUMN IF NOT EXISTS address TEXT;
+    ALTER TABLE cloud_customers ADD COLUMN IF NOT EXISTS height_cm NUMERIC;
+    ALTER TABLE cloud_customers ADD COLUMN IF NOT EXISTS weight_kg NUMERIC;
+    ALTER TABLE cloud_customers ADD COLUMN IF NOT EXISTS birth_date TEXT;
+    ALTER TABLE cloud_customers ADD COLUMN IF NOT EXISTS medical_info JSONB;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
 
 -- MEMBERSHIPS
 CREATE TABLE IF NOT EXISTS cloud_memberships (

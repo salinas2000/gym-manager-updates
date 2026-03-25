@@ -670,6 +670,14 @@ class DBManager {
         // 20b. Ensure exercise_field_config has is_deleted column (for DBs created before this column existed)
         this.safeAddColumn('exercise_field_config', 'is_deleted', 'INTEGER DEFAULT 0');
 
+        // 22. Customer Medical/Personal Profile Fields
+        this.safeAddColumn('customers', 'dni', 'TEXT');
+        this.safeAddColumn('customers', 'address', 'TEXT');
+        this.safeAddColumn('customers', 'height_cm', 'REAL');
+        this.safeAddColumn('customers', 'weight_kg', 'REAL');
+        this.safeAddColumn('customers', 'birth_date', 'TEXT');
+        this.safeAddColumn('customers', 'medical_info', 'TEXT'); // JSON: { diseases, injuries, allergies, surgeries }
+
         // 21. Performance Indexes for Production
         this.safeCreateIndex('idx_customers_gym', 'customers', 'gym_id');
         this.safeCreateIndex('idx_customers_active', 'customers', 'active');

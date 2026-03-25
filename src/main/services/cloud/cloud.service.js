@@ -449,6 +449,52 @@ class CloudService {
         }
     }
 
+    async sendCustomersToGym(targetGymId, customerIds) {
+        if (!this.supabase) throw new Error('Supabase no inicializado');
+        if (!targetGymId || !customerIds?.length) throw new Error('Gym ID y clientes requeridos');
+
+        const customerService = require('../local/customer.service');
+        const customers = customerService.getByIds(customerIds);
+
+        if (customers.length === 0) throw new Error('No se encontraron clientes');
+
+        // Upsert into cloud_customers for the TARGET gym
+        const records = customers.map(c => {
+            let medicalInfo = null;
+            if (c.medical_info) {
+                try { medicalInfo = typeof c.medical_info === 'string' ? JSON.parse(c.medical_info) : c.medical_info; } catch (e) { /* ignore */ }
+            }
+
+            return {
+                gym_id: targetGymId,
+                local_id: c.id,
+                first_name: c.first_name,
+                last_name: c.last_name,
+                email: c.email,
+                phone: c.phone,
+                active: c.active,
+                tariff_id: c.tariff_id,
+                dni: c.dni,
+                address: c.address,
+                height_cm: c.height_cm,
+                weight_kg: c.weight_kg,
+                birth_date: c.birth_date,
+                medical_info: medicalInfo,
+                created_at: c.created_at,
+                synced_at: new Date().toISOString(),
+            };
+        });
+
+        const { error } = await this.supabase
+            .from('cloud_customers')
+            .upsert(records, { onConflict: 'gym_id,local_id' });
+
+        if (error) throw new Error(`Error enviando clientes: ${error.message}`);
+
+        console.log(`[CLOUD_SYNC] Sent ${records.length} customers to gym ${targetGymId}`);
+        return { success: true, sent: records.length };
+    }
+
     async _restoreTemplateFiles(gymId) {
         try {
             console.log(`[CLOUD_SYNC] Restore Templates for gym: ${gymId}`);
