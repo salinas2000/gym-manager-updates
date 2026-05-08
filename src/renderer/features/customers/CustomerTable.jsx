@@ -35,11 +35,12 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
 
     // Filtering Logic
     const filtered = safeCustomers.filter(c => {
-        // Text Search
+        // Text Search (defensivo ante valores null/undefined)
+        const q = (search || '').toLowerCase();
         const matchesSearch =
-            c.first_name.toLowerCase().includes(search.toLowerCase()) ||
-            c.last_name.toLowerCase().includes(search.toLowerCase()) ||
-            c.email.toLowerCase().includes(search.toLowerCase());
+            (c.first_name || '').toLowerCase().includes(q) ||
+            (c.last_name || '').toLowerCase().includes(q) ||
+            (c.email || '').toLowerCase().includes(q);
 
         // Status Filter
         const matchesStatus =

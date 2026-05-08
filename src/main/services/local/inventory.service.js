@@ -16,7 +16,11 @@ const productSchema = z.object({
 
 const orderSchema = z.object({
     product_id: z.coerce.number().int().positive("ID de producto inválido"),
-    customer_id: z.coerce.number().int().positive().nullable().optional(),
+    // customer_id: 0/null/undefined = pedido sin cliente; >0 = id válido
+    customer_id: z.preprocess(
+        v => (v === '' || v === null || v === undefined || Number(v) === 0) ? null : v,
+        z.coerce.number().int().positive().nullable().optional()
+    ),
     type: z.enum(['purchase', 'sale', 'adjustment']),
     quantity: z.coerce.number().int().min(1, "La cantidad debe ser mayor a 0"),
     unit_cost: z.coerce.number().min(0).default(0),

@@ -293,6 +293,10 @@ class CustomerService extends BaseService {
                         c.dni || null, c.address || null, c.height_cm || null, c.weight_kg || null,
                         c.birth_date || null, medicalJson
                     );
+                    // Honrar el campo active si viene en el JSON (default = 1 si no se especifica)
+                    if (c.active === false || c.active === 0) {
+                        db.prepare('UPDATE customers SET active = 0 WHERE id = ?').run(info.lastInsertRowid);
+                    }
 
                     // Default start_date: 1st of current month if not specified
                     const defaultStart = (() => {

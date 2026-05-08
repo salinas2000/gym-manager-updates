@@ -281,12 +281,13 @@ class TrainingService extends BaseService {
 
     // --- MESOCYCLES (Routines) ---
     getMesocyclesByCustomer(customerId) {
-        // Exclude templates from the user timeline
+        // Exclude templates from the user timeline; filter by current gym to avoid cross-gym leaks
+        const gymId = this.getGymId();
         const mesocycles = this.db.prepare(`
-            SELECT * FROM mesocycles 
-            WHERE customer_id = ? AND is_template = 0 
+            SELECT * FROM mesocycles
+            WHERE customer_id = ? AND is_template = 0 AND gym_id = ?
             ORDER BY start_date DESC
-        `).all(customerId);
+        `).all(customerId, gymId);
 
         // Calculate status calculated fields
         // Use YYYY-MM-DD strings to avoid Timezone headaches
@@ -328,7 +329,10 @@ class TrainingService extends BaseService {
         return routines.map(r => ({
             ...r,
             items: this.db.prepare(`
-                SELECT ri.*, e.name as exercise_name, e.category
+                SELECT ri.*, e.name as exercise_name,
+                       (SELECT ec.name FROM exercise_categories ec
+                        JOIN exercise_subcategories es ON es.category_id = ec.id
+                        WHERE es.id = e.subcategory_id) as category
                 FROM routine_items ri
                 LEFT JOIN exercises e ON ri.exercise_id = e.id
                 WHERE ri.routine_id = ?
@@ -355,16 +359,18 @@ class TrainingService extends BaseService {
         if (!customerId) return { hasOverlap: false }; // Templates don't overlap
         if (!startDate) return { hasOverlap: false }; // No start date = no range to check
 
+        const gymId = this.getGymId();
         let query = `
             SELECT id FROM mesocycles
-            WHERE customer_id = ?
+            WHERE gym_id = ?
+            AND customer_id = ?
             AND active = 1
             AND is_template = 0
             AND start_date <= ?
             AND (end_date >= ? OR end_date IS NULL)
         `;
         const newEndDate = endDate || '9999-12-31';
-        const params = [customerId, newEndDate, startDate];
+        const params = [gymId, customerId, newEndDate, startDate];
 
         if (excludeId) {
             query += ' AND id != ?';
