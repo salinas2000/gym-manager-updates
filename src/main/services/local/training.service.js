@@ -719,6 +719,114 @@ class TrainingService extends BaseService {
             return a.daysRemaining - b.daysRemaining;
         });
     }
+
+    /**
+     * Importa un dataset de ejercicios (JSON) de forma additiva.
+     * Estructura esperada:
+     *   {
+     *     categories: [
+     *       { name, icon, subcategories?: [{ name, exercises: [{name}] }] | exercises: [{name}] }
+     *     ]
+     *   }
+     * Si no hay subcategorías, todos los ejercicios van a una "General" autocreada.
+     * Devuelve estadísticas de qué se insertó vs. qué ya existía.
+     */
+    importDataset(dataset) {
+        if (!dataset || !Array.isArray(dataset.categories)) {
+            throw new Error('Dataset inválido: falta categories[]');
+        }
+
+        const gymId = this.getGymId();
+        const insCat = this.db.prepare('INSERT OR IGNORE INTO exercise_categories (gym_id, name, icon, is_system) VALUES (?, ?, ?, 1)');
+        const getCat = this.db.prepare('SELECT id FROM exercise_categories WHERE name = ? AND gym_id = ?');
+        const insSub = this.db.prepare('INSERT OR IGNORE INTO exercise_subcategories (gym_id, category_id, name) VALUES (?, ?, ?)');
+        const getSub = this.db.prepare('SELECT id FROM exercise_subcategories WHERE name = ? AND category_id = ?');
+        const getEx = this.db.prepare('SELECT id FROM exercises WHERE name = ? AND gym_id = ?');
+        const insEx = this.db.prepare(`
+            INSERT INTO exercises (gym_id, subcategory_id, name, default_sets, default_reps, custom_fields, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `);
+
+        const stats = { categoriesNew: 0, categoriesExisting: 0, subcategoriesNew: 0, exercisesNew: 0, exercisesSkipped: 0 };
+
+        const tx = this.db.transaction(() => {
+            for (const cat of dataset.categories) {
+                if (!cat?.name) continue;
+                const icon = cat.icon || '💪';
+                const before = getCat.get(cat.name, gymId);
+                insCat.run(gymId, cat.name, icon);
+                const catRow = getCat.get(cat.name, gymId);
+                if (!catRow) continue;
+                if (before) stats.categoriesExisting++; else stats.categoriesNew++;
+
+                // Soporta ambas estructuras
+                if (Array.isArray(cat.subcategories)) {
+                    for (const sub of cat.subcategories) {
+                        if (!sub?.name) continue;
+                        const subBefore = getSub.get(sub.name, catRow.id);
+                        insSub.run(gymId, catRow.id, sub.name);
+                        const subRow = getSub.get(sub.name, catRow.id);
+                        if (!subRow) continue;
+                        if (!subBefore) stats.subcategoriesNew++;
+                        for (const ex of (sub.exercises || [])) {
+                            this._importExerciseRow(ex, gymId, subRow.id, getEx, insEx, stats);
+                        }
+                    }
+                } else if (Array.isArray(cat.exercises)) {
+                    insSub.run(gymId, catRow.id, 'General');
+                    const subRow = getSub.get('General', catRow.id);
+                    if (!subRow) continue;
+                    if (!before) stats.subcategoriesNew++;
+                    for (const ex of cat.exercises) {
+                        this._importExerciseRow(ex, gymId, subRow.id, getEx, insEx, stats);
+                    }
+                }
+            }
+        });
+        tx();
+        return stats;
+    }
+
+    _importExerciseRow(ex, gymId, subId, getEx, insEx, stats) {
+        if (!ex?.name) return;
+        if (getEx.get(ex.name, gymId)) { stats.exercisesSkipped++; return; }
+        const fields = ex.custom_fields || { series: 4, repeticiones: '8-12', peso: '', descanso: '90', rir: 2 };
+        insEx.run(gymId, subId, ex.name, ex.default_sets || 4, ex.default_reps || '8-12', JSON.stringify(fields));
+        stats.exercisesNew++;
+    }
+
+    /**
+     * Exporta toda la biblioteca de ejercicios del gym a un objeto JSON-friendly.
+     */
+    exportDataset() {
+        const gymId = this.getGymId();
+        const cats = this.db.prepare('SELECT id, name, icon FROM exercise_categories WHERE gym_id = ? ORDER BY name').all(gymId);
+        const result = {
+            meta: {
+                exported_at: new Date().toISOString(),
+                gym_id: gymId,
+                total_exercises: 0,
+            },
+            categories: [],
+        };
+        for (const c of cats) {
+            const subs = this.db.prepare('SELECT id, name FROM exercise_subcategories WHERE category_id = ? ORDER BY name').all(c.id);
+            const catObj = { name: c.name, icon: c.icon, subcategories: [] };
+            for (const s of subs) {
+                const exs = this.db.prepare('SELECT name, default_sets, default_reps, custom_fields FROM exercises WHERE subcategory_id = ? AND gym_id = ? ORDER BY name').all(s.id, gymId);
+                const subObj = { name: s.name, exercises: exs.map(e => ({
+                    name: e.name,
+                    default_sets: e.default_sets,
+                    default_reps: e.default_reps,
+                    custom_fields: e.custom_fields ? (() => { try { return JSON.parse(e.custom_fields); } catch { return undefined; } })() : undefined,
+                })) };
+                catObj.subcategories.push(subObj);
+                result.meta.total_exercises += exs.length;
+            }
+            result.categories.push(catObj);
+        }
+        return result;
+    }
 }
 
 module.exports = new TrainingService();

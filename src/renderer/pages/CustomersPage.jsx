@@ -4,7 +4,6 @@ import AddCustomerModal from '../features/customers/AddCustomerModal';
 import CustomerHistoryModal from '../features/customers/CustomerHistoryModal';
 import CustomerProfileCard from '../features/customers/CustomerProfileCard';
 import SendCustomersModal from '../features/customers/SendCustomersModal';
-import ImportExcelModal from '../features/customers/ImportExcelModal';
 import PaymentDrawer from '../features/finance/PaymentDrawer';
 import PaymentGrid from '../features/finance/PaymentGrid';
 import { useGym } from '../context/GymContext';
@@ -20,7 +19,6 @@ export default function CustomersPage({ onNavigate }) {
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [isSendModalOpen, setIsSendModalOpen] = useState(false);
-    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
     const handleOpenHistory = (customer) => {
         setSelectedCustomer(customer);
@@ -61,7 +59,6 @@ export default function CustomersPage({ onNavigate }) {
                 onOpenTraining={handleOpenTraining}
                 onOpenProfile={handleOpenProfile}
                 onSendCustomers={isMaster ? () => setIsSendModalOpen(true) : undefined}
-                onImportExcel={isMaster ? () => setIsImportModalOpen(true) : undefined}
             />
 
             {/* OVERLAYS */}
@@ -96,11 +93,6 @@ export default function CustomersPage({ onNavigate }) {
             <SendCustomersModal
                 isOpen={isSendModalOpen}
                 onClose={() => setIsSendModalOpen(false)}
-            />
-
-            <ImportExcelModal
-                isOpen={isImportModalOpen}
-                onClose={() => setIsImportModalOpen(false)}
             />
         </>
     );

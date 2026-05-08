@@ -284,9 +284,28 @@ class ExcelService extends BaseService {
             });
 
             // 6. COPIAR HEADER SUPERIOR (rows 1 to blockStart-1)
-            console.log('[ExcelService] Copying header rows 1 to', blockStart - 1);
-            if (blockStart > 1) {
+            // Si no hay logo, saltar filas vacías iniciales (típicamente rows 1-6 reservadas al logo)
+            const hasLogo = workbook.model.media && workbook.model.media.length > 0;
+            let headerStartRow = 1;
+            if (!hasLogo && blockStart > 1) {
                 for (let r = 1; r < blockStart; r++) {
+                    const srcRow = sourceSheet.getRow(r);
+                    let hasContent = false;
+                    srcRow.eachCell({ includeEmpty: false }, (cell) => {
+                        if (cell.value !== null && cell.value !== undefined && cell.value !== '') {
+                            hasContent = true;
+                        }
+                    });
+                    if (hasContent) { headerStartRow = r; break; }
+                }
+                if (headerStartRow === 1) headerStartRow = blockStart; // todas vacías → saltar todo
+                console.log('[ExcelService] No logo detected, skipping empty rows. Starting at row:', headerStartRow);
+            }
+            const headerRowOffset = headerStartRow - 1;
+
+            console.log('[ExcelService] Copying header rows', headerStartRow, 'to', blockStart - 1);
+            if (blockStart > 1) {
+                for (let r = headerStartRow; r < blockStart; r++) {
                     const srcRow = sourceSheet.getRow(r);
                     const destRow = targetSheet.getRow(cursY);
 
@@ -311,21 +330,26 @@ class ExcelService extends BaseService {
                 console.log('[ExcelService] Copying merged cells...');
                 if (sourceSheet.model.merges) {
                     sourceSheet.model.merges.forEach(rangeStr => {
+                        const startMatch = rangeStr.split(':')[0].match(/(\d+)$/);
                         const endMatch = rangeStr.split(':')[1].match(/(\d+)$/);
-                        if (endMatch && parseInt(endMatch[1]) < blockStart) {
-                            targetSheet.mergeCells(rangeStr);
-                            console.log('[ExcelService] ✓ Merged:', rangeStr);
-                        }
+                        if (!endMatch || !startMatch) return;
+                        if (parseInt(endMatch[1]) >= blockStart) return; // solo merges del header
+                        if (parseInt(startMatch[1]) < headerStartRow) return; // saltar merges en rows omitidas
+                        const translated = headerRowOffset === 0
+                            ? rangeStr
+                            : rangeStr.replace(/([A-Z]+)(\d+)/g, (m, col, row) => `${col}${parseInt(row) - headerRowOffset}`);
+                        targetSheet.mergeCells(translated);
+                        console.log('[ExcelService] ✓ Merged:', translated);
                     });
                 }
             }
 
-            // 6.5 COPIAR IMÁGENES (Logo)
+            // 6.5 COPIAR IMÁGENES (Logo) — solo si hay logo en el template
             try {
                 const images = workbook.model.media;
                 console.log('[ExcelService] Total images in workbook:', images?.length || 0);
 
-                if (images && images.length > 0) {
+                if (hasLogo && images && images.length > 0) {
                     images.forEach((media, idx) => {
                         try {
                             const imageId = workbook.addImage({
@@ -385,6 +409,9 @@ class ExcelService extends BaseService {
                             ? JSON.parse(ex.custom_fields)
                             : (ex.custom_fields || ex.customFields || {});
 
+                        // Treat null / undefined / literal "null" / "undefined" as empty
+                        const safe = v => (v === null || v === undefined || v === 'null' || v === 'undefined') ? '' : v;
+
                         // Fill ALL columns based on mapping
                         Object.keys(cols).forEach(key => {
                             const colNum = cols[key];
@@ -392,22 +419,30 @@ class ExcelService extends BaseService {
 
                             let value = '';
 
-                            // Fixed columns with direct properties
+                            // Fixed columns: try direct property, then custom_fields with key aliases (EN/ES)
                             if (key === 'name') {
-                                value = ex.exercise_name || ex.name || '';
+                                value = safe(ex.exercise_name) || safe(ex.name) || '';
                             } else if (key === 'series') {
-                                value = ex.series || customFields.series || '';
+                                value = safe(ex.series) || safe(customFields.series) || safe(customFields.serie) || '';
                             } else if (key === 'reps') {
-                                value = ex.reps || customFields.reps || '';
+                                value = safe(ex.reps) || safe(customFields.reps) || safe(customFields.repeticiones) || '';
                             }
                             // All other columns: look in custom_fields by field_key
                             else {
-                                value = customFields[key] || '';
+                                value = safe(customFields[key]) || '';
                             }
 
                             // Set cell value
-                            if (destRow.getCell(colNum)) {
-                                destRow.getCell(colNum).value = value;
+                            const targetCell = destRow.getCell(colNum);
+                            if (targetCell) {
+                                // Si es string con caracteres no-numéricos (ej "8-10"), forzar formato texto
+                                // para que Excel no lo interprete como fecha o fórmula
+                                if (typeof value === 'string' && value !== '' && /[^0-9.,]/.test(value)) {
+                                    targetCell.numFmt = '@';
+                                    targetCell.value = value;
+                                } else {
+                                    targetCell.value = value;
+                                }
                             }
                         });
                     } else {

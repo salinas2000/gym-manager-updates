@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, RefreshCw, Key, ShieldCheck, Search, Filter, Trash2 } from 'lucide-react';
+import { Building2, RefreshCw, Key, ShieldCheck, Search, Filter, Trash2, Database } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useNotifications } from '../../context/NotificationContext';
 
@@ -12,6 +12,7 @@ import { CreateOrgModal } from './components/CreateOrgModal';
 import { IssueLicenseModal } from './components/IssueLicenseModal';
 import { BackupModal } from './components/BackupModal';
 import { ConfirmModal } from './components/ConfirmModal';
+import { DataToolsTab } from './components/DataToolsTab';
 
 export default function AdminDashboard() {
     const { addNotification } = useNotifications();
@@ -159,6 +160,15 @@ export default function AdminDashboard() {
                         >
                             <Building2 size={16} /> Organizaciones ({organizations.length})
                         </button>
+                        <button
+                            onClick={() => setActiveTab('data')}
+                            className={cn(
+                                "flex-1 py-4 text-sm font-bold transition-colors flex items-center justify-center gap-2",
+                                activeTab === 'data' ? "bg-white/[0.02] text-white border-b-2 border-indigo-400" : "text-slate-500 hover:bg-white/[0.01]"
+                            )}
+                        >
+                            <Database size={16} /> Datos
+                        </button>
                     </div>
 
                     {/* Filters Bar */}
@@ -208,7 +218,7 @@ export default function AdminDashboard() {
 
                     {/* View Content */}
                     <div className="min-h-[400px]">
-                        {activeTab === 'licenses' ? (
+                        {activeTab === 'licenses' && (
                             <LicensesTab
                                 gyms={filteredGyms}
                                 releases={releases}
@@ -220,11 +230,15 @@ export default function AdminDashboard() {
                                 handlePushDB={() => { }} // Placeholder if needed in tab, but BackupModal handles it usually
                                 generating={false}
                             />
-                        ) : (
+                        )}
+                        {activeTab === 'orgs' && (
                             <OrganizationsTab
                                 organizations={organizations}
                                 onEdit={(org) => setEditingOrg(org)}
                             />
+                        )}
+                        {activeTab === 'data' && (
+                            <DataToolsTab gyms={gyms} />
                         )}
                     </div>
                 </div>

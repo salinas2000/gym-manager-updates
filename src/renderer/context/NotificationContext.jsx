@@ -46,9 +46,71 @@ export function NotificationProvider({ children }) {
                 });
             });
 
+            // --- Exercise Dataset Push (Phase 2) ---
+            const cleanupExerciseDataset = window.api.cloud?.onExerciseDatasetPending?.((data) => {
+                if (addToast) addToast('Te han enviado un dataset de ejercicios. Abre notificaciones.', 'info', 6000);
+                addNotification({
+                    id: `exercise-dataset-${data.load_id}`,
+                    type: 'update',
+                    title: 'Dataset de Ejercicios Recibido',
+                    message: 'El administrador ha enviado un dataset de ejercicios. Se añadirán a tu biblioteca sin sobrescribir los existentes.',
+                    priority: 'high',
+                    actionLabel: 'CARGAR EJERCICIOS',
+                    onAction: async () => {
+                        try {
+                            const stats = await window.api.cloud.applyExerciseDataset({
+                                gym_id: data.gym_id,
+                                load_id: data.load_id,
+                                payload_path: data.payload_path,
+                            });
+                            const result = stats?.success ? stats.data : stats;
+                            addNotification({
+                                id: `exercise-dataset-applied-${data.load_id}`,
+                                type: 'success',
+                                message: `${result?.exercisesNew || 0} ejercicios nuevos añadidos, ${result?.exercisesSkipped || 0} ya existían.`,
+                            });
+                        } catch (e) {
+                            addNotification({ id: `exercise-dataset-error-${data.load_id}`, type: 'error', message: 'Error al cargar dataset: ' + e.message });
+                        }
+                    }
+                });
+            });
+
+            // --- Customer Dataset Push (Phase 2) ---
+            const cleanupCustomerDataset = window.api.cloud?.onCustomerDatasetPending?.((data) => {
+                if (addToast) addToast('Te han enviado un dataset de clientes. Abre notificaciones.', 'info', 6000);
+                addNotification({
+                    id: `customer-dataset-${data.load_id}`,
+                    type: 'update',
+                    title: 'Dataset de Clientes Recibido',
+                    message: 'El administrador ha enviado un dataset de clientes. Se añadirán los nuevos respetando los emails existentes.',
+                    priority: 'high',
+                    actionLabel: 'CARGAR CLIENTES',
+                    onAction: async () => {
+                        try {
+                            const stats = await window.api.cloud.applyCustomerDataset({
+                                gym_id: data.gym_id,
+                                load_id: data.load_id,
+                                payload_path: data.payload_path,
+                            });
+                            const result = stats?.success ? stats.data : stats;
+                            addNotification({
+                                id: `customer-dataset-applied-${data.load_id}`,
+                                type: 'success',
+                                message: `${result?.imported || 0} clientes importados, ${result?.skipped || 0} saltados.`,
+                            });
+                        } catch (e) {
+                            addNotification({ id: `customer-dataset-error-${data.load_id}`, type: 'error', message: 'Error al cargar clientes: ' + e.message });
+                        }
+                    }
+                });
+            });
+
             return () => {
                 cleanupStatus();
                 cleanupRemote();
+                cleanupExerciseDataset?.();
+                cleanupCustomerDataset?.();
             };
         }
     }, [addToast]);

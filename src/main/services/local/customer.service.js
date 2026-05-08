@@ -323,6 +323,71 @@ class CustomerService extends BaseService {
             WHERE c.id IN (${placeholders})
         `).all(...ids);
     }
+
+    /**
+     * Importa clientes desde un dataset JSON (add-only por email).
+     * Estructura esperada:
+     *   { customers: [{ first_name, last_name, email, phone, dni, address,
+     *                   height_cm, weight_kg, birth_date, medical_info, start_date }] }
+     */
+    importDataset(dataset) {
+        if (!dataset || !Array.isArray(dataset.customers)) {
+            throw new Error('Dataset inválido: falta customers[]');
+        }
+        return this.bulkImport(dataset.customers);
+    }
+
+    /**
+     * Exporta toda la cartera de clientes del gym a un objeto JSON-friendly.
+     * Incluye membresía actual (la más reciente sin end_date o la última).
+     */
+    exportDataset() {
+        const db = dbManager.getInstance();
+        const gymId = this.getGymId();
+        const rows = db.prepare(`
+            SELECT id, first_name, last_name, email, phone, dni, address,
+                   height_cm, weight_kg, birth_date, medical_info, active, created_at
+            FROM customers
+            WHERE gym_id = ?
+            ORDER BY id ASC
+        `).all(gymId);
+
+        const customers = rows.map(c => {
+            let medical = null;
+            if (c.medical_info) {
+                try { medical = typeof c.medical_info === 'string' ? JSON.parse(c.medical_info) : c.medical_info; }
+                catch { medical = null; }
+            }
+            const lastMem = db.prepare(`
+                SELECT start_date FROM memberships
+                WHERE customer_id = ? AND gym_id = ?
+                ORDER BY start_date DESC LIMIT 1
+            `).get(c.id, gymId);
+            return {
+                first_name: c.first_name,
+                last_name: c.last_name,
+                email: c.email,
+                phone: c.phone,
+                dni: c.dni,
+                address: c.address,
+                height_cm: c.height_cm,
+                weight_kg: c.weight_kg,
+                birth_date: c.birth_date,
+                medical_info: medical,
+                active: !!c.active,
+                start_date: lastMem?.start_date || c.created_at,
+            };
+        });
+
+        return {
+            meta: {
+                exported_at: new Date().toISOString(),
+                gym_id: gymId,
+                total_customers: customers.length,
+            },
+            customers,
+        };
+    }
 }
 
 module.exports = new CustomerService();

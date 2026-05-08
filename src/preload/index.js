@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('api', {
         delete: (id) => ipcRenderer.invoke('customers:delete', id),
         bulkImport: (data) => ipcRenderer.invoke('customers:bulkImport', data),
         importExcel: () => ipcRenderer.invoke('customers:importExcel'),
+        pickDatasetFile: () => ipcRenderer.invoke('customers:pickDatasetFile'),
+        importDataset: (dataset) => ipcRenderer.invoke('customers:importDataset', dataset),
+        exportDataset: () => ipcRenderer.invoke('customers:exportDataset'),
         getByIds: (ids) => ipcRenderer.invoke('customers:getByIds', ids),
     },
     payments: {
@@ -46,6 +49,20 @@ contextBridge.exposeInMainWorld('api', {
             return () => ipcRenderer.removeListener('cloud:remote-load-pending', subscription);
         },
         applyRemoteLoad: (data) => ipcRenderer.invoke('cloud:applyRemoteLoad', data),
+        applyExerciseDataset: (data) => ipcRenderer.invoke('cloud:applyExerciseDataset', data),
+        applyCustomerDataset: (data) => ipcRenderer.invoke('cloud:applyCustomerDataset', data),
+        pushExerciseDatasetToGym: (targetGymId) => ipcRenderer.invoke('cloud:pushExerciseDatasetToGym', { targetGymId }),
+        pushCustomerDatasetToGym: (targetGymId) => ipcRenderer.invoke('cloud:pushCustomerDatasetToGym', { targetGymId }),
+        onExerciseDatasetPending: (callback) => {
+            const sub = (_e, d) => callback(d);
+            ipcRenderer.on('cloud:exercise-dataset-pending', sub);
+            return () => ipcRenderer.removeListener('cloud:exercise-dataset-pending', sub);
+        },
+        onCustomerDatasetPending: (callback) => {
+            const sub = (_e, d) => callback(d);
+            ipcRenderer.on('cloud:customer-dataset-pending', sub);
+            return () => ipcRenderer.removeListener('cloud:customer-dataset-pending', sub);
+        },
         sendCustomersToGym: (targetGymId, customerIds) => ipcRenderer.invoke('cloud:sendCustomersToGym', { targetGymId, customerIds }),
     },
     training: {
@@ -71,6 +88,9 @@ contextBridge.exposeInMainWorld('api', {
         exportRoutine: (data) => ipcRenderer.invoke('training:exportRoutine', data),
         validateDriveLink: (mesoId, url) => ipcRenderer.invoke('training:validateDriveLink', mesoId, url),
         uploadToDrive: (mesoId) => ipcRenderer.invoke('training:uploadToDrive', mesoId),
+        pickDatasetFile: () => ipcRenderer.invoke('training:pickDatasetFile'),
+        importDataset: (dataset) => ipcRenderer.invoke('training:importDataset', dataset),
+        exportDataset: () => ipcRenderer.invoke('training:exportDataset'),
         getFieldConfigs: () => ipcRenderer.invoke('training:getFieldConfigs'),
         getAllFieldConfigs: () => ipcRenderer.invoke('training:getAllFieldConfigs'),
         updateFieldConfig: (key, data) => ipcRenderer.invoke('training:updateFieldConfig', key, data),

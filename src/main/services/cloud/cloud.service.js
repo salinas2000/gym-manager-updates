@@ -72,19 +72,38 @@ class CloudService {
                 },
                 (payload) => {
                     const receivedGymId = payload.new.gym_id;
-                    console.log(`🚀 [CLOUD_SYNC] Realtime Push Signal: For Gym[${receivedGymId}] (Local Gym is [${gymId}])`);
+                    const payloadType = payload.new.payload_type || 'full_db';
+                    const payloadPath = payload.new.payload_path || null;
+                    console.log(`🚀 [CLOUD_SYNC] Realtime Push: gym=${receivedGymId} type=${payloadType}`);
 
-                    if (receivedGymId === gymId) {
-                        console.log('✅ [CLOUD_SYNC] Gym ID Match! Sending notification to UI...');
-                        if (this.mainWindow) {
-                            this.mainWindow.webContents.send('cloud:remote-load-pending', {
-                                gym_id: receivedGymId,
-                                timestamp: payload.new.created_at,
-                                load_id: payload.new.id
-                            });
-                        }
+                    if (receivedGymId !== gymId) {
+                        console.log('ℹ️ [CLOUD_SYNC] Gym ID mismatch. Ignored.');
+                        return;
+                    }
+                    if (!this.mainWindow) return;
+
+                    // Route to the correct event based on payload_type
+                    if (payloadType === 'exercise_dataset') {
+                        this.mainWindow.webContents.send('cloud:exercise-dataset-pending', {
+                            gym_id: receivedGymId,
+                            load_id: payload.new.id,
+                            payload_path: payloadPath,
+                            timestamp: payload.new.created_at,
+                        });
+                    } else if (payloadType === 'customer_dataset') {
+                        this.mainWindow.webContents.send('cloud:customer-dataset-pending', {
+                            gym_id: receivedGymId,
+                            load_id: payload.new.id,
+                            payload_path: payloadPath,
+                            timestamp: payload.new.created_at,
+                        });
                     } else {
-                        console.log('ℹ️ [CLOUD_SYNC] Post-filtered event: Gym ID mismatch. Ignored.');
+                        // Default: full_db (backward compatible)
+                        this.mainWindow.webContents.send('cloud:remote-load-pending', {
+                            gym_id: receivedGymId,
+                            timestamp: payload.new.created_at,
+                            load_id: payload.new.id,
+                        });
                     }
                 }
             );
@@ -360,30 +379,57 @@ class CloudService {
         if (!this.supabase || !gymId) return;
 
         try {
+            // 1. STORAGE-BASED CHECK (legacy: full DB)
             const { data, error } = await this.supabase
                 .storage
                 .from('training_files')
                 .list(`${gymId}/remote_load/`);
 
-            if (error) return;
-
-            const remoteFile = data && data.find(file => file.name === 'gym_manager.db');
-
-            if (remoteFile && this.mainWindow) {
-                const fileTimestamp = remoteFile.updated_at || remoteFile.created_at;
-
-                // Only notify if this is a NEW file or a NEWER version
-                if (fileTimestamp !== this._lastRemoteLoadTimestamp) {
-                    console.log('📡 [CLOUD_SYNC] Remote load detected for gym:', gymId, '| Modified:', fileTimestamp);
-                    this.mainWindow.webContents.send('cloud:remote-load-pending', {
-                        gym_id: gymId,
-                        timestamp: fileTimestamp || new Date().toISOString()
-                    });
-                    this._lastRemoteLoadTimestamp = fileTimestamp;
+            if (!error) {
+                const remoteFile = data && data.find(file => file.name === 'gym_manager.db');
+                if (remoteFile && this.mainWindow) {
+                    const fileTimestamp = remoteFile.updated_at || remoteFile.created_at;
+                    if (fileTimestamp !== this._lastRemoteLoadTimestamp) {
+                        console.log('📡 [CLOUD_SYNC] Remote DB load detected for gym:', gymId);
+                        this.mainWindow.webContents.send('cloud:remote-load-pending', {
+                            gym_id: gymId,
+                            timestamp: fileTimestamp || new Date().toISOString()
+                        });
+                        this._lastRemoteLoadTimestamp = fileTimestamp;
+                    }
+                } else {
+                    this._lastRemoteLoadTimestamp = null;
                 }
-            } else {
-                // File was consumed/cleaned — reset tracker
-                this._lastRemoteLoadTimestamp = null;
+            }
+
+            // 2. TABLE-BASED CHECK (Phase 2 fallback when Realtime fails)
+            // Look for any pending rows for this gym (exercise_dataset, customer_dataset, etc.)
+            const { data: pendingRows, error: tblErr } = await this.supabase
+                .from('cloud_remote_loads')
+                .select('id, gym_id, payload_type, payload_path, created_at')
+                .eq('gym_id', gymId)
+                .eq('status', 'pending');
+
+            if (tblErr || !pendingRows) return;
+
+            this._notifiedLoadIds = this._notifiedLoadIds || new Set();
+            for (const row of pendingRows) {
+                if (this._notifiedLoadIds.has(row.id)) continue;
+                if (!this.mainWindow) continue;
+
+                const eventName = row.payload_type === 'exercise_dataset' ? 'cloud:exercise-dataset-pending'
+                    : row.payload_type === 'customer_dataset' ? 'cloud:customer-dataset-pending'
+                    : null;
+                if (!eventName) continue; // full_db ya manejado vía storage check arriba
+
+                console.log(`📡 [CLOUD_SYNC] Polling fallback fired ${row.payload_type} for ${gymId}`);
+                this.mainWindow.webContents.send(eventName, {
+                    gym_id: row.gym_id,
+                    load_id: row.id,
+                    payload_path: row.payload_path,
+                    timestamp: row.created_at,
+                });
+                this._notifiedLoadIds.add(row.id);
             }
         } catch (e) {
             console.error('[CLOUD_SYNC] checkRemoteLoad Error:', e);
@@ -447,6 +493,98 @@ class CloudService {
             }
             throw err;
         }
+    }
+
+    /**
+     * Sube un dataset JSON al storage de Supabase y registra una entrada en
+     * cloud_remote_loads con el payload_type correspondiente. El gimnasio
+     * receptor recibirá un evento Realtime y mostrará una notificación.
+     *
+     * @param {'exercise_dataset'|'customer_dataset'} kind
+     * @param {string} targetGymId
+     * @param {object} datasetJson
+     */
+    async pushDatasetToGym(kind, targetGymId, datasetJson) {
+        if (!this.supabase) throw new Error('Supabase no inicializado');
+        if (!targetGymId) throw new Error('targetGymId requerido');
+        if (!datasetJson) throw new Error('dataset requerido');
+        if (!['exercise_dataset', 'customer_dataset'].includes(kind)) {
+            throw new Error('Tipo de dataset inválido: ' + kind);
+        }
+
+        const folder = kind === 'exercise_dataset' ? 'exercise_dataset' : 'customer_dataset';
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const remotePath = `${targetGymId}/${folder}/${ts}.json`;
+        const body = Buffer.from(JSON.stringify(datasetJson, null, 2), 'utf-8');
+
+        // 1. Upload JSON to storage
+        const { error: upErr } = await this.supabase
+            .storage
+            .from('training_files')
+            .upload(remotePath, body, {
+                contentType: 'application/json',
+                upsert: false,
+            });
+        if (upErr) throw new Error('Error subiendo dataset: ' + upErr.message);
+
+        // 2. Register in cloud_remote_loads (triggers Realtime push to receiver)
+        const { error: dbErr } = await this.supabase
+            .from('cloud_remote_loads')
+            .insert([{
+                gym_id: targetGymId,
+                status: 'pending',
+                payload_type: kind,
+                payload_path: remotePath,
+                created_at: new Date().toISOString(),
+            }]);
+        if (dbErr) throw new Error('Error registrando push: ' + dbErr.message);
+
+        return { success: true, path: remotePath };
+    }
+
+    /**
+     * Descarga un JSON de dataset desde Supabase Storage y lo aplica localmente
+     * vía el service correspondiente (additivo, no destructivo).
+     */
+    async _applyDataset(kind, payloadPath, loadId) {
+        if (!this.supabase) throw new Error('Supabase no inicializado');
+        if (!payloadPath) throw new Error('payload_path requerido');
+
+        const { data, error } = await this.supabase.storage.from('training_files').download(payloadPath);
+        if (error) throw new Error('Error descargando dataset: ' + error.message);
+
+        const text = await data.text();
+        const dataset = JSON.parse(text);
+
+        let stats;
+        if (kind === 'exercise_dataset') {
+            const trainingService = require('../local/training.service');
+            stats = trainingService.importDataset(dataset);
+        } else if (kind === 'customer_dataset') {
+            const customerService = require('../local/customer.service');
+            stats = customerService.importDataset(dataset);
+        } else {
+            throw new Error('Tipo de dataset inválido: ' + kind);
+        }
+
+        // Marcar como aplicado y limpiar el archivo del storage
+        if (loadId) {
+            await this.supabase
+                .from('cloud_remote_loads')
+                .update({ status: 'applied', applied_at: new Date().toISOString() })
+                .eq('id', loadId);
+        }
+        try { await this.supabase.storage.from('training_files').remove([payloadPath]); }
+        catch (e) { console.warn('[CLOUD_SYNC] No se pudo borrar storage:', e.message); }
+
+        return stats;
+    }
+
+    async applyExerciseDataset(gymId, loadId, payloadPath) {
+        return this._applyDataset('exercise_dataset', payloadPath, loadId);
+    }
+    async applyCustomerDataset(gymId, loadId, payloadPath) {
+        return this._applyDataset('customer_dataset', payloadPath, loadId);
     }
 
     async sendCustomersToGym(targetGymId, customerIds) {

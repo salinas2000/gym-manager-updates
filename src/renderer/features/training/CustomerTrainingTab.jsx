@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Download, Trash2, FileSpreadsheet, Cloud, CloudOff } from 'lucide-react';
+import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Download, Trash2, FileSpreadsheet, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false, onNavigate }) {
@@ -32,7 +32,7 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
     };
 
     // Fetch Mesocycles
-    const { data: mesocycles = [], isLoading } = useQuery({
+    const { data: mesocycles = [], isLoading, isFetching, refetch } = useQuery({
         queryKey: ['mesocycles', customerId],
         queryFn: async () => {
             const res = await window.api.training.getMesocycles(customerId);
@@ -40,6 +40,26 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
         },
         enabled: !!customerId
     });
+
+    const [isValidating, setIsValidating] = useState(false);
+    const handleRefresh = async () => {
+        setIsValidating(true);
+        try {
+            const r = await refetch();
+            const list = r.data || [];
+            const toCheck = list.filter(m => m.drive_link);
+            if (isGoogleConnected && toCheck.length > 0) {
+                const results = await Promise.all(
+                    toCheck.map(m => window.api.training.validateDriveLink(m.id, m.drive_link))
+                );
+                if (results.some(res => res === false)) {
+                    await refetch(); // re-fetch so links cleared by the backend disappear
+                }
+            }
+        } finally {
+            setIsValidating(false);
+        }
+    };
 
     // Delete Mutation
     const deleteMutation = useMutation({
@@ -172,15 +192,26 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                     <Calendar className="text-blue-400" />
                     Historial de Mesociclos
                 </h3>
-                {!readOnly && (
+                <div className="flex items-center gap-2">
                     <button
-                        onClick={handleNewMesocycle}
-                        className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold transition-all shadow-lg shadow-blue-900/20"
+                        onClick={handleRefresh}
+                        disabled={isFetching || isValidating}
+                        className="bg-slate-800/60 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-2 rounded-xl flex items-center gap-2 font-medium transition-all border border-white/5 disabled:opacity-50 disabled:cursor-wait"
+                        title="Actualizar lista y revalidar enlaces de Drive"
                     >
-                        <Plus size={18} />
-                        Nuevo Mesociclo
+                        <RefreshCw size={16} className={(isFetching || isValidating) ? 'animate-spin' : ''} />
+                        {isValidating ? 'Comprobando...' : 'Actualizar'}
                     </button>
-                )}
+                    {!readOnly && (
+                        <button
+                            onClick={handleNewMesocycle}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold transition-all shadow-lg shadow-blue-900/20"
+                        >
+                            <Plus size={18} />
+                            Nuevo Mesociclo
+                        </button>
+                    )}
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto pr-2 space-y-4">
@@ -280,6 +311,15 @@ function UploadButton({ meso, onUpload, requestConfirm, isGoogleConnected, onNav
     const [status, setStatus] = React.useState(meso.drive_link ? 'success' : 'idle');
     const [link, setLink] = React.useState(meso.drive_link || null);
     const [errorMessage, setErrorMessage] = React.useState('');
+
+    // Sync local state when the persisted drive_link changes (e.g. after refresh / auto-validation)
+    React.useEffect(() => {
+        setLink(meso.drive_link || null);
+        setStatus(prev => {
+            if (prev === 'uploading') return prev; // don't interrupt in-flight upload
+            return meso.drive_link ? 'success' : 'idle';
+        });
+    }, [meso.drive_link]);
 
     const handleClick = async (e) => {
         e.stopPropagation();

@@ -35,6 +35,37 @@ function registerHandlers() {
     handle('customers:delete', (id) => customerService.delete(id));
     handle('customers:getById', (id) => customerService.getById(id));
     handle('customers:bulkImport', (data) => customerService.bulkImport(data));
+    handle('customers:pickDatasetFile', async () => {
+        const { dialog } = require('electron');
+        const fs = require('fs');
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Seleccionar Dataset de Clientes',
+            properties: ['openFile'],
+            filters: [{ name: 'JSON', extensions: ['json'] }]
+        });
+        if (canceled || !filePaths || filePaths.length === 0) return { cancelled: true };
+        const raw = fs.readFileSync(filePaths[0], 'utf-8');
+        try {
+            const dataset = JSON.parse(raw);
+            return { dataset, filePath: filePaths[0] };
+        } catch (e) {
+            throw new Error('JSON inválido: ' + e.message);
+        }
+    });
+    handle('customers:importDataset', (dataset) => customerService.importDataset(dataset));
+    handle('customers:exportDataset', async () => {
+        const { dialog } = require('electron');
+        const fs = require('fs');
+        const dataset = customerService.exportDataset();
+        const { canceled, filePath } = await dialog.showSaveDialog({
+            title: 'Exportar Dataset de Clientes',
+            defaultPath: `gym-customers-${new Date().toISOString().split('T')[0]}.json`,
+            filters: [{ name: 'JSON', extensions: ['json'] }]
+        });
+        if (canceled || !filePath) return { cancelled: true };
+        fs.writeFileSync(filePath, JSON.stringify(dataset, null, 2));
+        return { success: true, filePath, count: dataset.meta.total_customers };
+    });
     handle('customers:importExcel', async () => {
         const { dialog } = require('electron');
         const ExcelJS = require('exceljs');
@@ -213,6 +244,39 @@ function registerHandlers() {
     handle('training:checkOverlap', (customerId, startDate, endDate, excludeId) => trainingService.checkMesocycleOverlap(customerId, startDate, endDate, excludeId));
     handle('training:saveMesocycle', (data) => trainingService.saveMesocycle(data));
     handle('training:deleteMesocycle', (id) => trainingService.deleteMesocycle(id));
+    // Dataset import/export
+    handle('training:pickDatasetFile', async () => {
+        const { dialog } = require('electron');
+        const fs = require('fs');
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Seleccionar Dataset de Ejercicios',
+            properties: ['openFile'],
+            filters: [{ name: 'JSON', extensions: ['json'] }]
+        });
+        if (canceled || !filePaths || filePaths.length === 0) return { cancelled: true };
+        const raw = fs.readFileSync(filePaths[0], 'utf-8');
+        try {
+            const dataset = JSON.parse(raw);
+            return { dataset, filePath: filePaths[0] };
+        } catch (e) {
+            throw new Error('JSON inválido: ' + e.message);
+        }
+    });
+    handle('training:importDataset', (dataset) => trainingService.importDataset(dataset));
+    handle('training:exportDataset', async () => {
+        const { dialog } = require('electron');
+        const fs = require('fs');
+        const dataset = trainingService.exportDataset();
+        const { canceled, filePath } = await dialog.showSaveDialog({
+            title: 'Exportar Dataset de Ejercicios',
+            defaultPath: `gym-exercises-${new Date().toISOString().split('T')[0]}.json`,
+            filters: [{ name: 'JSON', extensions: ['json'] }]
+        });
+        if (canceled || !filePath) return { cancelled: true };
+        fs.writeFileSync(filePath, JSON.stringify(dataset, null, 2));
+        return { success: true, filePath, count: dataset.meta.total_exercises };
+    });
+
     handle('training:getFieldConfigs', () => trainingService.getExerciseFieldConfigs());
     handle('training:getAllFieldConfigs', () => trainingService.getAllExerciseFieldConfigs());
     handle('training:updateFieldConfig', (key, data) => trainingService.updateExerciseFieldConfig(key, data));
@@ -460,6 +524,20 @@ function registerHandlers() {
         return filePaths[0];
     });
     handle('cloud:applyRemoteLoad', (data) => require('../services/cloud/cloud.service').applyRemoteLoad(data.gym_id, data.load_id));
+    handle('cloud:applyExerciseDataset', (data) => require('../services/cloud/cloud.service').applyExerciseDataset(data.gym_id, data.load_id, data.payload_path));
+    handle('cloud:applyCustomerDataset', (data) => require('../services/cloud/cloud.service').applyCustomerDataset(data.gym_id, data.load_id, data.payload_path));
+    handle('cloud:pushExerciseDatasetToGym', async ({ targetGymId }) => {
+        const trainingService = require('../services/local/training.service');
+        const cloudService = require('../services/cloud/cloud.service');
+        const dataset = trainingService.exportDataset();
+        return cloudService.pushDatasetToGym('exercise_dataset', targetGymId, dataset);
+    });
+    handle('cloud:pushCustomerDatasetToGym', async ({ targetGymId }) => {
+        const customerService = require('../services/local/customer.service');
+        const cloudService = require('../services/cloud/cloud.service');
+        const dataset = customerService.exportDataset();
+        return cloudService.pushDatasetToGym('customer_dataset', targetGymId, dataset);
+    });
     handle('cloud:sendCustomersToGym', ({ targetGymId, customerIds }) => require('../services/cloud/cloud.service').sendCustomersToGym(targetGymId, customerIds));
     handle('admin:restoreBackup', ({ gymId, fileName }) => adminService.restoreRemoteBackup(gymId, fileName));
 
