@@ -30,7 +30,7 @@ function registerHandlers() {
     handle('customers:getAll', () => customerService.getAll());
     handle('customers:create', (data) => customerService.create(data));
     handle('customers:update', (id, data) => customerService.update(id, data));
-    handle('customers:toggleActive', (id, mode) => customerService.toggleActive(id, mode));
+    handle('customers:toggleActive', (id, mode, options) => customerService.toggleActive(id, mode, options));
     handle('customers:getHistory', (id) => customerService.getMembershipHistory(id));
     handle('customers:delete', (id) => customerService.delete(id));
     handle('customers:getById', (id) => customerService.getById(id));
@@ -166,8 +166,135 @@ function registerHandlers() {
     handle('payments:getByCustomer', (customerId) => paymentService.getByCustomer(customerId));
     handle('payments:create', (data) => paymentService.create(data));
     handle('payments:delete', (id) => paymentService.delete(id));
+    handle('payments:getMethods', () => paymentService.getPaymentMethods());
+    handle('payments:getMultiMonth', () => paymentService.getMultiMonthPayments());
+    handle('payments:getGroup', (groupId) => paymentService.getPaymentGroup(groupId));
     handle('payments:getMonthlyReport', (year, month) => paymentService.getMonthlyReport(year, month));
     handle('payments:getDebtors', () => paymentService.getDebtors());
+    handle('payments:exportExcel', async (options) => {
+        const { dialog } = require('electron');
+        const ExcelJS = require('exceljs');
+        const dbManager = require('../db/database');
+        const db = dbManager.getInstance();
+
+        // Permitimos rango opcional (year, month) o todo
+        const yearFilter = options && options.year ? Number(options.year) : null;
+        const monthFilter = options && options.month ? Number(options.month) : null;
+
+        let query = `
+            SELECT
+                p.id,
+                p.amount,
+                p.tariff_name,
+                p.payment_date,
+                p.payment_method,
+                p.payment_group_id,
+                c.first_name,
+                c.last_name,
+                c.email,
+                c.phone,
+                c.dni
+            FROM payments p
+            LEFT JOIN customers c ON p.customer_id = c.id
+        `;
+        const params = [];
+        const where = [];
+        if (yearFilter && monthFilter) {
+            const monthStr = String(monthFilter).padStart(2, '0');
+            const start = `${yearFilter}-${monthStr}-01`;
+            const end = monthFilter === 12
+                ? `${yearFilter + 1}-01-01`
+                : `${yearFilter}-${String(monthFilter + 1).padStart(2, '0')}-01`;
+            where.push('p.payment_date >= ?');
+            where.push('p.payment_date < ?');
+            params.push(start, end);
+        } else if (yearFilter) {
+            where.push("strftime('%Y', p.payment_date) = ?");
+            params.push(String(yearFilter));
+        }
+        if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
+        query += ' ORDER BY p.payment_date DESC, p.id DESC';
+
+        const rows = db.prepare(query).all(...params);
+
+        const fileLabel = yearFilter && monthFilter
+            ? `${yearFilter}-${String(monthFilter).padStart(2, '0')}`
+            : yearFilter
+                ? String(yearFilter)
+                : 'todos';
+
+        const { canceled, filePath } = await dialog.showSaveDialog({
+            title: 'Exportar Pagos a Excel',
+            defaultPath: `pagos-${fileLabel}-${new Date().toISOString().split('T')[0]}.xlsx`,
+            filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+        });
+        if (canceled || !filePath) return { cancelled: true };
+
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'Gym Manager Pro';
+        wb.created = new Date();
+        const ws = wb.addWorksheet('Pagos');
+
+        ws.columns = [
+            { header: 'ID',            key: 'id',       width: 8 },
+            { header: 'Cliente',       key: 'customer', width: 28 },
+            { header: 'DNI',           key: 'dni',      width: 12 },
+            { header: 'Email',         key: 'email',    width: 30 },
+            { header: 'Teléfono',      key: 'phone',    width: 14 },
+            { header: 'Tarifa',        key: 'tariff',   width: 22 },
+            { header: 'Importe (€)',   key: 'amount',   width: 12, style: { numFmt: '#,##0.00 €' } },
+            { header: 'Fecha de pago', key: 'date',     width: 14, style: { numFmt: 'dd/mm/yyyy' } },
+            { header: 'Método',        key: 'method',   width: 14 },
+            { header: 'Grupo',         key: 'group',    width: 28 },
+            { header: 'Tipo',          key: 'kind',     width: 14 },
+        ];
+
+        ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+        ws.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+        ws.getRow(1).height = 22;
+
+        let total = 0;
+        rows.forEach(r => {
+            const customer = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || '(sin nombre)';
+            const isCoverage = (r.amount || 0) === 0 && r.payment_group_id;
+            const kind = isCoverage ? 'Cobertura' : (r.payment_group_id ? 'Pago real (multi)' : 'Mensual');
+            const paymentDate = r.payment_date ? new Date(r.payment_date) : null;
+            const row = ws.addRow({
+                id: r.id,
+                customer,
+                dni: r.dni || '',
+                email: r.email || '',
+                phone: r.phone || '',
+                tariff: r.tariff_name || '',
+                amount: r.amount || 0,
+                date: paymentDate,
+                method: r.payment_method || '',
+                group: r.payment_group_id || '',
+                kind,
+            });
+            // Color sutil de coberturas (importe 0) para distinguirlas
+            if (isCoverage) {
+                row.eachCell(c => {
+                    c.font = { color: { argb: 'FF94A3B8' }, italic: true };
+                });
+            }
+            total += (r.amount || 0);
+        });
+
+        // Fila de total
+        const totalRow = ws.addRow({ customer: 'TOTAL', amount: total });
+        totalRow.font = { bold: true };
+        totalRow.getCell('amount').numFmt = '#,##0.00 €';
+        totalRow.getCell('customer').alignment = { horizontal: 'right' };
+
+        // Bordes ligeros y autofiltro
+        ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columnCount } };
+        ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+        await wb.xlsx.writeFile(filePath);
+        return { success: true, filePath, count: rows.length, total };
+    });
 
     handle('analytics:getDashboardData', async (year) => {
         const analyticsService = require('../services/local/analytics.service');

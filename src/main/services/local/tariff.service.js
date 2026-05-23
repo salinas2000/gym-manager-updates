@@ -6,6 +6,10 @@ const createTariffSchema = z.object({
     name: z.string().min(1, "Name is required"),
     amount: z.number().positive("Amount must be positive"),
     color_theme: z.string().optional(),
+    // 1=mensual, 3=trimestral, 6=semestral, 12=anual
+    billing_months: z.number().int().min(1).max(24).optional(),
+    // false (default): amount es coste por mes. true: amount ya es el coste total del periodo.
+    amount_is_total: z.union([z.boolean(), z.number()]).optional(),
 });
 
 class TariffService extends BaseService {
@@ -22,16 +26,18 @@ class TariffService extends BaseService {
             throw new Error(validation.error.errors[0].message);
         }
 
-        const { name, amount, color_theme } = validation.data;
+        const { name, amount, color_theme, billing_months, amount_is_total } = validation.data;
         const db = dbManager.getInstance();
 
         const theme = color_theme || 'emerald';
+        const months = billing_months || 1;
+        const isTotal = amount_is_total ? 1 : 0;
         const gymId = this.getGymId();
 
-        const stmt = db.prepare('INSERT INTO tariffs (gym_id, name, amount, color_theme) VALUES (?, ?, ?, ?)');
-        const info = stmt.run(gymId, name, amount, theme);
+        const stmt = db.prepare('INSERT INTO tariffs (gym_id, name, amount, color_theme, billing_months, amount_is_total) VALUES (?, ?, ?, ?, ?, ?)');
+        const info = stmt.run(gymId, name, amount, theme, months, isTotal);
 
-        return { id: info.lastInsertRowid, name, amount, color_theme: theme };
+        return { id: info.lastInsertRowid, name, amount, color_theme: theme, billing_months: months, amount_is_total: isTotal };
     }
 
     delete(id) {
@@ -60,6 +66,8 @@ class TariffService extends BaseService {
         if (validation.data.name) { fields.push('name = ?'); values.push(validation.data.name); }
         if (validation.data.amount) { fields.push('amount = ?'); values.push(validation.data.amount); }
         if (validation.data.color_theme) { fields.push('color_theme = ?'); values.push(validation.data.color_theme); }
+        if (validation.data.billing_months !== undefined) { fields.push('billing_months = ?'); values.push(validation.data.billing_months); }
+        if (validation.data.amount_is_total !== undefined) { fields.push('amount_is_total = ?'); values.push(validation.data.amount_is_total ? 1 : 0); }
 
         // Always reset sync status on update
         fields.push('synced = 0');

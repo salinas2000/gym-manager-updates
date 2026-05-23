@@ -131,11 +131,11 @@ export function GymProvider({ children }) {
         return false;
     }
 
-    const toggleCustomerStatus = async (id, mode = 'immediate') => {
+    const toggleCustomerStatus = async (id, mode = 'immediate', options = {}) => {
         if (!window.api) return;
 
         // We rely on backend response for the new state because it depends on the mode (scheduled vs immediate)
-        const result = await window.api.customers.toggleActive(id, mode);
+        const result = await window.api.customers.toggleActive(id, mode, options);
 
         if (result.success) {
             setCustomers(prev => prev.map(c =>
@@ -171,10 +171,9 @@ export function GymProvider({ children }) {
 
         const result = await window.api.payments.delete(paymentId);
         if (result.success) {
-            setPayments(prev => ({
-                ...prev,
-                [customerId]: (prev[customerId] || []).filter(p => p.id !== paymentId)
-            }));
+            // Si era pago multi-mes, el backend borra todos los del grupo.
+            // Recargamos la lista completa del cliente para sincronizar la cache.
+            await loadPaymentsForCustomer(customerId);
             return true;
         }
         return false;

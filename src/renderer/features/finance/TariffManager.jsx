@@ -22,6 +22,8 @@ export default function TariffManager() {
     const [name, setName] = useState('');
     const [amount, setAmount] = useState('');
     const [colorId, setColorId] = useState('emerald');
+    const [billingMonths, setBillingMonths] = useState(1);
+    const [amountIsTotal, setAmountIsTotal] = useState(false);
     const [loading, setLoading] = useState(false);
 
     const handleEdit = (tariff) => {
@@ -30,6 +32,8 @@ export default function TariffManager() {
         setAmount(tariff.amount.toString());
         // Load saved theme or fallback to emerald if undefined
         setColorId(tariff.color_theme || 'emerald');
+        setBillingMonths(tariff.billing_months || 1);
+        setAmountIsTotal(!!tariff.amount_is_total);
     };
 
     const handleCancelEdit = () => {
@@ -37,6 +41,8 @@ export default function TariffManager() {
         setName('');
         setAmount('');
         setColorId('emerald');
+        setBillingMonths(1);
+        setAmountIsTotal(false);
     };
 
     const handleSubmit = async (e) => {
@@ -49,7 +55,9 @@ export default function TariffManager() {
         const payload = {
             name,
             amount: parseFloat(amount),
-            color_theme: colorId
+            color_theme: colorId,
+            billing_months: billingMonths,
+            amount_is_total: amountIsTotal,
         };
 
         if (editingId) {
@@ -100,17 +108,51 @@ export default function TariffManager() {
                     </div>
 
                     <div className="space-y-2">
-                        <label className="text-xs uppercase font-medium text-slate-500">{t('tariffs.form.price')}</label>
-                        <input
-                            type="number"
-                            value={amount}
-                            onChange={e => setAmount(e.target.value)}
-                            placeholder="0.00"
-                            className={cn(
-                                "w-full bg-slate-800/50 border rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono",
-                                editingId ? "border-yellow-500/20" : "border-white/10"
+                        <label className="text-xs uppercase font-medium text-slate-500">
+                            {billingMonths > 1 && amountIsTotal ? 'Precio total del periodo' : (billingMonths > 1 ? 'Precio mensual' : t('tariffs.form.price'))}
+                        </label>
+                        <div className="flex items-stretch gap-2">
+                            <input
+                                type="number"
+                                value={amount}
+                                onChange={e => setAmount(e.target.value)}
+                                placeholder="0.00"
+                                className={cn(
+                                    "flex-1 bg-slate-800/50 border rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono",
+                                    editingId ? "border-yellow-500/20" : "border-white/10"
+                                )}
+                            />
+                            {billingMonths > 1 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setAmountIsTotal(!amountIsTotal)}
+                                    title={amountIsTotal
+                                        ? 'El precio se interpreta como TOTAL del periodo. Click para volver a mensual.'
+                                        : 'El precio se interpreta como MENSUAL (se multiplica × meses). Click para usar el total.'}
+                                    className={cn(
+                                        'px-4 rounded-xl border transition-all flex items-center gap-2 font-bold text-sm shrink-0',
+                                        amountIsTotal
+                                            ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30'
+                                            : 'bg-slate-800/40 border-white/10 text-slate-400 hover:bg-slate-800 hover:text-white'
+                                    )}
+                                >
+                                    <span className={cn(
+                                        "w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all",
+                                        amountIsTotal ? "bg-white border-white" : "border-slate-500"
+                                    )}>
+                                        {amountIsTotal && <Check size={14} className="text-purple-600 stroke-[3]" />}
+                                    </span>
+                                    Total
+                                </button>
                             )}
-                        />
+                        </div>
+                        {billingMonths > 1 && (
+                            <p className="text-[11px] text-slate-500 pl-1">
+                                {amountIsTotal
+                                    ? `Equivalente: ${amount ? (parseFloat(amount) / billingMonths).toFixed(2) : '0.00'}€/mes × ${billingMonths} meses`
+                                    : `Total del periodo: ${amount ? (parseFloat(amount) * billingMonths).toFixed(2) : '0.00'}€ (${billingMonths} meses)`}
+                            </p>
+                        )}
                     </div>
 
                     <div className="space-y-2">
@@ -128,6 +170,42 @@ export default function TariffManager() {
                                     )}
                                 />
                             ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-xs uppercase font-medium text-slate-500">Periodicidad de cobro</label>
+                        <div className="grid grid-cols-4 gap-2">
+                            {[
+                                { value: 1,  label: 'Mensual' },
+                                { value: 3,  label: 'Trimestral' },
+                                { value: 6,  label: 'Semestral' },
+                                { value: 12, label: 'Anual' },
+                            ].map(opt => (
+                                <button
+                                    key={opt.value}
+                                    type="button"
+                                    onClick={() => setBillingMonths(opt.value)}
+                                    className={cn(
+                                        "py-2 rounded-xl text-xs font-bold transition-all border",
+                                        billingMonths === opt.value
+                                            ? "bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-900/30"
+                                            : "bg-slate-800/40 text-slate-400 border-white/5 hover:bg-slate-700/50"
+                                    )}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="text-[11px] text-slate-500 leading-relaxed bg-slate-950/30 rounded-lg p-2 border border-white/5">
+                            {(() => {
+                                const a = parseFloat(amount) || 0;
+                                if (billingMonths === 1) return <>Cuota mensual: <b className="text-slate-300">{a.toFixed(2)}€</b>. Se cobra cada mes.</>;
+                                if (amountIsTotal) {
+                                    return <>Total del periodo: <b className="text-slate-300">{a.toFixed(2)}€</b>. Cuota mensual equivalente: <b className="text-slate-300">{(a / billingMonths).toFixed(2)}€</b>. Se cobra una vez cada {billingMonths} meses.</>;
+                                }
+                                return <>Cuota mensual: <b className="text-slate-300">{a.toFixed(2)}€</b>. Total del periodo: <b className="text-slate-300">{(a * billingMonths).toFixed(2)}€</b>. Se cobra una vez cada {billingMonths} meses.</>;
+                            })()}
                         </div>
                     </div>
 
@@ -228,6 +306,14 @@ export default function TariffManager() {
                                         <h3 className="text-white font-bold text-2xl tracking-wide truncate">
                                             {tItem.name}
                                         </h3>
+                                        {tItem.billing_months > 1 && (
+                                            <span className="inline-block mt-2 px-2 py-0.5 bg-white/15 backdrop-blur-md rounded-md text-[10px] font-bold text-white tracking-wide uppercase">
+                                                {tItem.billing_months === 3 ? 'Trimestral'
+                                                    : tItem.billing_months === 6 ? 'Semestral'
+                                                    : tItem.billing_months === 12 ? 'Anual'
+                                                    : `${tItem.billing_months} meses`}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </div>

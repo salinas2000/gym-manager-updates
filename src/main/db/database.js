@@ -61,13 +61,14 @@ class DBManager {
         `);
 
         // 2. Create Customers Table
+        // Nota: email es UNIQUE pero NULLABLE — múltiples NULLs están permitidos en SQLite.
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS customers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 gym_id TEXT,
                 first_name TEXT NOT NULL,
                 last_name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE,
                 phone TEXT,
                 tariff_id INTEGER,
                 active INTEGER DEFAULT 1,
@@ -77,6 +78,54 @@ class DBManager {
                 FOREIGN KEY (tariff_id) REFERENCES tariffs (id)
             )
         `);
+
+        // Migration: quitar NOT NULL de email en tablas creadas con el schema antiguo
+        try {
+            const colInfo = this.db.pragma('table_info(customers)').find(c => c.name === 'email');
+            if (colInfo && colInfo.notnull === 1) {
+                logger.info('Migrating customers.email: dropping NOT NULL constraint and converting "" to NULL');
+                this.db.exec("BEGIN");
+                this.db.exec(`
+                    CREATE TABLE customers_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        gym_id TEXT,
+                        first_name TEXT NOT NULL,
+                        last_name TEXT NOT NULL,
+                        email TEXT UNIQUE,
+                        phone TEXT,
+                        tariff_id INTEGER,
+                        active INTEGER DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        synced INTEGER DEFAULT 0,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                `);
+                // Copia respetando los datos existentes; '' se convierte a NULL para evitar colisión UNIQUE
+                this.db.exec(`
+                    INSERT INTO customers_new (id, gym_id, first_name, last_name, email, phone, tariff_id, active, created_at, synced, updated_at)
+                    SELECT id, gym_id, first_name, last_name,
+                           NULLIF(email, '') as email,
+                           phone, tariff_id, active, created_at, synced, updated_at
+                    FROM customers;
+                `);
+                // Copia columnas extra que añadieron migraciones posteriores (dni, address, etc.)
+                const extraCols = this.db.pragma('table_info(customers)').filter(c =>
+                    !['id','gym_id','first_name','last_name','email','phone','tariff_id','active','created_at','synced','updated_at'].includes(c.name)
+                );
+                for (const col of extraCols) {
+                    const sqlType = col.type || 'TEXT';
+                    this.db.exec(`ALTER TABLE customers_new ADD COLUMN ${col.name} ${sqlType}`);
+                    this.db.prepare(`UPDATE customers_new SET ${col.name} = (SELECT ${col.name} FROM customers WHERE customers.id = customers_new.id)`).run();
+                }
+                this.db.exec('DROP TABLE customers;');
+                this.db.exec('ALTER TABLE customers_new RENAME TO customers;');
+                this.db.exec("COMMIT");
+                logger.info('Migration successful: customers.email now nullable');
+            }
+        } catch (e) {
+            try { this.db.exec("ROLLBACK"); } catch {}
+            logger.warn('Could not migrate customers.email NOT NULL → NULL', { error: e.message });
+        }
 
         // 3. Create Payments Table
         this.db.exec(`
@@ -121,18 +170,11 @@ class DBManager {
             console.log(`[LOCAL_DB] Backfilled ${activeCustomers.length} active memberships.`);
         }
 
-        // 6. Drop Deprecated Columns (payment_method)
-        try {
-            const tableInfo = this.db.pragma('table_info(payments)');
-            const hasColumn = tableInfo.some(col => col.name === 'payment_method');
-            if (hasColumn) {
-                console.log('Migrating: Dropping deprecated column payment_method from payments...');
-                this.db.exec('ALTER TABLE payments DROP COLUMN payment_method');
-                logger.info('Migration successful: payment_method dropped');
-            }
-        } catch (error) {
-            logger.warn('Could not drop payment_method column', { error: error.message });
-        }
+        // 6. Re-add payment_method column (Feature: tipo de pago)
+        // Valores soportados: 'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Bizum' | 'Otro'
+        this.safeAddColumn('payments', 'payment_method', "TEXT DEFAULT 'Efectivo'");
+        // payment_group_id: agrupa los pagos de un mismo cobro multi-mes (NULL para pagos individuales).
+        this.safeAddColumn('payments', 'payment_group_id', "TEXT");
 
         // Standard sync tracking columns will be added at the end of runMigrations
         // after all tables are guaranteed to exist.
@@ -159,6 +201,10 @@ class DBManager {
         // 8. Schema Updates (Migrations)
         this.safeAddColumn('customers', 'tariff_id', 'INTEGER REFERENCES tariffs(id)');
         this.safeAddColumn('tariffs', 'color_theme', 'TEXT DEFAULT "emerald"');
+        // billing_months: 1=mensual (default), 3=trimestral, 6=semestral, 12=anual
+        this.safeAddColumn('tariffs', 'billing_months', 'INTEGER DEFAULT 1');
+        // amount_is_total: 0=amount es por mes (default), 1=amount ya es el total del periodo
+        this.safeAddColumn('tariffs', 'amount_is_total', 'INTEGER DEFAULT 0');
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS exercises (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

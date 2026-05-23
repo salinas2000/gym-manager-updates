@@ -16,7 +16,7 @@
         "test:coverage": "jest --coverage",
         "test:main": "jest --selectProjects main",
         "test:renderer": "jest --selectProjects renderer",
-        "test:ci": "jest --ci --coverage --maxWorkers=2",
+        "test:ci": "jest --ci --maxWorkers=2",
         "db:seed": "electron scripts/seed-test-data.js",
         "db:clear": "electron scripts/clear-all-data.js",
         "db:reset": "electron scripts/clear-all-data.js --force && electron scripts/seed-test-data.js"

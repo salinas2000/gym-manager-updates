@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload } from 'lucide-react';
+import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload, CheckCircle2 } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { cn } from '../../lib/utils';
@@ -23,6 +23,7 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
 
     // Modals State
     const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
+    const [reactivateModalOpen, setReactivateModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
 
@@ -62,8 +63,9 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
             setSelectedCustomer(customer);
             setDeactivateModalOpen(true);
         } else {
-            // If inactive, just reactivate (Immediate)
-            toggleCustomerStatus(customer.id, 'immediate');
+            // If inactive, ask reactivation start date (Day 1 vs Today/prorated)
+            setSelectedCustomer(customer);
+            setReactivateModalOpen(true);
         }
     };
 
@@ -73,6 +75,22 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
             setDeactivateModalOpen(false);
             setSelectedCustomer(null);
         }
+    };
+
+    const confirmReactivate = (startMode) => {
+        if (!selectedCustomer) return;
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        // Pasamos la fecha como YYYY-MM-DD en hora local (sin Z) para evitar
+        // que toISOString() desplace el día por la zona horaria.
+        const startDate = startMode === 'first_of_month'
+            ? `${y}-${m}-01`
+            : `${y}-${m}-${d}`;
+        toggleCustomerStatus(selectedCustomer.id, 'immediate', { startDate });
+        setReactivateModalOpen(false);
+        setSelectedCustomer(null);
     };
 
     const handleDeleteRequest = (customer) => {
@@ -92,42 +110,144 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
         <div className="flex flex-col h-full bg-slate-950/50 backdrop-blur-sm rounded-3xl border border-white/5 overflow-hidden">
 
             {/* Deactivation Modal */}
-            {deactivateModalOpen && selectedCustomer && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                        className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
-                        onClick={() => setDeactivateModalOpen(false)}
-                    />
-                    <div className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200">
-                        <h3 className="text-lg font-bold text-white mb-2">Refinar Estado</h3>
-                        <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-                            ¿Deseas finalizar la suscripción de <span className="text-white font-medium">{selectedCustomer.first_name}</span> ahora mismo o programarla para final de mes?
-                            <span className="block mt-2 text-xs text-amber-500/80 italic">Nota: El usuario quedará en estado "Inactivo" pero se conservará su historial.</span>
-                        </p>
-                        <div className="space-y-3">
-                            <button
-                                onClick={() => confirmDeactivate('end_of_month')}
-                                className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold shadow-lg shadow-orange-500/20 text-sm flex items-center justify-center gap-2"
-                            >
-                                <Calendar size={16} />
-                                Final de Mes (Recomendado)
-                            </button>
-                            <button
-                                onClick={() => confirmDeactivate('immediate')}
-                                className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium border border-white/5 text-sm"
-                            >
-                                Dar de Baja Ahora
-                            </button>
-                            <button
-                                onClick={() => setDeactivateModalOpen(false)}
-                                className="w-full py-2 text-xs text-slate-500 hover:text-white mt-2"
-                            >
-                                Cancelar
-                            </button>
+            {deactivateModalOpen && selectedCustomer && (() => {
+                const hasFutureEnd = selectedCustomer.active === 1 && selectedCustomer.latest_end_date
+                    && new Date(selectedCustomer.latest_end_date) > new Date();
+                const scheduledDate = hasFutureEnd
+                    ? new Date(selectedCustomer.latest_end_date).toLocaleDateString('es-ES')
+                    : null;
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <div
+                            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+                            onClick={() => setDeactivateModalOpen(false)}
+                        />
+                        <div className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200">
+                            {hasFutureEnd ? (
+                                <>
+                                    <h3 className="text-lg font-bold text-white mb-2">Cancelación programada</h3>
+                                    <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                                        <span className="text-white font-medium">{selectedCustomer.first_name}</span> tiene una baja programada para
+                                        <span className="text-amber-300 font-semibold"> {scheduledDate}</span>.
+                                        <span className="block mt-2 text-xs text-slate-500">¿Qué quieres hacer?</span>
+                                    </p>
+                                    <div className="space-y-3">
+                                        <button
+                                            onClick={() => confirmDeactivate('unschedule')}
+                                            className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-bold shadow-lg shadow-emerald-500/20 text-sm flex items-center justify-center gap-2"
+                                        >
+                                            <CheckCircle2 size={16} />
+                                            Mantener indefinido (deshacer baja)
+                                        </button>
+                                        <button
+                                            onClick={() => confirmDeactivate('immediate')}
+                                            className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium border border-white/5 text-sm"
+                                        >
+                                            Dar de baja ahora
+                                        </button>
+                                        <button
+                                            onClick={() => setDeactivateModalOpen(false)}
+                                            className="w-full py-2 text-xs text-slate-500 hover:text-white mt-2"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <h3 className="text-lg font-bold text-white mb-2">Refinar Estado</h3>
+                                    <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                                        ¿Deseas finalizar la suscripción de <span className="text-white font-medium">{selectedCustomer.first_name}</span> ahora mismo o programarla para final de mes?
+                                        <span className="block mt-2 text-xs text-amber-500/80 italic">Nota: El usuario quedará en estado "Inactivo" pero se conservará su historial.</span>
+                                    </p>
+                                    <div className="space-y-3">
+                                        <button
+                                            onClick={() => confirmDeactivate('end_of_month')}
+                                            className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold shadow-lg shadow-orange-500/20 text-sm flex items-center justify-center gap-2"
+                                        >
+                                            <Calendar size={16} />
+                                            Final de Mes (Recomendado)
+                                        </button>
+                                        <button
+                                            onClick={() => confirmDeactivate('immediate')}
+                                            className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium border border-white/5 text-sm"
+                                        >
+                                            Dar de Baja Ahora
+                                        </button>
+                                        <button
+                                            onClick={() => setDeactivateModalOpen(false)}
+                                            className="w-full py-2 text-xs text-slate-500 hover:text-white mt-2"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
+
+            {/* Reactivation Modal */}
+            {reactivateModalOpen && selectedCustomer && (() => {
+                const now = new Date();
+                const day = now.getDate();
+                const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                const daysCovered = Math.max(1, daysInMonth - day + 1);
+                const pct = Math.round((daysCovered / daysInMonth) * 100);
+                const firstOfMonthLabel = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('es-ES');
+                const todayLabel = now.toLocaleDateString('es-ES');
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <div
+                            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+                            onClick={() => { setReactivateModalOpen(false); setSelectedCustomer(null); }}
+                        />
+                        <div className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200">
+                            <h3 className="text-lg font-bold text-white mb-2">Dar de alta</h3>
+                            <p className="text-slate-400 text-sm mb-5 leading-relaxed">
+                                ¿Desde qué fecha quieres dar de alta a <span className="text-white font-medium">{selectedCustomer.first_name}</span>?
+                            </p>
+
+                            <div className="space-y-3">
+                                <button
+                                    onClick={() => confirmReactivate('first_of_month')}
+                                    className="w-full p-4 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-bold shadow-lg shadow-emerald-500/20 text-left transition-all"
+                                >
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-sm flex items-center gap-2"><Calendar size={14} /> Día 1 del mes</span>
+                                        <span className="text-[10px] uppercase tracking-wider bg-white/15 px-2 py-0.5 rounded-full">Recomendado</span>
+                                    </div>
+                                    <p className="text-xs text-white/80 font-normal">
+                                        Alta efectiva el {firstOfMonthLabel}. El próximo pago cubre el mes completo sin prorrateo.
+                                    </p>
+                                </button>
+
+                                <button
+                                    onClick={() => confirmReactivate('today')}
+                                    className="w-full p-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium border border-white/5 text-left transition-all"
+                                >
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-sm flex items-center gap-2"><Clock size={14} /> Hoy ({todayLabel})</span>
+                                        <span className="text-[10px] uppercase tracking-wider bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full">Prorrateo</span>
+                                    </div>
+                                    <p className="text-xs text-slate-400 font-normal">
+                                        El primer mes solo cubrirá {daysCovered} de {daysInMonth} días (<span className="text-amber-300 font-semibold">{pct}%</span>).
+                                        El próximo pago se ajustará automáticamente.
+                                    </p>
+                                </button>
+
+                                <button
+                                    onClick={() => { setReactivateModalOpen(false); setSelectedCustomer(null); }}
+                                    className="w-full py-2 text-xs text-slate-500 hover:text-white mt-1"
+                                >
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Exhaustive Deletion Modal */}
             {deleteModalOpen && selectedCustomer && (
@@ -285,6 +405,11 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                     const isScheduledInactive = customer.active === 1 && customer.latest_end_date && new Date(customer.latest_end_date) > new Date();
                     const scheduledDate = isScheduledInactive ? new Date(customer.latest_end_date).toLocaleDateString('es-ES') : '';
 
+                    // Check if start_date is in the future (programmed activation)
+                    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+                    const isFutureStart = customer.active === 1 && customer.latest_start_date && new Date(customer.latest_start_date) > todayStart;
+                    const futureStartDate = isFutureStart ? new Date(customer.latest_start_date).toLocaleDateString('es-ES') : '';
+
                     return (
                         <div
                             key={customer.id}
@@ -342,6 +467,7 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                                         className={cn(
                                             "relative w-9 h-5 rounded-full transition-colors flex items-center p-0.5",
                                             !customer.active ? "bg-slate-700/50 border border-slate-600" :
+                                                isFutureStart ? "bg-blue-500/20 border border-blue-500/50" :
                                                 isScheduledInactive ? "bg-amber-500/20 border border-amber-500/50" :
                                                     "bg-emerald-500/20 border border-emerald-500/50"
                                         )}
@@ -350,13 +476,21 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                                             "w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 flex items-center justify-center",
                                             customer.active ? "translate-x-4" : "translate-x-0",
                                             !customer.active ? "bg-slate-400" :
+                                                isFutureStart ? "bg-blue-400" :
                                                 isScheduledInactive ? "bg-amber-400" : "bg-emerald-400"
                                         )}>
-                                            {isScheduledInactive && <Clock size={8} className="text-amber-900 stroke-[3]" />}
+                                            {isFutureStart ? <Calendar size={8} className="text-blue-900 stroke-[3]" />
+                                                : isScheduledInactive ? <Clock size={8} className="text-amber-900 stroke-[3]" />
+                                                : null}
                                         </div>
                                     </button>
 
-                                    {isScheduledInactive && (
+                                    {isFutureStart && (
+                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-xs text-blue-400 rounded border border-blue-500/20 whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity pointer-events-none z-10">
+                                            Alta: {futureStartDate}
+                                        </div>
+                                    )}
+                                    {isScheduledInactive && !isFutureStart && (
                                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-xs text-amber-400 rounded border border-amber-500/20 whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity pointer-events-none z-10">
                                             Baja: {scheduledDate}
                                         </div>

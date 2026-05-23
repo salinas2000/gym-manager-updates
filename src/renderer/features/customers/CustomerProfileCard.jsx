@@ -419,8 +419,10 @@ function OverviewTab({ customer, payments, mesocycles, membershipHistory, totalP
 }
 
 function FichaTab({ customer, medInfo, editing, editData, setEditData, updateMedical }) {
-    const InfoRow = ({ icon: Icon, color, label, value, editKey, type = 'text', step }) => (
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-white/5 flex items-center gap-3">
+    // Render helper (NO sub-componente — declararlo dentro del padre desmonta
+    // los inputs en cada render y pierde el foco al escribir).
+    const renderInfoRow = ({ icon: Icon, color, label, value, editKey, type = 'text', step }) => (
+        <div key={editKey || label} className="bg-slate-800/50 rounded-xl p-4 border border-white/5 flex items-center gap-3">
             <div className={`p-2 ${color} rounded-lg flex-shrink-0`}>
                 <Icon size={16} className={color.replace('bg-', 'text-').replace('/10', '')} />
             </div>
@@ -441,12 +443,14 @@ function FichaTab({ customer, medInfo, editing, editData, setEditData, updateMed
         </div>
     );
 
-    const MedicalField = ({ label, field }) => {
+    // Render helper (NO sub-componente — declararlo como componente dentro del padre
+    // hace que React lo desmonte en cada render y los inputs pierdan el foco).
+    const renderMedicalField = (label, field) => {
         const value = editing ? editData.medical_info?.[field] : (medInfo?.[field] || '');
         const hasValue = value && value.toLowerCase() !== 'no' && value.trim() !== '';
 
         return (
-            <div className="bg-slate-800/30 rounded-xl p-4 border border-white/5">
+            <div key={field} className="bg-slate-800/30 rounded-xl p-4 border border-white/5">
                 <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-2">{label}</p>
                 {editing ? (
                     <textarea
@@ -472,13 +476,13 @@ function FichaTab({ customer, medInfo, editing, editData, setEditData, updateMed
                 Datos Personales
             </h3>
             <div className="grid grid-cols-2 gap-3">
-                <InfoRow icon={FileText} color="bg-blue-500/10" label="DNI / NIE" value={customer.dni} editKey="dni" />
-                <InfoRow icon={Calendar} color="bg-purple-500/10" label="Fecha de Nacimiento" value={customer.birth_date} editKey="birth_date" type="date" />
+                {renderInfoRow({ icon: FileText, color: 'bg-blue-500/10', label: 'DNI / NIE', value: customer.dni, editKey: 'dni' })}
+                {renderInfoRow({ icon: Calendar, color: 'bg-purple-500/10', label: 'Fecha de Nacimiento', value: customer.birth_date, editKey: 'birth_date', type: 'date' })}
             </div>
-            <InfoRow icon={MapPin} color="bg-amber-500/10" label="Direccion" value={customer.address} editKey="address" />
+            {renderInfoRow({ icon: MapPin, color: 'bg-amber-500/10', label: 'Direccion', value: customer.address, editKey: 'address' })}
             <div className="grid grid-cols-2 gap-3">
-                <InfoRow icon={Ruler} color="bg-cyan-500/10" label="Altura" value={customer.height_cm ? `${customer.height_cm} cm` : null} editKey="height_cm" type="number" />
-                <InfoRow icon={Weight} color="bg-orange-500/10" label="Peso" value={customer.weight_kg ? `${customer.weight_kg} kg` : null} editKey="weight_kg" type="number" step="0.1" />
+                {renderInfoRow({ icon: Ruler, color: 'bg-cyan-500/10', label: 'Altura', value: customer.height_cm ? `${customer.height_cm} cm` : null, editKey: 'height_cm', type: 'number' })}
+                {renderInfoRow({ icon: Weight, color: 'bg-orange-500/10', label: 'Peso', value: customer.weight_kg ? `${customer.weight_kg} kg` : null, editKey: 'weight_kg', type: 'number', step: '0.1' })}
             </div>
 
             {/* Medical Info */}
@@ -487,10 +491,10 @@ function FichaTab({ customer, medInfo, editing, editData, setEditData, updateMed
                 Informacion Medica
             </h3>
             <div className="grid grid-cols-2 gap-3">
-                <MedicalField label="Enfermedades" field="diseases" />
-                <MedicalField label="Lesiones" field="injuries" />
-                <MedicalField label="Alergias" field="allergies" />
-                <MedicalField label="Cirugias" field="surgeries" />
+                {renderMedicalField('Enfermedades', 'diseases')}
+                {renderMedicalField('Lesiones', 'injuries')}
+                {renderMedicalField('Alergias', 'allergies')}
+                {renderMedicalField('Cirugias', 'surgeries')}
             </div>
         </div>
     );

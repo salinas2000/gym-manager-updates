@@ -28,6 +28,7 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showProfile, setShowProfile] = useState(false);
+    const [showMedical, setShowMedical] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -36,8 +37,6 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                 if (typeof medInfo === 'string') {
                     try { medInfo = JSON.parse(medInfo); } catch (e) { medInfo = null; }
                 }
-
-                const hasProfileData = customerToEdit.dni || customerToEdit.address || customerToEdit.height_cm || customerToEdit.weight_kg || medInfo;
 
                 setFormData({
                     first_name: customerToEdit.first_name,
@@ -52,10 +51,12 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                     birth_date: customerToEdit.birth_date || '',
                     medical_info: medInfo || { diseases: '', injuries: '', allergies: '', surgeries: '' }
                 });
-                setShowProfile(!!hasProfileData);
+                setShowProfile(false);
+                setShowMedical(false);
             } else {
                 setFormData(initialForm);
                 setShowProfile(false);
+                setShowMedical(false);
             }
             setError('');
         }
@@ -154,15 +155,19 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                         </div>
 
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-slate-400 uppercase">{t('modals.fields.email')}</label>
+                            <label className="text-xs font-medium text-slate-400 uppercase">
+                                {t('modals.fields.email')} <span className="text-slate-600 normal-case">(opcional)</span>
+                            </label>
                             <input
-                                required
                                 type="email"
                                 className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500"
                                 placeholder="juan.perez@example.com"
-                                value={formData.email}
+                                value={formData.email || ''}
                                 onChange={e => setFormData({ ...formData, email: e.target.value })}
                             />
+                            <p className="text-[10px] text-slate-500 mt-1">
+                                Sin email no podrá enviar rutinas por Google Drive.
+                            </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
@@ -261,49 +266,58 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                                 </div>
 
                                 <div className="border-t border-white/5 pt-4">
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Informacion Medica</p>
-                                    <div className="space-y-3">
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-medium text-slate-500">Enfermedades</label>
-                                            <textarea
-                                                rows={2}
-                                                className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
-                                                placeholder="Ninguna"
-                                                value={formData.medical_info.diseases}
-                                                onChange={e => updateMedical('diseases', e.target.value)}
-                                            />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowMedical(!showMedical)}
+                                        className="w-full flex items-center justify-between py-2 px-3 -mx-1 rounded-lg hover:bg-white/5 transition-colors mb-2"
+                                    >
+                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Informacion Medica</span>
+                                        {showMedical ? <ChevronUp size={14} className="text-slate-500" /> : <ChevronDown size={14} className="text-slate-500" />}
+                                    </button>
+                                    {showMedical && (
+                                        <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-medium text-slate-500">Enfermedades</label>
+                                                <textarea
+                                                    rows={2}
+                                                    className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
+                                                    placeholder="Ninguna"
+                                                    value={formData.medical_info.diseases}
+                                                    onChange={e => updateMedical('diseases', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-medium text-slate-500">Lesiones</label>
+                                                <textarea
+                                                    rows={2}
+                                                    className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
+                                                    placeholder="Ninguna"
+                                                    value={formData.medical_info.injuries}
+                                                    onChange={e => updateMedical('injuries', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-medium text-slate-500">Alergias</label>
+                                                <textarea
+                                                    rows={2}
+                                                    className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
+                                                    placeholder="Ninguna"
+                                                    value={formData.medical_info.allergies}
+                                                    onChange={e => updateMedical('allergies', e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-medium text-slate-500">Cirugias</label>
+                                                <textarea
+                                                    rows={2}
+                                                    className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
+                                                    placeholder="Ninguna"
+                                                    value={formData.medical_info.surgeries}
+                                                    onChange={e => updateMedical('surgeries', e.target.value)}
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-medium text-slate-500">Lesiones</label>
-                                            <textarea
-                                                rows={2}
-                                                className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
-                                                placeholder="Ninguna"
-                                                value={formData.medical_info.injuries}
-                                                onChange={e => updateMedical('injuries', e.target.value)}
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-medium text-slate-500">Alergias</label>
-                                            <textarea
-                                                rows={2}
-                                                className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
-                                                placeholder="Ninguna"
-                                                value={formData.medical_info.allergies}
-                                                onChange={e => updateMedical('allergies', e.target.value)}
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-xs font-medium text-slate-500">Cirugias</label>
-                                            <textarea
-                                                rows={2}
-                                                className="w-full glass-input text-white placeholder:text-slate-600 focus:border-blue-500 resize-none"
-                                                placeholder="Ninguna"
-                                                value={formData.medical_info.surgeries}
-                                                onChange={e => updateMedical('surgeries', e.target.value)}
-                                            />
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
                         )}

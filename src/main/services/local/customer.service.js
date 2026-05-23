@@ -6,10 +6,11 @@ const BaseService = require('../BaseService');
 const createCustomerSchema = z.object({
     first_name: z.string().min(1, "First name is required"),
     last_name: z.string().min(1, "Last name is required"),
-    // FIX: Normalize email to prevent duplicates (trim + lowercase)
-    email: z.string()
-        .email("Invalid email address")
-        .transform(val => val.toLowerCase().trim()),
+    // Email opcional. Si viene, se normaliza (trim + lowercase) y se valida.
+    email: z.preprocess(
+        v => (v === '' || v === null || v === undefined) ? undefined : v,
+        z.string().email("Email inválido").transform(val => val.toLowerCase().trim()).optional()
+    ),
     phone: z.string().optional(),
     tariff_id: z.number().optional().nullable(),
     // Profile fields
@@ -26,7 +27,20 @@ const createCustomerSchema = z.object({
     }).optional().nullable(),
 });
 
-const updateCustomerSchema = createCustomerSchema.partial();
+// Update: email puede venir vacío para BORRARLO. '' / null → null persistido.
+const updateCustomerSchema = createCustomerSchema.partial().extend({
+    email: z.preprocess(
+        v => {
+            if (v === undefined) return undefined; // no se envió → no tocar
+            if (v === '' || v === null) return null; // se envió vacío → borrar
+            return v; // se envió valor → validar abajo
+        },
+        z.union([
+            z.null(),
+            z.string().email("Email inválido").transform(val => val.toLowerCase().trim())
+        ]).optional()
+    ),
+});
 
 class CustomerService extends BaseService {
     // FIX: Removed getGymId() - now inherited from BaseService
@@ -40,7 +54,8 @@ class CustomerService extends BaseService {
                 c.*,
                 t.name as tariff_name,
                 t.amount as tariff_amount,
-                (SELECT end_date FROM memberships m WHERE m.customer_id = c.id ORDER BY start_date DESC LIMIT 1) as latest_end_date
+                (SELECT end_date FROM memberships m WHERE m.customer_id = c.id ORDER BY start_date DESC LIMIT 1) as latest_end_date,
+                (SELECT start_date FROM memberships m WHERE m.customer_id = c.id ORDER BY start_date DESC LIMIT 1) as latest_start_date
             FROM customers c
             LEFT JOIN tariffs t ON c.tariff_id = t.id
             ORDER BY c.created_at DESC
@@ -77,7 +92,8 @@ class CustomerService extends BaseService {
                     INSERT INTO customers (gym_id, first_name, last_name, email, phone, tariff_id, dni, address, height_cm, weight_kg, birth_date, medical_info)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
-                const info = stmt.run(gymId, first_name, last_name, email, phone || null, tariff_id || null, dni || null, address || null, height_cm || null, weight_kg || null, birth_date || null, medicalJson);
+                // email opcional: NULL = sin email (la columna es UNIQUE pero NULL no triggera UNIQUE en SQLite)
+                const info = stmt.run(gymId, first_name, last_name, email || null, phone || null, tariff_id || null, dni || null, address || null, height_cm || null, weight_kg || null, birth_date || null, medicalJson);
                 const newId = info.lastInsertRowid;
 
                 // Create initial Membership record
@@ -113,7 +129,11 @@ class CustomerService extends BaseService {
 
         if (validatedData.first_name) { fields.push('first_name = ?'); values.push(validatedData.first_name); }
         if (validatedData.last_name) { fields.push('last_name = ?'); values.push(validatedData.last_name); }
-        if (validatedData.email) { fields.push('email = ?'); values.push(validatedData.email); }
+        // email: undefined = no tocar; null/'' = poner NULL en BD
+        if (validatedData.email !== undefined) {
+            fields.push('email = ?');
+            values.push(validatedData.email || null);
+        }
         if (validatedData.phone !== undefined) { fields.push('phone = ?'); values.push(validatedData.phone); }
         if (validatedData.active !== undefined) { fields.push('active = ?'); values.push(validatedData.active ? 1 : 0); }
         if (validatedData.tariff_id !== undefined) { fields.push('tariff_id = ?'); values.push(validatedData.tariff_id); }
@@ -137,7 +157,7 @@ class CustomerService extends BaseService {
         return this.getById(id);
     }
 
-    toggleActive(id, mode = 'immediate') {
+    toggleActive(id, mode = 'immediate', options = {}) {
         const db = dbManager.getInstance();
 
         const result = db.transaction(() => {
@@ -150,6 +170,27 @@ class CustomerService extends BaseService {
 
             const now = new Date(); // Local time for calculation logic
             const nowISO = now.toISOString();
+            // Optional explicit start_date for new memberships (used on reactivation).
+            // Aceptamos 'YYYY-MM-DD' (hora local) o ISO. Si llega solo la fecha,
+            // la guardamos tal cual para no desplazar el día por la zona horaria.
+            let explicitStartISO = null;
+            if (options && options.startDate) {
+                const raw = String(options.startDate);
+                // YYYY-MM-DD limpio => úsalo tal cual; si trae 'T' lo dejamos también pero
+                // los parsers de la app usan split(/[-T ]/) y solo miran los 3 primeros tokens
+                explicitStartISO = raw;
+            }
+
+            // Modo especial: deshacer cancelación programada sin cambiar 'active'
+            if (mode === 'unschedule') {
+                db.prepare(`
+                    UPDATE memberships
+                    SET end_date = NULL, synced = 0, updated_at = datetime('now')
+                    WHERE customer_id = ? AND end_date IS NOT NULL AND end_date > ?
+                `).run(id, nowISO);
+                db.prepare('UPDATE customers SET active = 1, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
+                return { ...customer, active: 1, latest_end_date: null };
+            }
 
             if (currentActive) {
                 // DEACTIVATING
@@ -199,14 +240,18 @@ class CustomerService extends BaseService {
 
                 if (existingThisMonth) {
                     // Case A: Rejoining in same month (or cancelling a scheduled drop)
-                    // Just clear the end_date
-                    db.prepare('UPDATE memberships SET end_date = NULL, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(existingThisMonth.id);
+                    // Just clear the end_date. If caller provided explicit startDate, align it too.
+                    if (explicitStartISO) {
+                        db.prepare('UPDATE memberships SET end_date = NULL, start_date = ?, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(explicitStartISO, existingThisMonth.id);
+                    } else {
+                        db.prepare('UPDATE memberships SET end_date = NULL, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(existingThisMonth.id);
+                    }
                 } else {
-                    // Case B: Clean rejoin
+                    // Case B: Clean rejoin — use explicit startDate if provided, otherwise today
                     db.prepare(`
                         INSERT INTO memberships (gym_id, customer_id, start_date)
                         VALUES (?, ?, ?)
-                    `).run(this.getGymId(), id, nowISO);
+                    `).run(this.getGymId(), id, explicitStartISO || nowISO);
                 }
 
                 // FIX: Clear ALL future scheduled cancellations for this customer
@@ -220,9 +265,18 @@ class CustomerService extends BaseService {
                 // Always set to active
                 db.prepare('UPDATE customers SET active = 1, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
 
-                return { ...customer, active: 1, latest_end_date: null };
+                const latestStart = db.prepare('SELECT start_date FROM memberships WHERE customer_id = ? ORDER BY start_date DESC LIMIT 1').get(id);
+                return { ...customer, active: 1, latest_end_date: null, latest_start_date: latestStart ? latestStart.start_date : null };
             }
         })();
+
+        // Asegurar que latest_start_date esté siempre presente en la respuesta
+        // (los otros caminos del transaction sólo añadían latest_end_date).
+        if (result && typeof result === 'object' && result.latest_start_date === undefined) {
+            const db = dbManager.getInstance();
+            const latestStart = db.prepare('SELECT start_date FROM memberships WHERE customer_id = ? ORDER BY start_date DESC LIMIT 1').get(id);
+            result.latest_start_date = latestStart ? latestStart.start_date : null;
+        }
 
         return result;
     }
@@ -274,22 +328,24 @@ class CustomerService extends BaseService {
             for (const c of items) {
                 try {
                     const email = (c.email || '').toLowerCase().trim();
-                    if (!email || !c.first_name) {
+                    if (!c.first_name) {
                         skipped++;
                         continue;
                     }
 
-                    // Check duplicate
-                    const existing = db.prepare('SELECT id FROM customers WHERE email = ?').get(email);
-                    if (existing) {
-                        skipped++;
-                        errors.push(`${c.first_name} ${c.last_name}: email duplicado`);
-                        continue;
+                    // Check duplicate por email solo si hay email
+                    if (email) {
+                        const existing = db.prepare('SELECT id FROM customers WHERE email = ?').get(email);
+                        if (existing) {
+                            skipped++;
+                            errors.push(`${c.first_name} ${c.last_name}: email duplicado`);
+                            continue;
+                        }
                     }
 
                     const medicalJson = c.medical_info ? JSON.stringify(c.medical_info) : null;
                     const info = insertStmt.run(
-                        gymId, c.first_name, c.last_name || '', email, c.phone || null, null,
+                        gymId, c.first_name, c.last_name || '', email || null, c.phone || null, null,
                         c.dni || null, c.address || null, c.height_cm || null, c.weight_kg || null,
                         c.birth_date || null, medicalJson
                     );

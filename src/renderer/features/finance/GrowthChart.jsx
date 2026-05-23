@@ -66,7 +66,7 @@ export default function GrowthChart({ data }) {
                             fill="#10b981"
                             barSize={20}
                             radius={[4, 4, 0, 0]}
-                            name="Revenue"
+                            name="Ingresos"
                         />
 
                         <Line
@@ -77,7 +77,7 @@ export default function GrowthChart({ data }) {
                             strokeWidth={3}
                             dot={{ r: 4, strokeWidth: 2, fill: '#0f172a' }}
                             activeDot={{ r: 6, strokeWidth: 0 }}
-                            name="Active Members"
+                            name="Socios Activos"
                         />
                     </ComposedChart>
                 </ResponsiveContainer>

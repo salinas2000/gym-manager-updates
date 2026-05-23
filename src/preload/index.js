@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('api', {
         getById: (id) => ipcRenderer.invoke('customers:getById', id),
         create: (data) => ipcRenderer.invoke('customers:create', data),
         update: (id, data) => ipcRenderer.invoke('customers:update', id, data),
-        toggleActive: (id, mode) => ipcRenderer.invoke('customers:toggleActive', id, mode),
+        toggleActive: (id, mode, options) => ipcRenderer.invoke('customers:toggleActive', id, mode, options),
         getHistory: (id) => ipcRenderer.invoke('customers:getHistory', id),
         delete: (id) => ipcRenderer.invoke('customers:delete', id),
         bulkImport: (data) => ipcRenderer.invoke('customers:bulkImport', data),
@@ -21,7 +21,11 @@ contextBridge.exposeInMainWorld('api', {
         create: (data) => ipcRenderer.invoke('payments:create', data),
         delete: (id) => ipcRenderer.invoke('payments:delete', id),
         getMonthlyReport: (year, month) => ipcRenderer.invoke('payments:getMonthlyReport', year, month),
-        getDebtors: () => ipcRenderer.invoke('payments:getDebtors')
+        getDebtors: () => ipcRenderer.invoke('payments:getDebtors'),
+        getMethods: () => ipcRenderer.invoke('payments:getMethods'),
+        getMultiMonth: () => ipcRenderer.invoke('payments:getMultiMonth'),
+        getGroup: (groupId) => ipcRenderer.invoke('payments:getGroup', groupId),
+        exportExcel: (options) => ipcRenderer.invoke('payments:exportExcel', options),
     },
     tariffs: {
         getAll: () => ipcRenderer.invoke('tariffs:getAll'),

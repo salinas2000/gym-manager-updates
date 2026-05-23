@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Download, Trash2, FileSpreadsheet, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Download, Trash2, FileSpreadsheet, Cloud, CloudOff, RefreshCw, MailX } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import { useGym } from '../../context/GymContext';
 
 export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false, onNavigate }) {
 
     const queryClient = useQueryClient();
+    const { customers } = useGym();
+    const customer = customers?.find(c => c.id === customerId);
+    const hasEmail = !!(customer?.email && customer.email.trim());
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
     const [isGoogleConnected, setIsGoogleConnected] = useState(false);
 
@@ -274,6 +278,7 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                                         meso={meso}
                                         requestConfirm={requestConfirm} // Pass confirm handler
                                         isGoogleConnected={isGoogleConnected}
+                                        hasEmail={hasEmail}
                                         onNavigate={onNavigate}
                                         onUpload={async () => {
                                             const res = await window.api.training.uploadToDrive(meso.id);
@@ -306,7 +311,7 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
 }
 
 // Subcomponent for handling upload state locally
-function UploadButton({ meso, onUpload, requestConfirm, isGoogleConnected, onNavigate }) {
+function UploadButton({ meso, onUpload, requestConfirm, isGoogleConnected, onNavigate, hasEmail = true }) {
     // Initialize state based on persisted link
     const [status, setStatus] = React.useState(meso.drive_link ? 'success' : 'idle');
     const [link, setLink] = React.useState(meso.drive_link || null);
@@ -320,6 +325,20 @@ function UploadButton({ meso, onUpload, requestConfirm, isGoogleConnected, onNav
             return meso.drive_link ? 'success' : 'idle';
         });
     }, [meso.drive_link]);
+
+    // Si no hay email, el upload no tiene sentido (Google Drive comparte por email)
+    // y si ya hay drive_link previo, dejamos abrir el enlace pero NO crear nuevos.
+    if (!hasEmail && !meso.drive_link) {
+        return (
+            <button
+                disabled
+                className="p-2 bg-slate-800/30 text-slate-600 rounded-full border border-white/5 cursor-not-allowed"
+                title="Cliente sin email — no se puede compartir por Drive"
+            >
+                <MailX size={18} />
+            </button>
+        );
+    }
 
     const handleClick = async (e) => {
         e.stopPropagation();
