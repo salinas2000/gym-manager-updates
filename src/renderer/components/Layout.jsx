@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
@@ -125,6 +125,13 @@ export default function Layout({ children, currentView, onNavigate }) {
                             active={currentView === 'customers'}
                             onClick={() => onNavigate('customers')}
                             color="text-blue-400"
+                        />
+                        <SidebarItem
+                            icon={CalendarDays}
+                            label="Clases"
+                            active={currentView === 'classes'}
+                            onClick={() => onNavigate('classes')}
+                            color="text-cyan-400"
                         />
                         <SidebarItem
                             icon={Package}

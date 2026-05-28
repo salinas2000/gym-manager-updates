@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GripVertical, Eye, EyeOff, Lock } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import ControlSection from './ControlSection';
@@ -116,7 +116,9 @@ function DraggableField({ field, index, isDragging, onDragStart, onDragEnd, onDr
 }
 
 export default function FieldsTabNew({ config, setConfig }) {
-    const [draggedIndex, setDraggedIndex] = useState(null);
+    // Use refs for drag state to avoid stale closures and race conditions
+    const dragRef = useRef({ index: null, type: null }); // type: 'fixed' | 'optional'
+    const [dragVisual, setDragVisual] = useState({ index: null, type: null }); // only for visual feedback
     const [customFields, setCustomFields] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -211,12 +213,14 @@ export default function FieldsTabNew({ config, setConfig }) {
     };
 
     const handleDragStart = (e, index) => {
-        setDraggedIndex(index);
+        dragRef.current = { index, type: 'optional' };
+        setDragVisual({ index, type: 'optional' });
         e.dataTransfer.effectAllowed = 'move';
     };
 
     const handleDragEnd = () => {
-        setDraggedIndex(null);
+        dragRef.current = { index: null, type: null };
+        setDragVisual({ index: null, type: null });
     };
 
     const handleDragOver = (e) => {
@@ -226,11 +230,12 @@ export default function FieldsTabNew({ config, setConfig }) {
 
     const handleDrop = (e, dropIndex) => {
         e.preventDefault();
-        if (draggedIndex === null || draggedIndex === dropIndex) return;
+        const { index: fromIndex, type } = dragRef.current;
+        if (fromIndex === null || type !== 'optional' || fromIndex === dropIndex) return;
 
         setConfig(prev => {
             const newColumns = [...prev.optionalColumns];
-            const [removed] = newColumns.splice(draggedIndex, 1);
+            const [removed] = newColumns.splice(fromIndex, 1);
             newColumns.splice(dropIndex, 0, removed);
 
             return {
@@ -239,7 +244,8 @@ export default function FieldsTabNew({ config, setConfig }) {
             };
         });
 
-        setDraggedIndex(null);
+        dragRef.current = { index: null, type: null };
+        setDragVisual({ index: null, type: null });
     };
 
     const handleToggleField = (index) => {
@@ -275,17 +281,19 @@ export default function FieldsTabNew({ config, setConfig }) {
     };
 
     const handleDragStartFixed = (e, index) => {
-        setDraggedIndex(index);
+        dragRef.current = { index, type: 'fixed' };
+        setDragVisual({ index, type: 'fixed' });
         e.dataTransfer.effectAllowed = 'move';
     };
 
     const handleDropFixed = (e, dropIndex) => {
         e.preventDefault();
-        if (draggedIndex === null || draggedIndex === dropIndex) return;
+        const { index: fromIndex, type } = dragRef.current;
+        if (fromIndex === null || type !== 'fixed' || fromIndex === dropIndex) return;
 
         setConfig(prev => {
             const newColumns = [...prev.fixedColumns];
-            const [removed] = newColumns.splice(draggedIndex, 1);
+            const [removed] = newColumns.splice(fromIndex, 1);
             newColumns.splice(dropIndex, 0, removed);
 
             return {
@@ -294,7 +302,8 @@ export default function FieldsTabNew({ config, setConfig }) {
             };
         });
 
-        setDraggedIndex(null);
+        dragRef.current = { index: null, type: null };
+        setDragVisual({ index: null, type: null });
     };
 
     if (loading) {
@@ -318,7 +327,7 @@ export default function FieldsTabNew({ config, setConfig }) {
                             key={field.key}
                             field={field}
                             index={index}
-                            isDragging={draggedIndex === index}
+                            isDragging={dragVisual.type === 'fixed' && dragVisual.index === index}
                             onDragStart={handleDragStartFixed}
                             onDragEnd={handleDragEnd}
                             onDragOver={handleDragOver}
@@ -351,7 +360,7 @@ export default function FieldsTabNew({ config, setConfig }) {
                                 key={field.key}
                                 field={field}
                                 index={index}
-                                isDragging={draggedIndex === index}
+                                isDragging={dragVisual.type === 'optional' && dragVisual.index === index}
                                 onDragStart={handleDragStart}
                                 onDragEnd={handleDragEnd}
                                 onDragOver={handleDragOver}

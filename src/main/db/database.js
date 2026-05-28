@@ -481,29 +481,32 @@ class DBManager {
             if (subCatFk && subCatFk.on_delete !== 'CASCADE') {
                 console.log('Migrating: Updating exercises FK to ON DELETE CASCADE...');
                 this.db.pragma('foreign_keys = OFF');
-                this.db.transaction(() => {
-                    this.db.exec(`
-                        CREATE TABLE exercises_cascading (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            subcategory_id INTEGER,
-                            name TEXT NOT NULL,
-                            video_url TEXT,
-                            notes TEXT,
-                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            FOREIGN KEY (subcategory_id) REFERENCES exercise_subcategories (id) ON DELETE CASCADE
-                        )
-                     `);
+                try {
+                    this.db.transaction(() => {
+                        this.db.exec(`
+                            CREATE TABLE exercises_cascading (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                subcategory_id INTEGER,
+                                name TEXT NOT NULL,
+                                video_url TEXT,
+                                notes TEXT,
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (subcategory_id) REFERENCES exercise_subcategories (id) ON DELETE CASCADE
+                            )
+                         `);
 
-                    this.db.exec(`
-                        INSERT INTO exercises_cascading (id, subcategory_id, name, video_url, notes, created_at)
-                        SELECT id, subcategory_id, name, video_url, notes, created_at FROM exercises
-                     `);
+                        this.db.exec(`
+                            INSERT INTO exercises_cascading (id, subcategory_id, name, video_url, notes, created_at)
+                            SELECT id, subcategory_id, name, video_url, notes, created_at FROM exercises
+                         `);
 
-                    this.db.exec('DROP TABLE exercises');
-                    this.db.exec('ALTER TABLE exercises_cascading RENAME TO exercises');
-                })();
-                this.db.pragma('foreign_keys = ON');
-                console.log('Migration successful: Exercises now CASCADE delete.');
+                        this.db.exec('DROP TABLE exercises');
+                        this.db.exec('ALTER TABLE exercises_cascading RENAME TO exercises');
+                    })();
+                    console.log('Migration successful: Exercises now CASCADE delete.');
+                } finally {
+                    this.db.pragma('foreign_keys = ON');
+                }
             }
         } catch (error) {
             console.error('Migration 14 (Cascade) failed:', error);
@@ -608,7 +611,8 @@ class DBManager {
             const tablesToMirror = [
                 'customers', 'payments', 'memberships', 'tariffs',
                 'exercises', 'exercise_categories', 'exercise_subcategories',
-                'mesocycles', 'routines', 'routine_items'
+                'mesocycles', 'routines', 'routine_items',
+                'gym_classes', 'gym_class_schedules'
             ];
 
             tablesToMirror.forEach(table => {
@@ -669,6 +673,38 @@ class DBManager {
                 deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
+
+        // 21. Classes & Schedules Module
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS gym_classes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                instructor TEXT,
+                color_theme TEXT DEFAULT 'blue',
+                max_capacity INTEGER NOT NULL DEFAULT 20,
+                duration_minutes INTEGER NOT NULL DEFAULT 60,
+                active INTEGER DEFAULT 1,
+                synced INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS gym_class_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT NOT NULL,
+                class_id INTEGER NOT NULL REFERENCES gym_classes(id) ON DELETE CASCADE,
+                day_of_week INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                synced INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        this.safeCreateIndex('idx_gym_classes_gym', 'gym_classes', 'gym_id');
+        this.safeCreateIndex('idx_gym_class_schedules_gym', 'gym_class_schedules', 'gym_id');
+        this.safeCreateIndex('idx_gym_class_schedules_class', 'gym_class_schedules', 'class_id');
 
         // 20. Exercise Field Configuration
         this.db.exec(`
@@ -784,7 +820,7 @@ class DBManager {
                         const total = this.db.prepare('SELECT count(*) as count FROM customers').get().count;
                         const match = currentGymId ? this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id = ?').get(currentGymId).count : 0;
                         const dev = this.db.prepare("SELECT count(*) as count FROM customers WHERE gym_id = 'LOCAL_DEV'").get().count;
-                        const orphans = this.db.prepare('SELECT count(*) as count FROM customers WHERE gym_id IS NULL OR gym_id = ""').get().count;
+                        const orphans = this.db.prepare("SELECT count(*) as count FROM customers WHERE gym_id IS NULL OR gym_id = ''").get().count;
                         console.log(`[LOCAL_DB] Data Visibility Check [${table}]: Total: ${total} | Matches active [${currentGymId}]: ${match} | LOCAL_DEV: ${dev} | Orphans: ${orphans}`);
                     }
 

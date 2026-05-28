@@ -68,6 +68,21 @@ contextBridge.exposeInMainWorld('api', {
             return () => ipcRenderer.removeListener('cloud:customer-dataset-pending', sub);
         },
         sendCustomersToGym: (targetGymId, customerIds) => ipcRenderer.invoke('cloud:sendCustomersToGym', { targetGymId, customerIds }),
+        // Background sync
+        syncNow: () => ipcRenderer.invoke('cloud:syncNow'),
+        syncStatus: () => ipcRenderer.invoke('cloud:syncStatus'),
+        onSyncStatus: (callback) => {
+            const subscription = (_event, data) => callback(data);
+            ipcRenderer.on('cloud:sync-status', subscription);
+            return () => ipcRenderer.removeListener('cloud:sync-status', subscription);
+        },
+        // Mobile client invitation
+        inviteToMobile: (gymId, customerId, email, customerName) => ipcRenderer.invoke('cloud:inviteToMobile', { gymId, customerId, email, customerName }),
+        getPublishableConfig: () => ipcRenderer.invoke('cloud:getPublishableConfig'),
+        // Mobile app data
+        getCustomerWeightLogs: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerWeightLogs', { gymId, customerId }),
+        getCustomerMobileStatus: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerMobileStatus', { gymId, customerId }),
+        getMobileLinkedCustomers: (gymId) => ipcRenderer.invoke('cloud:getMobileLinkedCustomers', { gymId }),
     },
     training: {
         getExercises: () => ipcRenderer.invoke('training:getExercises'),
@@ -160,6 +175,32 @@ contextBridge.exposeInMainWorld('api', {
         delete: (filename) => ipcRenderer.invoke('templates:delete', filename),
         activate: (filename) => ipcRenderer.invoke('templates:activate', filename),
         getFieldConfigs: () => ipcRenderer.invoke('templates:getFieldConfigs'),
+    },
+    classes: {
+        getAll: (filter) => ipcRenderer.invoke('classes:getAll', filter),
+        getById: (id) => ipcRenderer.invoke('classes:getById', id),
+        create: (data) => ipcRenderer.invoke('classes:create', data),
+        update: (id, data) => ipcRenderer.invoke('classes:update', id, data),
+        toggleActive: (id) => ipcRenderer.invoke('classes:toggleActive', id),
+        delete: (id) => ipcRenderer.invoke('classes:delete', id),
+        getSchedules: (classId) => ipcRenderer.invoke('classes:getSchedules', classId),
+        addSchedule: (data) => ipcRenderer.invoke('classes:addSchedule', data),
+        updateSchedule: (id, data) => ipcRenderer.invoke('classes:updateSchedule', id, data),
+        deleteSchedule: (id) => ipcRenderer.invoke('classes:deleteSchedule', id),
+        getWeeklySchedule: () => ipcRenderer.invoke('classes:getWeeklySchedule'),
+        getBookingsForDate: (date) => ipcRenderer.invoke('classes:getBookingsForDate', date),
+        getBookingsForWeek: (startDate, endDate) => ipcRenderer.invoke('classes:getBookingsForWeek', startDate, endDate),
+        // Sporadic events
+        createEvent: (data) => ipcRenderer.invoke('classes:createEvent', data),
+        getEvents: (startDate, endDate) => ipcRenderer.invoke('classes:getEvents', startDate, endDate),
+        cancelEvent: (eventId) => ipcRenderer.invoke('classes:cancelEvent', eventId),
+        deleteEvent: (eventId) => ipcRenderer.invoke('classes:deleteEvent', eventId),
+        // Realtime bookings listener (poll every 30s + Realtime)
+        onBookingsUpdated: (callback) => {
+            const subscription = (_event, data) => callback(data);
+            ipcRenderer.on('bookings:updated', subscription);
+            return () => ipcRenderer.removeListener('bookings:updated', subscription);
+        },
     },
     inventory: {
         getProducts: () => ipcRenderer.invoke('inventory:getProducts'),

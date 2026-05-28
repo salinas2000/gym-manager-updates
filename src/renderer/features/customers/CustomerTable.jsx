@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload, CheckCircle2 } from 'lucide-react';
+import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload, CheckCircle2, Smartphone } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { cn } from '../../lib/utils';
@@ -15,7 +15,7 @@ const COLORS = [
 ];
 
 export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining, onOpenProfile, onSendCustomers, onImportExcel }) {
-    const { customers, toggleCustomerStatus, tariffs, deleteCustomer } = useGym();
+    const { customers, toggleCustomerStatus, tariffs, deleteCustomer, mobileLinkedIds, mobileInvitedIds } = useGym();
     const { t } = useLanguage();
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('all'); // Default to all
@@ -425,12 +425,23 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                                     {customer.first_name[0]}{customer.last_name[0]}
                                 </div>
                                 <div>
-                                    <p
-                                        onClick={() => onOpenProfile && onOpenProfile(customer)}
-                                        className="text-sm font-medium text-white group-hover:text-blue-400 transition-colors cursor-pointer hover:underline"
-                                    >
-                                        {customer.first_name} {customer.last_name}
-                                    </p>
+                                    <div className="flex items-center gap-1.5">
+                                        <p
+                                            onClick={() => onOpenProfile && onOpenProfile(customer)}
+                                            className="text-sm font-medium text-white group-hover:text-blue-400 transition-colors cursor-pointer hover:underline"
+                                        >
+                                            {customer.first_name} {customer.last_name}
+                                        </p>
+                                        {mobileLinkedIds?.has(customer.id) ? (
+                                            <span title="Registrado en la app movil" className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-500/30">
+                                                <Smartphone size={9} className="text-emerald-400" />
+                                            </span>
+                                        ) : mobileInvitedIds?.has(customer.id) ? (
+                                            <span title="Invitacion pendiente" className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-500/30">
+                                                <Smartphone size={9} className="text-amber-400" />
+                                            </span>
+                                        ) : null}
+                                    </div>
                                     <p className="text-xs text-slate-500 font-mono">#{customer.id.toString().padStart(4, '0')}</p>
                                 </div>
                             </div>

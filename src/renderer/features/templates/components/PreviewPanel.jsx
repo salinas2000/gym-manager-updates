@@ -292,7 +292,7 @@ export default function PreviewPanel({ config }) {
                         {/* Header cells */}
                         {allHeaders.map((header, idx) => (
                             <div
-                                key={header}
+                                key={`${orderedColumns[idx]?.key}-${idx}`}
                                 className={`border-b border-slate-300 flex items-center justify-center ${idx < allHeaders.length - 1 ? 'border-r border-white/30' : ''}`}
                                 style={{
                                     backgroundColor: colors.accent || '#10b981',

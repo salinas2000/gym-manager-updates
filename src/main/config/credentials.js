@@ -90,6 +90,14 @@ class CredentialManager {
             },
             github: {
                 token: process.env.GYM_GITHUB_TOKEN
+            },
+            smtp: {
+                host: process.env.GYM_SMTP_HOST,
+                port: process.env.GYM_SMTP_PORT,
+                user: process.env.GYM_SMTP_USER,
+                pass: process.env.GYM_SMTP_PASS,
+                fromEmail: process.env.GYM_SMTP_FROM_EMAIL,
+                fromName: process.env.GYM_SMTP_FROM_NAME,
             }
         };
     }
@@ -135,6 +143,14 @@ class CredentialManager {
                 },
                 github: {
                     token: parsed.GH_TOKEN || parsed.GYM_GITHUB_TOKEN
+                },
+                smtp: {
+                    host: parsed.SMTP_HOST || parsed.GYM_SMTP_HOST,
+                    port: parsed.SMTP_PORT || parsed.GYM_SMTP_PORT || '465',
+                    user: parsed.SMTP_USER || parsed.GYM_SMTP_USER,
+                    pass: parsed.SMTP_PASS || parsed.GYM_SMTP_PASS,
+                    fromEmail: parsed.SMTP_FROM_EMAIL || parsed.GYM_SMTP_FROM_EMAIL,
+                    fromName: parsed.SMTP_FROM_NAME || parsed.GYM_SMTP_FROM_NAME,
                 }
             };
         } catch (error) {

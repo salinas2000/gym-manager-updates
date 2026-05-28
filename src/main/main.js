@@ -206,7 +206,9 @@ app.whenReady().then(() => {
         // Initialize Services (Dev & Prod)
         const cloudService = require('./services/cloud/cloud.service');
         const licenseService = require('./services/local/license.service');
+        const syncService = require('./services/cloud/sync.service');
         cloudService.setMainWindow(mainWindow);
+        syncService.setMainWindow(mainWindow);
 
         // 4. Initialize Updater (Only if supported)
         const { initUpdater, autoUpdater } = require('./services/local/updater.service');
@@ -222,19 +224,21 @@ app.whenReady().then(() => {
         };
 
         // 6. Remote Database Load Check (Polling + Realtime attempt)
+        // Realtime is set up ONCE; if it fails, it retries with its own backoff.
+        // The polling interval only runs checkRemoteLoad (lightweight HTTP check).
+        const initRealtime = () => {
+            const lic = licenseService.getLicenseData();
+            if (lic) cloudService.setupRealtime(lic.gym_id);
+        };
         const runRemoteLoadCheck = () => {
             const lic = licenseService.getLicenseData();
-            if (lic) {
-                // Attempt Realtime (may timeout, polling is the fallback)
-                cloudService.setupRealtime(lic.gym_id);
-                // Polling: Check for pending remote loads
-                cloudService.checkRemoteLoad(lic.gym_id);
-            }
+            if (lic) cloudService.checkRemoteLoad(lic.gym_id);
         };
 
         setTimeout(() => {
             runUpdateCheck();
-            runRemoteLoadCheck();
+            initRealtime();       // One-time Realtime setup (self-retries on failure)
+            runRemoteLoadCheck();  // First poll
         }, 5000);
 
         // 7. Lease Renewal (Offline Protection)
@@ -245,10 +249,53 @@ app.whenReady().then(() => {
         // Initial renewal check
         setTimeout(runLeaseRenewal, 10000);
 
+        // 8. Background Cloud Sync (Push local changes to Supabase)
+        const runCloudSync = () => {
+            syncService.runFullSync().catch(err => {
+                console.warn('[Main] Cloud sync failed:', err.message);
+            });
+        };
+        // Initial sync after 8s (let app fully load first)
+        setTimeout(runCloudSync, 8000);
+
+        // 9. Bookings Poll — fetch reservas from Supabase every 30s and notify renderer
+        let _lastBookingsHash = '';
+        const pollBookings = async () => {
+            try {
+                const classService = require('./services/local/class.service');
+                const today = new Date();
+                const endDate = new Date(today);
+                endDate.setDate(today.getDate() + 7);
+                const startStr = today.toISOString().split('T')[0];
+                const endStr = endDate.toISOString().split('T')[0];
+
+                const bookings = await classService.getBookingsForWeek(startStr, endStr);
+                const hash = JSON.stringify(bookings.map(b => `${b.id}:${b.status}`));
+
+                if (hash !== _lastBookingsHash) {
+                    _lastBookingsHash = hash;
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('bookings:updated', {
+                            eventType: 'poll',
+                            bookings,
+                            timestamp: Date.now(),
+                        });
+                        console.log(`📅 [BOOKINGS] Poll: ${bookings.length} reservas activas (cambio detectado)`);
+                    }
+                }
+            } catch (err) {
+                // Silent — don't spam logs if Supabase is temporarily unreachable
+            }
+        };
+        // Start polling after 12s, then every 30s
+        setTimeout(pollBookings, 12000);
+
         // Background intervals
         setInterval(runUpdateCheck, 30 * 60 * 1000);
-        setInterval(runRemoteLoadCheck, 30 * 1000); // Poll every 30 seconds (Realtime fallback)
+        setInterval(runRemoteLoadCheck, 30 * 1000); // Poll every 30s (lightweight HTTP, no Realtime re-setup)
         setInterval(runLeaseRenewal, 60 * 60 * 1000); // Check every hour
+        setInterval(runCloudSync, 2 * 60 * 1000); // Sync to cloud every 2 minutes
+        setInterval(pollBookings, 30 * 1000); // Poll bookings every 30 seconds
     }
 
     function createActivationWindow() {

@@ -6,6 +6,8 @@ export function GymProvider({ children }) {
     const [customers, setCustomers] = useState([]);
     const [tariffs, setTariffs] = useState([]);
     const [payments, setPayments] = useState({}); // Map: customerId -> [payment records]
+    const [mobileLinkedIds, setMobileLinkedIds] = useState(new Set()); // customer_local_id of clients registered in mobile app
+    const [mobileInvitedIds, setMobileInvitedIds] = useState(new Set()); // customer_local_id with pending invites
 
     const [loading, setLoading] = useState(true);
     const [broadcast, setBroadcast] = useState(null);
@@ -46,10 +48,31 @@ export function GymProvider({ children }) {
                 console.log('[GymContext] Regular or No License Detected');
             }
 
+            // Load mobile link status (non-blocking)
+            refreshMobileLinks();
+
         } catch (error) {
             console.error("Failed to load data:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const refreshMobileLinks = async () => {
+        if (!window.api?.cloud?.getMobileLinkedCustomers) return;
+        try {
+            const licData = await window.api.license.getData();
+            const gymId = licData?.gym_id;
+            if (!gymId) return;
+            const res = await window.api.cloud.getMobileLinkedCustomers(gymId);
+            // IPC wraps as { success, data: innerResult }
+            if (res?.success && res.data?.success) {
+                setMobileLinkedIds(new Set(res.data.data?.linked || []));
+                setMobileInvitedIds(new Set(res.data.data?.pending || []));
+            }
+        } catch (err) {
+            // Silently fail — non-critical feature
+            console.warn('[GymContext] Failed to load mobile link status:', err.message);
         }
     };
 
@@ -65,8 +88,10 @@ export function GymProvider({ children }) {
 
     const deleteTariff = async (id) => {
         if (!window.api) return;
-        setTariffs(prev => prev.filter(t => t.id !== id));
-        await window.api.tariffs.delete(id);
+        const result = await window.api.tariffs.delete(id);
+        if (result?.success) {
+            setTariffs(prev => prev.filter(t => t.id !== id));
+        }
     };
 
     const reportVersion = async () => {
@@ -238,7 +263,10 @@ export function GymProvider({ children }) {
                 return false;
             },
             getMonthlyReport,
-            getDebtors
+            getDebtors,
+            mobileLinkedIds,
+            mobileInvitedIds,
+            refreshMobileLinks,
         }}>
             {children}
         </GymContext.Provider >

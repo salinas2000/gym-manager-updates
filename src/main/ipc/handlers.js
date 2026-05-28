@@ -6,6 +6,16 @@ const templateService = require('../services/local/template.service');
 
 let handlersRegistered = false;
 
+// Channels that mutate data → trigger cloud sync after success
+const MUTATION_PATTERNS = [
+    ':create', ':update', ':delete', ':toggle', ':bulkImport',
+    ':importDataset', ':importExcel', ':save', ':add', ':remove',
+];
+
+function isMutationChannel(channel) {
+    return MUTATION_PATTERNS.some(p => channel.includes(p));
+}
+
 function registerHandlers() {
     if (handlersRegistered) {
         console.log('[IPC] Handlers already registered, skipping...');
@@ -13,11 +23,18 @@ function registerHandlers() {
     }
     handlersRegistered = true;
 
+    const syncService = require('../services/cloud/sync.service');
+
     // Helper to wrap service calls with error handling
+    // Automatically triggers cloud sync for mutation channels
     const handle = (channel, callback) => {
         ipcMain.handle(channel, async (event, ...args) => {
             try {
                 const result = await callback(...args);
+                // Auto-sync after successful mutations
+                if (isMutationChannel(channel)) {
+                    syncService.scheduleSync(3);
+                }
                 return { success: true, data: result };
             } catch (error) {
                 console.error(`Error in ${channel}:`, error);
@@ -666,6 +683,32 @@ function registerHandlers() {
         return cloudService.pushDatasetToGym('customer_dataset', targetGymId, dataset);
     });
     handle('cloud:sendCustomersToGym', ({ targetGymId, customerIds }) => require('../services/cloud/cloud.service').sendCustomersToGym(targetGymId, customerIds));
+
+    // Cloud Sync (automatic background sync)
+    // syncService already imported at top of registerHandlers()
+    handle('cloud:syncNow', () => syncService.runFullSync());
+    handle('cloud:syncStatus', () => syncService.getStatus());
+
+    // Mobile Client Invitation
+    handle('cloud:inviteToMobile', ({ gymId, customerId, email, customerName }) =>
+        require('../services/cloud/cloud.service').inviteToMobile(gymId, customerId, email, customerName)
+    );
+
+    // Mobile App data — weights & registration status
+    handle('cloud:getCustomerWeightLogs', ({ gymId, customerId }) =>
+        require('../services/cloud/cloud.service').getCustomerWeightLogs(gymId, customerId)
+    );
+    handle('cloud:getCustomerMobileStatus', ({ gymId, customerId }) =>
+        require('../services/cloud/cloud.service').getCustomerMobileStatus(gymId, customerId)
+    );
+    handle('cloud:getMobileLinkedCustomers', ({ gymId }) =>
+        require('../services/cloud/cloud.service').getMobileLinkedCustomers(gymId)
+    );
+
+    handle('cloud:getPublishableConfig', () =>
+        require('../services/cloud/cloud.service').getPublishableConfig()
+    );
+
     handle('admin:restoreBackup', ({ gymId, fileName }) => adminService.restoreRemoteBackup(gymId, fileName));
 
     // Credentials Management
@@ -732,6 +775,27 @@ function registerHandlers() {
             throw e;
         }
     });
+    // --- CLASSES MODULE (Gym classes & weekly schedules) ---
+    const classService = require('../services/local/class.service');
+    handle('classes:getAll', (filter) => classService.getAll(filter));
+    handle('classes:getById', (id) => classService.getById(id));
+    handle('classes:create', (data) => classService.create(data));
+    handle('classes:update', (id, data) => classService.update(id, data));
+    handle('classes:toggleActive', (id) => classService.toggleActive(id));
+    handle('classes:delete', (id) => classService.delete(id));
+    handle('classes:getSchedules', (classId) => classService.getSchedules(classId));
+    handle('classes:addSchedule', (data) => classService.addSchedule(data));
+    handle('classes:updateSchedule', (id, data) => classService.updateSchedule(id, data));
+    handle('classes:deleteSchedule', (id) => classService.deleteSchedule(id));
+    handle('classes:getWeeklySchedule', () => classService.getWeeklySchedule());
+    handle('classes:getBookingsForDate', (date) => classService.getBookingsForDate(date));
+    handle('classes:getBookingsForWeek', (startDate, endDate) => classService.getBookingsForWeek(startDate, endDate));
+    // Sporadic events (one-off class events)
+    handle('classes:createEvent', (data) => classService.createEvent(data));
+    handle('classes:getEvents', (startDate, endDate) => classService.getEvents(startDate, endDate));
+    handle('classes:cancelEvent', (eventId) => classService.cancelEvent(eventId));
+    handle('classes:deleteEvent', (eventId) => classService.deleteEvent(eventId));
+
     // --- INVENTORY MODULE (Services for stock and category management) ---
     const inventoryService = require('../services/local/inventory.service');
     handle('inventory:getProducts', () => inventoryService.getProducts());

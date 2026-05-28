@@ -19,20 +19,25 @@ export default function DashboardHome() {
 
     useEffect(() => {
         const load = async () => {
-            if (window.api && window.api.analytics) {
-                const [dashboardData, yearsRes, recentRes, invRes] = await Promise.all([
-                    window.api.analytics.getDashboardData(selectedYear),
-                    window.api.analytics.getAvailableYears(),
-                    window.api.analytics.getRecentTransactions(5),
-                    window.api.analytics.getInventoryDashboardData(selectedYear)
-                ]);
+            try {
+                if (window.api && window.api.analytics) {
+                    const [dashboardData, yearsRes, recentRes, invRes] = await Promise.all([
+                        window.api.analytics.getDashboardData(selectedYear),
+                        window.api.analytics.getAvailableYears(),
+                        window.api.analytics.getRecentTransactions(5),
+                        window.api.analytics.getInventoryDashboardData(selectedYear)
+                    ]);
 
-                if (dashboardData.success) setData(dashboardData.data);
-                if (yearsRes.success) setAvailableYears(yearsRes.data);
-                if (recentRes.success) setRecentTx(recentRes.data);
-                if (invRes.success) setInventoryData(invRes.data);
+                    if (dashboardData.success) setData(dashboardData.data);
+                    if (yearsRes.success) setAvailableYears(yearsRes.data);
+                    if (recentRes.success) setRecentTx(recentRes.data);
+                    if (invRes.success) setInventoryData(invRes.data);
+                }
+            } catch (err) {
+                console.error('[Dashboard] Failed to load analytics:', err);
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
         };
         load();
     }, [selectedYear]);
@@ -49,7 +54,7 @@ export default function DashboardHome() {
     // Quick month trend (Revenue)
     const currentMonthIndex = new Date().getMonth();
     const currentMonthRev = data.revenue[currentMonthIndex]?.revenue || 0;
-    const prevMonthRev = data.revenue[currentMonthIndex - 1]?.revenue || 0;
+    const prevMonthRev = currentMonthIndex > 0 ? (data.revenue[currentMonthIndex - 1]?.revenue || 0) : 0;
     const revGrowth = prevMonthRev > 0 ? ((currentMonthRev - prevMonthRev) / prevMonthRev) * 100 : 0;
 
     // Calculate Average Monthly Revenue

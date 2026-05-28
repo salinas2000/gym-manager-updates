@@ -188,7 +188,7 @@ export default function TrainingManager({ onNavigate, initialTab }) {
                                     >
                                         <div className="flex items-center gap-4">
                                             <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center font-bold text-white">
-                                                {c.first_name[0]}
+                                                {(c.first_name || '?')[0]}
                                             </div>
                                             <div className="text-left">
                                                 <p className="font-bold text-white group-hover:text-blue-400">{c.first_name} {c.last_name}</p>

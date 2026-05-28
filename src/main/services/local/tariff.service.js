@@ -42,13 +42,11 @@ class TariffService extends BaseService {
 
     delete(id) {
         const db = dbManager.getInstance();
-        // Maybe set customers tariff_id to NULL before delete? Or rely on FK constraints?
-        // SQLite FKs are disabled by default unless PRAGMA foreign_keys = ON.
-        // We enabled it in database.js (check?). database.js has PRAGMA foreign_keys = ON.
-        // If ON, we need to decide. ON DELETE NO ACTION is default usually.
-        // Let's just update customers to null first to be safe or assume cascade if configured (not configured).
+        const gymId = this.getGymId();
 
         db.prepare('UPDATE customers SET tariff_id = NULL WHERE tariff_id = ?').run(id);
+        // Log deletion for cloud sync before deleting
+        db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)').run(gymId, 'tariffs', id);
         const info = db.prepare('DELETE FROM tariffs WHERE id = ?').run(id);
         return info.changes > 0;
     }

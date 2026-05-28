@@ -152,7 +152,7 @@ export default function SendCustomersModal({ isOpen, onClose }) {
                                             {selectedIds.has(c.id) && <Check size={12} className="text-white" />}
                                         </div>
                                         <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 flex-shrink-0">
-                                            {c.first_name[0]}{c.last_name[0]}
+                                            {(c.first_name || '?')[0]}{(c.last_name || '?')[0]}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-medium text-white">{c.first_name} {c.last_name}</p>

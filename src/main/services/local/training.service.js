@@ -5,8 +5,13 @@ const BaseService = require('../BaseService');
 // Validation Schemas
 const exerciseSchema = z.object({
     name: z.string().min(1, "El nombre del ejercicio es obligatorio"),
-    subcategoryId: z.number().int().positive("La subcategoría es obligatoria"),
+    // subcategoryId is optional in the UI ("Opcional") — accept null/undefined
+    subcategoryId: z.number().int().positive().nullable().optional(),
+    // categoryId comes from the form too; keep it permissive
+    categoryId: z.number().int().positive().nullable().optional(),
     video_url: z.string().url().optional().nullable().or(z.literal('')),
+    videoUrl: z.string().url().optional().nullable().or(z.literal('')),
+    notes: z.string().optional().nullable(),
     // Legacy fields made optional
     default_sets: z.any().optional(),
     default_reps: z.any().optional(),
@@ -143,18 +148,28 @@ class TrainingService extends BaseService {
         }
 
         const gymId = this.getGymId();
+        // Accept both camelCase (videoUrl from form) and snake_case (video_url)
+        const videoUrl = data.video_url ?? data.videoUrl ?? null;
+        // If no subcategoryId provided, pick the first subcategory of the category as fallback
+        let subcategoryId = data.subcategoryId ?? null;
+        if (!subcategoryId && data.categoryId) {
+            const fallback = this.db
+                .prepare('SELECT id FROM exercise_subcategories WHERE category_id = ? AND gym_id = ? ORDER BY id ASC LIMIT 1')
+                .get(data.categoryId, gymId);
+            if (fallback) subcategoryId = fallback.id;
+        }
         const stmt = this.db.prepare(`
-            INSERT INTO exercises (gym_id, name, subcategory_id, video_url, custom_fields) 
+            INSERT INTO exercises (gym_id, name, subcategory_id, video_url, custom_fields)
             VALUES (?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
             gymId,
             data.name,
-            data.subcategoryId,
-            data.video_url,
+            subcategoryId,
+            videoUrl,
             data.custom_fields ? JSON.stringify(data.custom_fields) : null
         );
-        return { id: info.lastInsertRowid, ...data };
+        return { id: info.lastInsertRowid, ...data, subcategoryId, video_url: videoUrl };
     }
 
     updateExercise(id, data) {
@@ -173,8 +188,8 @@ class TrainingService extends BaseService {
         `);
         stmt.run({
             name: validatedData.name,
-            subcategoryId: validatedData.subcategoryId,
-            video_url: validatedData.video_url,
+            subcategoryId: validatedData.subcategoryId ?? null,
+            video_url: validatedData.video_url ?? validatedData.videoUrl ?? null,
             custom_fields: validatedData.custom_fields ? JSON.stringify(validatedData.custom_fields) : null,
             id
         });
@@ -185,9 +200,21 @@ class TrainingService extends BaseService {
         if (!id) throw new Error('ID de ejercicio requerido');
 
         const transaction = this.db.transaction(() => {
+            const gymId = this.getGymId();
+
             // Verify exercise exists
             const exercise = this.db.prepare('SELECT id FROM exercises WHERE id = ?').get(id);
             if (!exercise) throw new Error('Ejercicio no encontrado');
+
+            // Log cascaded routine_items deletions for cloud sync
+            const affectedItems = this.db.prepare('SELECT id FROM routine_items WHERE exercise_id = ?').all(id);
+            const logStmt = this.db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)');
+            for (const item of affectedItems) {
+                logStmt.run(gymId, 'routine_items', item.id);
+            }
+
+            // Log exercise deletion for cloud sync
+            logStmt.run(gymId, 'exercises', id);
 
             // Manual Cascade: Remove from routine_items first
             this.db.prepare('DELETE FROM routine_items WHERE exercise_id = ?').run(id);
@@ -269,14 +296,60 @@ class TrainingService extends BaseService {
         if (!id) throw new Error('ID de categoría requerido');
         const cat = this.db.prepare('SELECT id FROM exercise_categories WHERE id = ?').get(id);
         if (!cat) throw new Error('Categoría no encontrada');
-        return this.db.prepare('DELETE FROM exercise_categories WHERE id = ?').run(id);
+
+        const gymId = this.getGymId();
+
+        const transaction = this.db.transaction(() => {
+            const logStmt = this.db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)');
+            const deleteItemsStmt = this.db.prepare('DELETE FROM routine_items WHERE exercise_id = ?');
+
+            // Log and delete cascaded: subcategories → exercises → routine_items
+            const subs = this.db.prepare('SELECT id FROM exercise_subcategories WHERE category_id = ?').all(id);
+            for (const sub of subs) {
+                const exercises = this.db.prepare('SELECT id FROM exercises WHERE subcategory_id = ?').all(sub.id);
+                for (const ex of exercises) {
+                    const items = this.db.prepare('SELECT id FROM routine_items WHERE exercise_id = ?').all(ex.id);
+                    for (const item of items) logStmt.run(gymId, 'routine_items', item.id);
+                    deleteItemsStmt.run(ex.id); // Actually delete routine_items before CASCADE
+                    logStmt.run(gymId, 'exercises', ex.id);
+                }
+                logStmt.run(gymId, 'exercise_subcategories', sub.id);
+            }
+            logStmt.run(gymId, 'exercise_categories', id);
+
+            this.db.prepare('DELETE FROM exercise_categories WHERE id = ?').run(id);
+        });
+
+        transaction();
+        return { success: true };
     }
 
     deleteSubcategory(id) {
         if (!id) throw new Error('ID de subcategoría requerido');
         const sub = this.db.prepare('SELECT id FROM exercise_subcategories WHERE id = ?').get(id);
         if (!sub) throw new Error('Subcategoría no encontrada');
-        return this.db.prepare('DELETE FROM exercise_subcategories WHERE id = ?').run(id);
+
+        const gymId = this.getGymId();
+
+        const transaction = this.db.transaction(() => {
+            const logStmt = this.db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)');
+            const deleteItemsStmt = this.db.prepare('DELETE FROM routine_items WHERE exercise_id = ?');
+
+            // Log and delete cascaded: exercises → routine_items
+            const exercises = this.db.prepare('SELECT id FROM exercises WHERE subcategory_id = ?').all(id);
+            for (const ex of exercises) {
+                const items = this.db.prepare('SELECT id FROM routine_items WHERE exercise_id = ?').all(ex.id);
+                for (const item of items) logStmt.run(gymId, 'routine_items', item.id);
+                deleteItemsStmt.run(ex.id); // Actually delete routine_items before CASCADE
+                logStmt.run(gymId, 'exercises', ex.id);
+            }
+            logStmt.run(gymId, 'exercise_subcategories', id);
+
+            this.db.prepare('DELETE FROM exercise_subcategories WHERE id = ?').run(id);
+        });
+
+        transaction();
+        return { success: true };
     }
 
     // --- MESOCYCLES (Routines) ---
@@ -385,6 +458,19 @@ class TrainingService extends BaseService {
         if (!id) throw new Error('ID de mesociclo requerido');
         const meso = this.db.prepare('SELECT id FROM mesocycles WHERE id = ?').get(id);
         if (!meso) throw new Error('Mesociclo no encontrado');
+
+        const gymId = this.getGymId();
+        const logStmt = this.db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)');
+
+        // Log cascaded deletions: routines → routine_items (CASCADE in DB)
+        const routines = this.db.prepare('SELECT id FROM routines WHERE mesocycle_id = ?').all(id);
+        for (const r of routines) {
+            const items = this.db.prepare('SELECT id FROM routine_items WHERE routine_id = ?').all(r.id);
+            for (const item of items) logStmt.run(gymId, 'routine_items', item.id);
+            logStmt.run(gymId, 'routines', r.id);
+        }
+        logStmt.run(gymId, 'mesocycles', id);
+
         return this.db.prepare('DELETE FROM mesocycles WHERE id = ?').run(id);
     }
 
@@ -611,11 +697,25 @@ class TrainingService extends BaseService {
     addFieldConfig(label, type, options = null) {
         const key = label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
         const gymId = this.getGymId();
-        const stmt = this.db.prepare(`
-            INSERT INTO exercise_field_config (gym_id, field_key, label, type, options, is_active)
-            VALUES (?, ?, ?, ?, ?, 1)
-        `);
-        stmt.run(gymId, key, label, type || 'text', options ? JSON.stringify(options) : null);
+        const optionsJson = options ? JSON.stringify(options) : null;
+
+        // Check if a deleted field with the same key exists — recycle it
+        const existing = this.db.prepare(
+            'SELECT field_key FROM exercise_field_config WHERE field_key = ? AND gym_id = ?'
+        ).get(key, gymId);
+
+        if (existing) {
+            this.db.prepare(`
+                UPDATE exercise_field_config
+                SET label = ?, type = ?, options = ?, is_active = 1, is_deleted = 0
+                WHERE field_key = ? AND gym_id = ?
+            `).run(label, type || 'text', optionsJson, key, gymId);
+        } else {
+            this.db.prepare(`
+                INSERT INTO exercise_field_config (gym_id, field_key, label, type, options, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)
+            `).run(gymId, key, label, type || 'text', optionsJson);
+        }
         return { success: true, key };
     }
 

@@ -13,6 +13,8 @@ class CloudService {
         this.supabase = null;
         this.mainWindow = null;
         this.activeChannels = new Set(); // Track active subscriptions
+        this._realtimeRetryCount = 0;    // Exponential backoff counter
+        this._realtimeBackoffTimer = null;
         this.credentials = null;
         this.init();
     }
@@ -54,7 +56,7 @@ class CloudService {
     setupRealtime(gymId) {
         if (!this.supabase || !gymId) return;
         if (this.activeChannels.has(gymId)) {
-            console.log('📡 [CLOUD_SYNC] Realtime already active for gym:', gymId);
+            // Already active — don't create duplicate channels
             return;
         }
 
@@ -68,7 +70,6 @@ class CloudService {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'cloud_remote_loads'
-                    // Remove strict filter to handle it in JS with better logging
                 },
                 (payload) => {
                     const receivedGymId = payload.new.gym_id;
@@ -82,7 +83,6 @@ class CloudService {
                     }
                     if (!this.mainWindow) return;
 
-                    // Route to the correct event based on payload_type
                     if (payloadType === 'exercise_dataset') {
                         this.mainWindow.webContents.send('cloud:exercise-dataset-pending', {
                             gym_id: receivedGymId,
@@ -98,7 +98,6 @@ class CloudService {
                             timestamp: payload.new.created_at,
                         });
                     } else {
-                        // Default: full_db (backward compatible)
                         this.mainWindow.webContents.send('cloud:remote-load-pending', {
                             gym_id: receivedGymId,
                             timestamp: payload.new.created_at,
@@ -112,16 +111,74 @@ class CloudService {
             console.log(`📡 [CLOUD_SYNC] Realtime channel status: ${status}`, err || '');
             if (status === 'SUBSCRIBED') {
                 this.activeChannels.add(gymId);
+                this._realtimeRetryCount = 0; // Reset backoff on success
                 console.log('✅ [CLOUD_SYNC] Realtime SUBSCRIBED for gym:', gymId);
-            } else if (status === 'CHANNEL_ERROR') {
-                console.error('❌ [CLOUD_SYNC] Realtime CHANNEL_ERROR:', err);
-            } else if (status === 'TIMED_OUT') {
-                console.error('❌ [CLOUD_SYNC] Realtime TIMED_OUT');
+            } else if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
+                console.error(`❌ [CLOUD_SYNC] Realtime ${status}:`, err || '');
+                // Clean up the zombie channel so it doesn't leak
+                try { channel.unsubscribe(); } catch (_) {}
+                this.activeChannels.delete(gymId);
+                // Schedule retry with exponential backoff (30s, 60s, 120s, max 5min)
+                this._scheduleRealtimeRetry(gymId);
             } else if (status === 'CLOSED') {
                 console.warn('⚠️ [CLOUD_SYNC] Realtime channel CLOSED');
                 this.activeChannels.delete(gymId);
             }
         });
+
+        // ── Realtime: bookings (reservas desde móvil) ──────────────────────
+        const bookingsChannel = this.supabase
+            .channel(`bookings_${gymId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'gym_class_bookings',
+                    filter: `gym_id=eq.${gymId}`,
+                },
+                (payload) => {
+                    const eventType = payload.eventType;
+                    const booking = payload.new;
+                    console.log(`📅 [BOOKINGS] Realtime ${eventType}: schedule=${booking.schedule_id} status=${booking.status}`);
+
+                    if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
+
+                    this.mainWindow.webContents.send('bookings:updated', {
+                        eventType,
+                        booking,
+                        timestamp: Date.now(),
+                    });
+                }
+            );
+
+        bookingsChannel.subscribe((status, err) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('✅ [BOOKINGS] Realtime SUBSCRIBED for gym:', gymId);
+            } else if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
+                console.warn(`⚠️ [BOOKINGS] Realtime ${status}:`, err || '');
+                // Clean up zombie bookings channel
+                try { bookingsChannel.unsubscribe(); } catch (_) {}
+            }
+        });
+    }
+
+    /**
+     * Schedule a Realtime reconnection with exponential backoff.
+     * Delays: 30s → 60s → 120s → 300s (cap)
+     */
+    _scheduleRealtimeRetry(gymId) {
+        if (this._realtimeBackoffTimer) {
+            clearTimeout(this._realtimeBackoffTimer);
+        }
+        const baseDelay = 30000; // 30 seconds
+        const delay = Math.min(baseDelay * Math.pow(2, this._realtimeRetryCount), 300000);
+        this._realtimeRetryCount++;
+        console.log(`📡 [CLOUD_SYNC] Realtime retry #${this._realtimeRetryCount} in ${delay / 1000}s`);
+        this._realtimeBackoffTimer = setTimeout(() => {
+            this._realtimeBackoffTimer = null;
+            this.setupRealtime(gymId);
+        }, delay);
     }
 
     _resolveGymId(overrideId) {
@@ -695,6 +752,205 @@ class CloudService {
         } catch (err) {
             console.error('[CLOUD_SYNC] Template Restoration failed:', err);
         }
+    }
+
+    // ─── MOBILE CLIENT INVITATION ───────────────────────────────────────────────
+
+    /**
+     * Invite a gym client to the mobile app.
+     * Creates a mobile_client_links record, generates an invite link via Supabase,
+     * and sends the email via the gym's own SMTP (nodemailer).
+     *
+     * @param {string} gymId - The gym identifier
+     * @param {number} customerId - Local customer ID
+     * @param {string} email - Customer's email address
+     * @param {string} customerName - Customer's display name
+     * @returns {{ success: boolean, message: string }}
+     */
+    async inviteToMobile(gymId, customerId, email, customerName = '') {
+        if (!this.supabase) throw new Error('Supabase no configurado');
+        if (!email) throw new Error('El cliente necesita un email para recibir la invitación');
+
+        const redirectTo = 'https://app.gymanagerpro.com/login';
+
+        // 1. Check if already invited
+        const { data: existing } = await this.supabase
+            .from('mobile_client_links')
+            .select('id, auth_user_id, linked_at')
+            .match({ gym_id: gymId, customer_local_id: customerId })
+            .maybeSingle();
+
+        // If already has account → send password reset email via Supabase
+        if (existing?.linked_at) {
+            const { error: resetError } = await this.supabase.auth.resetPasswordForEmail(email, { redirectTo });
+
+            if (resetError) {
+                throw new Error(`Error enviando email de recuperación: ${resetError.message}`);
+            }
+
+            console.log(`[CLOUD_SYNC] 🔄 Password reset sent to ${email} for customer #${customerId}`);
+            return { success: true, message: `Email de recuperación enviado a ${email}` };
+        }
+
+        // 2. Create or update the link record (auth_user_id will be filled by trigger on signup)
+        if (!existing) {
+            const { error: linkError } = await this.supabase
+                .from('mobile_client_links')
+                .insert({
+                    gym_id: gymId,
+                    customer_local_id: customerId,
+                    auth_user_id: null,
+                    invited_at: new Date().toISOString(),
+                });
+
+            if (linkError) throw new Error(`Error creando link: ${linkError.message}`);
+        }
+
+        // 3. Invite user via Supabase (sends email through Supabase's configured SMTP + templates)
+        const { error: inviteError } = await this.supabase.auth.admin.inviteUserByEmail(email, {
+            redirectTo,
+            data: {
+                gym_id: gymId,
+                customer_local_id: customerId,
+            },
+        });
+
+        if (inviteError) {
+            if (inviteError.message.includes('already been registered')) {
+                return { success: false, message: 'Este email ya tiene una cuenta. El cliente puede iniciar sesión directamente.' };
+            }
+            throw new Error(`Error enviando invitación: ${inviteError.message}`);
+        }
+
+        console.log(`[CLOUD_SYNC] 📧 Mobile invitation sent to ${email} for customer #${customerId}`);
+        return { success: true, message: `Invitación enviada a ${email}` };
+    }
+
+    /**
+     * Fetch weight logs that a client has recorded from the mobile app.
+     * Returns an array of { id, weight_kg, measured_at, notes } sorted desc.
+     */
+    async getCustomerWeightLogs(gymId, customerLocalId) {
+        if (!this.supabase) {
+            return { success: false, error: 'Supabase no inicializado', data: [] };
+        }
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) {
+            return { success: false, error: 'Gym ID no resuelto', data: [] };
+        }
+        try {
+            const { data, error } = await this.supabase
+                .from('customer_weight_logs')
+                .select('id, weight_kg, measured_at, notes')
+                .eq('gym_id', resolvedGymId)
+                .eq('customer_local_id', customerLocalId)
+                .order('measured_at', { ascending: false });
+
+            if (error) return { success: false, error: error.message, data: [] };
+            return { success: true, data: data || [] };
+        } catch (err) {
+            return { success: false, error: err.message, data: [] };
+        }
+    }
+
+    /**
+     * Check whether a customer has registered in the mobile app.
+     * Returns { registered: boolean, invited: boolean, linked_at, invited_at, email }.
+     * - registered: TRUE if mobile_client_links has auth_user_id (user signed in)
+     * - invited: TRUE if there is a pending invite (row without auth_user_id)
+     */
+    async getCustomerMobileStatus(gymId, customerLocalId) {
+        if (!this.supabase) {
+            return { success: false, error: 'Supabase no inicializado', registered: false };
+        }
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) {
+            return { success: false, error: 'Gym ID no resuelto', registered: false };
+        }
+        try {
+            const { data: linkRows, error: linkErr } = await this.supabase
+                .from('mobile_client_links')
+                .select('auth_user_id, invited_at, linked_at')
+                .eq('gym_id', resolvedGymId)
+                .eq('customer_local_id', customerLocalId);
+
+            if (linkErr) return { success: false, error: linkErr.message, registered: false };
+
+            const links = linkRows || [];
+            const registered = links.some((l) => l.auth_user_id && l.linked_at);
+            const invited = links.length > 0;
+            const linkedRow = links.find((l) => l.auth_user_id && l.linked_at);
+            const pendingRow = links.find((l) => !l.auth_user_id);
+
+            // Try to fetch the auth user's email (only works if RLS allows service_role)
+            let authEmail = null;
+            if (linkedRow?.auth_user_id) {
+                const { data: authUser } = await this.supabase.auth.admin.getUserById(linkedRow.auth_user_id);
+                authEmail = authUser?.user?.email ?? null;
+            }
+
+            return {
+                success: true,
+                registered,
+                invited,
+                linked_at: linkedRow?.linked_at ?? null,
+                invited_at: pendingRow?.invited_at ?? linkedRow?.invited_at ?? null,
+                auth_user_id: linkedRow?.auth_user_id ?? null,
+                auth_email: authEmail,
+            };
+        } catch (err) {
+            return { success: false, error: err.message, registered: false };
+        }
+    }
+
+    /**
+     * Bulk fetch: returns an array of customer_local_id values that have
+     * an ACTIVE mobile_client_links row (i.e., the client has registered
+     * in the mobile app). Used to display a "📱" badge in the customer list
+     * without doing N+1 queries.
+     */
+    async getMobileLinkedCustomers(gymId) {
+        if (!this.supabase) {
+            return { success: false, error: 'Supabase no inicializado', data: [] };
+        }
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) {
+            return { success: false, error: 'Gym ID no resuelto', data: [] };
+        }
+        try {
+            const { data, error } = await this.supabase
+                .from('mobile_client_links')
+                .select('customer_local_id, auth_user_id, linked_at')
+                .eq('gym_id', resolvedGymId);
+
+            if (error) return { success: false, error: error.message, data: [] };
+
+            const linked = (data || [])
+                .filter((row) => row.auth_user_id && row.linked_at)
+                .map((row) => row.customer_local_id);
+            const pending = (data || [])
+                .filter((row) => !row.auth_user_id)
+                .map((row) => row.customer_local_id);
+
+            return { success: true, data: { linked, pending } };
+        } catch (err) {
+            return { success: false, error: err.message, data: { linked: [], pending: [] } };
+        }
+    }
+
+    /**
+     * Get the publishable (anon) key configuration for the mobile app.
+     * The admin can use this to configure the mobile app or generate a QR code.
+     */
+    getPublishableConfig() {
+        if (!this.credentials?.supabase) throw new Error('Supabase no configurado');
+        return {
+            url: this.credentials.supabase.url,
+            // Note: The service_role key is used by the desktop app.
+            // The mobile app needs the anon/publishable key which must be
+            // configured separately in the Supabase dashboard.
+            // This method returns the URL so the admin knows which project to configure.
+        };
     }
 }
 

@@ -22,6 +22,7 @@ import GeneralSettings from './features/settings/SettingsPage'; // New Config Pa
 import AdminDashboard from './features/admin/AdminDashboard';
 import TemplatesPage from './features/templates/TemplatesPage';
 import InventoryPage from './features/inventory/InventoryPage';
+import ClassManager from './features/classes/ClassManager';
 
 function Dashboard() {
     const [currentView, setCurrentView] = useState('customers');
@@ -43,6 +44,8 @@ function Dashboard() {
                 return <DashboardPage />;
             case 'inventory':
                 return <InventoryPage />;
+            case 'classes':
+                return <ClassManager />;
             case 'finance':
                 return <PaymentsPage />;
             case 'tariffs':

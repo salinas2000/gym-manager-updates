@@ -47,6 +47,7 @@ class CustomerService extends BaseService {
 
     getAll() {
         const db = dbManager.getInstance();
+        const gymId = this.getGymId();
         // Join with tariffs to get name
         // Also fetch the LATEST membership end_date for the customer to detect scheduled drops
         const stmt = db.prepare(`
@@ -58,15 +59,17 @@ class CustomerService extends BaseService {
                 (SELECT start_date FROM memberships m WHERE m.customer_id = c.id ORDER BY start_date DESC LIMIT 1) as latest_start_date
             FROM customers c
             LEFT JOIN tariffs t ON c.tariff_id = t.id
+            WHERE c.gym_id = ?
             ORDER BY c.created_at DESC
         `);
-        return stmt.all();
+        return stmt.all(gymId);
     }
 
     getById(id) {
         const db = dbManager.getInstance();
-        const stmt = db.prepare('SELECT * FROM customers WHERE id = ?');
-        const customer = stmt.get(id);
+        const gymId = this.getGymId();
+        const stmt = db.prepare('SELECT * FROM customers WHERE id = ? AND gym_id = ?');
+        const customer = stmt.get(id, gymId);
         if (customer && customer.medical_info) {
             try { customer.medical_info = JSON.parse(customer.medical_info); } catch (e) { /* keep as string */ }
         }
@@ -86,21 +89,15 @@ class CustomerService extends BaseService {
         try {
             const gymId = this.getGymId();
             const medicalJson = medical_info ? JSON.stringify(medical_info) : null;
-            // Transaction so we create customer AND membership record atomically
+            // Create customer without active membership (inactive by default)
+            // Activation happens manually via the toggle (Alta)
             const transaction = db.transaction(() => {
                 const stmt = db.prepare(`
                     INSERT INTO customers (gym_id, first_name, last_name, email, phone, tariff_id, dni, address, height_cm, weight_kg, birth_date, medical_info)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
-                // email opcional: NULL = sin email (la columna es UNIQUE pero NULL no triggera UNIQUE en SQLite)
                 const info = stmt.run(gymId, first_name, last_name, email || null, phone || null, tariff_id || null, dni || null, address || null, height_cm || null, weight_kg || null, birth_date || null, medicalJson);
                 const newId = info.lastInsertRowid;
-
-                // Create initial Membership record
-                db.prepare(`
-                    INSERT INTO memberships (gym_id, customer_id, start_date)
-                    VALUES (?, ?, ?)
-                `).run(gymId, newId, new Date().toISOString());
 
                 return { id: newId, ...data };
             });
@@ -150,18 +147,20 @@ class CustomerService extends BaseService {
 
         if (fields.length === 0) return this.getById(id);
 
-        values.push(id);
+        const gymId = this.getGymId();
+        values.push(id, gymId);
 
-        const stmt = db.prepare(`UPDATE customers SET ${fields.join(', ')} WHERE id = ?`);
+        const stmt = db.prepare(`UPDATE customers SET ${fields.join(', ')} WHERE id = ? AND gym_id = ?`);
         stmt.run(...values);
         return this.getById(id);
     }
 
     toggleActive(id, mode = 'immediate', options = {}) {
         const db = dbManager.getInstance();
+        const gymId = this.getGymId();
 
         const result = db.transaction(() => {
-            const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+            const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND gym_id = ?').get(id, gymId);
             if (!customer) throw new Error('Customer not found');
 
             const currentActive = customer.active === 1;
@@ -283,12 +282,13 @@ class CustomerService extends BaseService {
 
     getMembershipHistory(customerId) {
         const db = dbManager.getInstance();
+        const gymId = this.getGymId();
         const stmt = db.prepare(`
             SELECT * FROM memberships
-            WHERE customer_id = ?
+            WHERE customer_id = ? AND gym_id = ?
             ORDER BY start_date DESC
         `);
-        return stmt.all(customerId);
+        return stmt.all(customerId, gymId);
     }
 
     delete(id) {
@@ -300,8 +300,8 @@ class CustomerService extends BaseService {
             db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)')
                 .run(gymId, 'customers', id);
 
-            const stmt = db.prepare('DELETE FROM customers WHERE id = ?');
-            return stmt.run(id);
+            const stmt = db.prepare('DELETE FROM customers WHERE id = ? AND gym_id = ?');
+            return stmt.run(id, gymId);
         })();
 
         return result;
@@ -335,7 +335,7 @@ class CustomerService extends BaseService {
 
                     // Check duplicate por email solo si hay email
                     if (email) {
-                        const existing = db.prepare('SELECT id FROM customers WHERE email = ?').get(email);
+                        const existing = db.prepare('SELECT id FROM customers WHERE email = ? AND gym_id = ?').get(email, gymId);
                         if (existing) {
                             skipped++;
                             errors.push(`${c.first_name} ${c.last_name}: email duplicado`);

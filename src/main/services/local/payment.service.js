@@ -49,8 +49,8 @@ class PaymentService extends BaseService {
 
         const gymId = this.getGymId();
         const stmt = db.prepare(`
-            INSERT INTO payments (gym_id, customer_id, amount, tariff_name, payment_date, payment_method, payment_group_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO payments (gym_id, customer_id, amount, tariff_name, payment_date, payment_method, payment_group_id, synced, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
         `);
         const info = stmt.run(
             gymId, customer_id, amount, tariff_name || null, finalDate,

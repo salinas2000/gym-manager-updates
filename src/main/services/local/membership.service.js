@@ -1,12 +1,13 @@
 const dbManager = require('../../db/database');
 const z = require('zod');
+const BaseService = require('../BaseService');
 
 const updateMembershipSchema = z.object({
     start_date: z.string().min(1, "La fecha de inicio es requerida"),
     end_date: z.string().nullable().or(z.literal('')),
 });
 
-class MembershipService {
+class MembershipService extends BaseService {
     update(id, data) {
         const validation = updateMembershipSchema.safeParse(data);
         if (!validation.success) {
@@ -22,6 +23,9 @@ class MembershipService {
         `);
         // Handle empty string as null for end_date
         const finalEndDate = (end_date === '' || end_date === null) ? null : end_date;
+
+        // Mark as unsynced
+        db.prepare('UPDATE memberships SET synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
 
         stmt.run(start_date, finalEndDate, id);
 
@@ -40,6 +44,12 @@ class MembershipService {
         const transaction = db.transaction(() => {
             const membership = db.prepare('SELECT * FROM memberships WHERE id = ?').get(id);
             if (!membership) return false;
+
+            const gymId = this.getGymId();
+            const logStmt = db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)');
+
+            // Log membership deletion for cloud sync
+            logStmt.run(gymId, 'memberships', id);
 
             // Cascade: Delete payments within this period
             // If end_date is NULL (active), delete everything from start_date onwards

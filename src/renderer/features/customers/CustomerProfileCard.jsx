@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Phone, CreditCard, Dumbbell, Calendar, TrendingUp, Clock, Wallet, MapPin, Heart, Ruler, Weight, Save, Pencil, FileText } from 'lucide-react';
+import { X, User, Mail, Phone, CreditCard, Dumbbell, Calendar, TrendingUp, Clock, Wallet, MapPin, Heart, Ruler, Weight, Save, Pencil, FileText, Smartphone, CheckCircle2, XCircle, Send, TrendingDown, Minus } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useToast } from '../../context/ToastContext';
 
 const TABS = [
     { id: 'overview', label: 'General' },
     { id: 'ficha', label: 'Ficha Medica' },
+    { id: 'app', label: 'App Movil' },
 ];
 
 export default function CustomerProfileCard({ isOpen, onClose, customer, onNavigateTraining, onOpenPayments }) {
@@ -14,6 +15,9 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
     const [payments, setPayments] = useState([]);
     const [mesocycles, setMesocycles] = useState([]);
     const [membershipHistory, setMembershipHistory] = useState([]);
+    const [weightLogs, setWeightLogs] = useState([]);
+    const [mobileStatus, setMobileStatus] = useState(null);
+    const [loadingMobile, setLoadingMobile] = useState(false);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview');
     const [fullCustomer, setFullCustomer] = useState(null);
@@ -22,9 +26,11 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
     const [editing, setEditing] = useState(false);
     const [editData, setEditData] = useState({});
     const [saving, setSaving] = useState(false);
+    const [inviting, setInviting] = useState(false);
 
     useEffect(() => {
         if (!isOpen || !customer) return;
+        let cancelled = false;
         setLoading(true);
         setActiveTab('overview');
         setEditing(false);
@@ -35,14 +41,53 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
             window.api.customers.getHistory(customer.id),
             window.api.customers.getById(customer.id),
         ]).then(([payRes, mesoRes, histRes, custRes]) => {
+            if (cancelled) return; // Prevent stale data from overwriting
             setPayments(payRes.success ? payRes.data : []);
             setMesocycles(mesoRes.success ? mesoRes.data : []);
             setMembershipHistory(histRes.success ? histRes.data : []);
             const full = custRes.success ? custRes.data : customer;
             setFullCustomer(full);
             initEditData(full);
-        }).catch(console.error).finally(() => setLoading(false));
+        }).catch(console.error).finally(() => { if (!cancelled) setLoading(false); });
+
+        return () => { cancelled = true; };
     }, [isOpen, customer]);
+
+    // Fetch mobile app data (weight logs + registration status) when "App Movil" tab opens
+    useEffect(() => {
+        if (!isOpen || !customer || activeTab !== 'app') return;
+        let cancelled = false;
+        setLoadingMobile(true);
+
+        Promise.all([
+            window.api.license.getData(),
+        ]).then(async ([licData]) => {
+            const gymId = licData?.gym_id;
+            if (!gymId) {
+                if (!cancelled) {
+                    setMobileStatus({ success: false, error: 'No se pudo obtener el gym_id' });
+                    setLoadingMobile(false);
+                }
+                return;
+            }
+            const [statusRes, weightRes] = await Promise.all([
+                window.api.cloud.getCustomerMobileStatus(gymId, customer.id),
+                window.api.cloud.getCustomerWeightLogs(gymId, customer.id),
+            ]);
+            if (cancelled) return;
+            // IPC wraps as { success, data: innerResult }
+            const status = statusRes?.success ? statusRes.data : { success: false, error: statusRes?.error };
+            setMobileStatus(status);
+            const weights = weightRes?.success ? (weightRes.data?.data || []) : [];
+            setWeightLogs(weights);
+        }).catch(err => {
+            if (!cancelled) setMobileStatus({ success: false, error: err.message });
+        }).finally(() => {
+            if (!cancelled) setLoadingMobile(false);
+        });
+
+        return () => { cancelled = true; };
+    }, [isOpen, customer, activeTab]);
 
     const initEditData = (c) => {
         let medInfo = c.medical_info;
@@ -95,6 +140,29 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
         }
     };
 
+    const handleInviteToMobile = async () => {
+        if (!c.email) {
+            toast.error('El cliente necesita un email para recibir la invitación');
+            return;
+        }
+        setInviting(true);
+        try {
+            const gymId = (await window.api.license.getData())?.gym_id;
+            if (!gymId) throw new Error('No se pudo obtener el ID del gimnasio');
+            const customerName = `${c.first_name || ''} ${c.last_name || ''}`.trim();
+            const res = await window.api.cloud.inviteToMobile(gymId, c.id, c.email, customerName);
+            if (res.success && res.data?.success) {
+                toast.success(res.data.message || 'Invitación enviada');
+            } else {
+                toast.error(res.data?.message || res.error || 'Error al enviar invitación');
+            }
+        } catch (err) {
+            toast.error(err.message || 'Error al enviar invitación');
+        } finally {
+            setInviting(false);
+        }
+    };
+
     const updateMedical = (field, value) => {
         setEditData(prev => ({
             ...prev,
@@ -123,7 +191,7 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
 
                     <div className="flex items-center gap-5">
                         <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-2xl font-black text-white shadow-xl shadow-blue-500/20 border border-white/10">
-                            {c.first_name[0]}{c.last_name[0]}
+                            {(c.first_name || '?')[0]}{(c.last_name || '?')[0]}
                         </div>
                         <div className="flex-1">
                             <h2 className="text-2xl font-bold text-white">
@@ -185,7 +253,7 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                             currentMeso={currentMeso}
                             monthsActive={monthsActive}
                         />
-                    ) : (
+                    ) : activeTab === 'ficha' ? (
                         <FichaTab
                             customer={c}
                             medInfo={medInfo}
@@ -193,6 +261,15 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                             editData={editData}
                             setEditData={setEditData}
                             updateMedical={updateMedical}
+                        />
+                    ) : (
+                        <MobileAppTab
+                            customer={c}
+                            mobileStatus={mobileStatus}
+                            weightLogs={weightLogs}
+                            loading={loadingMobile}
+                            onInvite={handleInviteToMobile}
+                            inviting={inviting}
                         />
                     )}
                 </div>
@@ -235,6 +312,15 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                         )}
                         {activeTab === 'overview' && (
                             <>
+                                <button
+                                    onClick={handleInviteToMobile}
+                                    disabled={inviting || !c.email}
+                                    title={!c.email ? 'El cliente necesita un email' : 'Invitar a la app móvil'}
+                                    className="bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    <Smartphone size={14} />
+                                    {inviting ? 'Enviando...' : 'App Móvil'}
+                                </button>
                                 {onOpenPayments && (
                                     <button
                                         onClick={() => { onClose(); onOpenPayments(customer); }}
@@ -495,6 +581,178 @@ function FichaTab({ customer, medInfo, editing, editData, setEditData, updateMed
                 {renderMedicalField('Lesiones', 'injuries')}
                 {renderMedicalField('Alergias', 'allergies')}
                 {renderMedicalField('Cirugias', 'surgeries')}
+            </div>
+        </div>
+    );
+}
+
+function MobileAppTab({ customer, mobileStatus, weightLogs, loading, onInvite, inviting }) {
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-12">
+                <div className="w-8 h-8 border-2 border-violet-500/20 border-t-violet-500 rounded-full animate-spin" />
+            </div>
+        );
+    }
+
+    const status = mobileStatus || {};
+    const isRegistered = status.registered === true;
+    const isInvited = status.invited === true && !isRegistered;
+    const linkedDate = status.linked_at ? new Date(status.linked_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
+    const invitedDate = status.invited_at ? new Date(status.invited_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
+
+    // Weight analysis
+    const sortedWeights = [...(weightLogs || [])].sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
+    const latest = sortedWeights[0];
+    const previous = sortedWeights[1];
+    const change = (latest && previous) ? +(latest.weight_kg - previous.weight_kg).toFixed(2) : null;
+    const minWeight = sortedWeights.length > 0 ? Math.min(...sortedWeights.map(w => w.weight_kg)) : null;
+    const maxWeight = sortedWeights.length > 0 ? Math.max(...sortedWeights.map(w => w.weight_kg)) : null;
+
+    return (
+        <div className="space-y-6">
+            {/* Registration Status */}
+            <div className={`rounded-xl p-5 border ${isRegistered
+                ? 'bg-emerald-500/5 border-emerald-500/20'
+                : isInvited
+                ? 'bg-amber-500/5 border-amber-500/20'
+                : 'bg-slate-800/30 border-white/5'}`}>
+                <div className="flex items-start gap-4">
+                    <div className={`p-3 rounded-xl ${isRegistered
+                        ? 'bg-emerald-500/10'
+                        : isInvited
+                        ? 'bg-amber-500/10'
+                        : 'bg-slate-700/30'}`}>
+                        {isRegistered ? (
+                            <CheckCircle2 size={24} className="text-emerald-400" />
+                        ) : isInvited ? (
+                            <Clock size={24} className="text-amber-400" />
+                        ) : (
+                            <XCircle size={24} className="text-slate-400" />
+                        )}
+                    </div>
+                    <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                            <Smartphone size={16} className="text-slate-400" />
+                            <h3 className="text-base font-bold text-white">Estado en la App Movil</h3>
+                        </div>
+                        {isRegistered && (
+                            <>
+                                <p className="text-sm text-emerald-300 font-medium">Registrado y activo</p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    {status.auth_email && (
+                                        <>Cuenta: <span className="text-emerald-300">{status.auth_email}</span></>
+                                    )}
+                                </p>
+                                {linkedDate && (
+                                    <p className="text-xs text-slate-500 mt-1">Vinculado el {linkedDate}</p>
+                                )}
+                            </>
+                        )}
+                        {isInvited && (
+                            <>
+                                <p className="text-sm text-amber-300 font-medium">Invitacion pendiente</p>
+                                <p className="text-xs text-slate-400 mt-1">El cliente ha sido invitado pero aun no ha completado el registro.</p>
+                                {invitedDate && (
+                                    <p className="text-xs text-slate-500 mt-1">Invitado el {invitedDate}</p>
+                                )}
+                            </>
+                        )}
+                        {!isRegistered && !isInvited && (
+                            <>
+                                <p className="text-sm text-slate-300 font-medium">No registrado</p>
+                                <p className="text-xs text-slate-400 mt-1">Este cliente todavia no tiene acceso a la app movil.</p>
+                                <button
+                                    onClick={onInvite}
+                                    disabled={inviting || !customer.email}
+                                    title={!customer.email ? 'El cliente necesita un email' : 'Enviar invitacion'}
+                                    className="mt-3 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    <Send size={12} />
+                                    {inviting ? 'Enviando...' : 'Enviar invitacion'}
+                                </button>
+                            </>
+                        )}
+                        {status.error && (
+                            <p className="text-xs text-red-400 mt-2">Error: {status.error}</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Weight Logs from Mobile App */}
+            <div>
+                <h3 className="text-xs uppercase font-bold text-slate-400 tracking-widest flex items-center gap-2 mb-3">
+                    <Weight size={14} />
+                    Pesajes desde la App ({weightLogs.length})
+                </h3>
+
+                {sortedWeights.length === 0 ? (
+                    <div className="bg-slate-800/30 rounded-xl p-8 border border-white/5 text-center">
+                        <Weight size={32} className="mx-auto text-slate-600 mb-2" />
+                        <p className="text-sm text-slate-500">El cliente aun no ha registrado pesajes desde la app.</p>
+                    </div>
+                ) : (
+                    <>
+                        {/* Summary Stats */}
+                        <div className="grid grid-cols-4 gap-3 mb-4">
+                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
+                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Actual</p>
+                                <p className="text-lg font-black text-white">{latest?.weight_kg} <span className="text-xs text-slate-500">kg</span></p>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
+                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Cambio</p>
+                                {change === null ? (
+                                    <p className="text-sm text-slate-500">—</p>
+                                ) : (
+                                    <p className={`text-lg font-black flex items-center justify-center gap-1 ${change > 0 ? 'text-amber-400' : change < 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                        {change > 0 ? <TrendingUp size={14} /> : change < 0 ? <TrendingDown size={14} /> : <Minus size={14} />}
+                                        {change > 0 ? '+' : ''}{change} <span className="text-xs text-slate-500">kg</span>
+                                    </p>
+                                )}
+                            </div>
+                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
+                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Min</p>
+                                <p className="text-lg font-black text-white">{minWeight} <span className="text-xs text-slate-500">kg</span></p>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
+                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Max</p>
+                                <p className="text-lg font-black text-white">{maxWeight} <span className="text-xs text-slate-500">kg</span></p>
+                            </div>
+                        </div>
+
+                        {/* History list */}
+                        <div className="bg-slate-800/30 rounded-xl border border-white/5 overflow-hidden">
+                            <div className="max-h-72 overflow-y-auto">
+                                {sortedWeights.map((w, i) => {
+                                    const prev = sortedWeights[i + 1];
+                                    const diff = prev ? +(w.weight_kg - prev.weight_kg).toFixed(2) : null;
+                                    return (
+                                        <div key={w.id} className="px-4 py-3 border-b border-white/5 last:border-b-0 flex items-center gap-3">
+                                            <div className="p-2 bg-blue-500/10 rounded-lg">
+                                                <Weight size={14} className="text-blue-400" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-bold text-white">{w.weight_kg} kg</p>
+                                                <p className="text-[11px] text-slate-500">
+                                                    {new Date(w.measured_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                </p>
+                                                {w.notes && (
+                                                    <p className="text-[11px] text-slate-400 italic mt-1">{w.notes}</p>
+                                                )}
+                                            </div>
+                                            {diff !== null && (
+                                                <span className={`text-xs font-bold ${diff > 0 ? 'text-amber-400' : diff < 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                                                    {diff > 0 ? '+' : ''}{diff} kg
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );

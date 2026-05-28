@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { X, Check, Trash2, CreditCard, Banknote, Calendar, Smartphone, Building2, MoreHorizontal, AlertTriangle, Zap } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
 import { cn } from '../../lib/utils';
 
 export default function PaymentModal({ isOpen, onClose, customer, month, year, existingPayment = null }) {
     const { tariffs, addPayment, deletePayment, getPaymentForMonth, loadPaymentsForCustomer } = useGym();
     const { t } = useLanguage();
+    const toast = useToast();
 
     // Form State
     const [tariffId, setTariffId] = useState('');
@@ -343,21 +345,48 @@ export default function PaymentModal({ isOpen, onClose, customer, month, year, e
                 if (activeIdx < 0) activeIdx = 0;
 
                 let allOk = true;
+                let failedAt = -1;
+                let successCount = 0;
                 for (let i = 0; i < monthsIncluded.length; i++) {
                     const m = monthsIncluded[i];
                     const utc = new Date(Date.UTC(m.year, m.month, 1)).toISOString();
                     const amount = i === activeIdx ? totalRounded : 0;
-                    const ok = await addPayment({
-                        customer_id: customer.id,
-                        amount,
-                        tariff_name: tariffName,
-                        payment_date: utc,
-                        payment_method: paymentMethod,
-                        payment_group_id: groupId,
-                    });
-                    if (!ok) { allOk = false; break; }
+                    try {
+                        const ok = await addPayment({
+                            customer_id: customer.id,
+                            amount,
+                            tariff_name: tariffName,
+                            payment_date: utc,
+                            payment_method: paymentMethod,
+                            payment_group_id: groupId,
+                        });
+                        if (!ok) { allOk = false; failedAt = i; break; }
+                        successCount++;
+                    } catch (err) {
+                        allOk = false;
+                        failedAt = i;
+                        toast.error(err.message || 'Error inesperado al registrar el pago');
+                        break;
+                    }
                 }
-                if (allOk) onClose();
+                if (allOk) {
+                    toast.success(`Pago multi-mes registrado correctamente (${successCount} ${successCount === 1 ? 'mes' : 'meses'}).`);
+                    onClose();
+                } else {
+                    // Partial failure — inform user precisely
+                    const failedMonth = monthsIncluded[failedAt];
+                    const monthLabel = failedMonth
+                        ? new Date(failedMonth.year, failedMonth.month, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+                        : 'desconocido';
+                    if (successCount === 0) {
+                        toast.error(`No se pudo registrar el pago. Falló al guardar ${monthLabel}.`);
+                    } else {
+                        toast.error(
+                            `Solo se registraron ${successCount} de ${monthsIncluded.length} meses. Falló al guardar ${monthLabel}. ` +
+                            `Revisa los pagos del cliente antes de reintentar.`
+                        );
+                    }
+                }
             } else {
                 // Tarifa mensual: un único pago
                 const utcDate = new Date(Date.UTC(year, month, 1)).toISOString();
