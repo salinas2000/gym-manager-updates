@@ -476,6 +476,243 @@ class ClassService extends BaseService {
 
         return enriched;
     }
+
+    // ── Gym Hours Helper ───────────────────────────────────────────────────────
+    // Manages the special "Gimnasio" class (gym open hours) without forcing the
+    // user to know that it's modeled as a regular class internally.
+
+    /**
+     * Get the current gym hours configuration. Returns the special "Gimnasio"
+     * class with its schedules grouped per day.
+     */
+    /**
+     * Parse the instructor field, which can be:
+     * - null/empty → { shifts: [] }
+     * - single string (legacy) → { shifts: [{ days:[0..6], start:'00:00', end:'23:59', instructors:[name] }] }
+     * - JSON array of names (older format) → wrap into single all-day shift
+     * - JSON object { shifts: [...] } → return as-is
+     */
+    _parseInstructorConfig(raw) {
+        if (!raw || typeof raw !== 'string') return { shifts: [] };
+        const trimmed = raw.trim();
+        if (!trimmed) return { shifts: [] };
+
+        if (trimmed.startsWith('{')) {
+            try {
+                const obj = JSON.parse(trimmed);
+                if (obj && Array.isArray(obj.shifts)) {
+                    return {
+                        shifts: obj.shifts.map((s, i) => ({
+                            id: s.id || `shift-${i}`,
+                            days: Array.isArray(s.days) ? s.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) : [],
+                            start: typeof s.start === 'string' ? s.start : '00:00',
+                            end: typeof s.end === 'string' ? s.end : '23:59',
+                            instructors: Array.isArray(s.instructors) ? s.instructors.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()) : [],
+                        })),
+                    };
+                }
+            } catch (_) { /* fall through */ }
+        }
+
+        if (trimmed.startsWith('[')) {
+            try {
+                const arr = JSON.parse(trimmed);
+                if (Array.isArray(arr)) {
+                    const names = arr.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim());
+                    if (names.length > 0) {
+                        return {
+                            shifts: [{
+                                id: 'shift-legacy',
+                                days: [0, 1, 2, 3, 4, 5, 6],
+                                start: '00:00',
+                                end: '23:59',
+                                instructors: names,
+                            }],
+                        };
+                    }
+                }
+            } catch (_) { /* fall through */ }
+        }
+
+        // Plain string → wrap as single all-day shift
+        return {
+            shifts: [{
+                id: 'shift-legacy',
+                days: [0, 1, 2, 3, 4, 5, 6],
+                start: '00:00',
+                end: '23:59',
+                instructors: [trimmed],
+            }],
+        };
+    }
+
+    getGymHours() {
+        const db = dbManager.getInstance();
+        const gymId = this.getGymId();
+
+        const gymClass = db
+            .prepare("SELECT * FROM gym_classes WHERE gym_id = ? AND name = 'Gimnasio' LIMIT 1")
+            .get(gymId);
+
+        if (!gymClass) {
+            return { configured: false, max_capacity: 30, duration_minutes: 60, instructors: [], days: [] };
+        }
+
+        const rows = db
+            .prepare('SELECT day_of_week, start_time, end_time FROM gym_class_schedules WHERE class_id = ? AND gym_id = ? ORDER BY day_of_week, start_time')
+            .all(gymClass.id, gymId);
+
+        // Detect slot duration from the first slot (rough heuristic)
+        let detectedDuration = gymClass.duration_minutes || 60;
+        if (rows.length > 0) {
+            const [sh, sm] = rows[0].start_time.split(':').map(Number);
+            const [eh, em] = rows[0].end_time.split(':').map(Number);
+            detectedDuration = (eh * 60 + em) - (sh * 60 + sm);
+        }
+
+        // Group by day, picking earliest start and latest end (treating as one
+        // continuous block per day).
+        const byDay = new Map();
+        for (const row of rows) {
+            const existing = byDay.get(row.day_of_week);
+            if (!existing) {
+                byDay.set(row.day_of_week, { day_of_week: row.day_of_week, start_time: row.start_time, end_time: row.end_time });
+            } else {
+                if (row.start_time < existing.start_time) existing.start_time = row.start_time;
+                if (row.end_time > existing.end_time) existing.end_time = row.end_time;
+            }
+        }
+
+        const days = Array.from(byDay.values()).sort((a, b) => a.day_of_week - b.day_of_week);
+        const instructorConfig = this._parseInstructorConfig(gymClass.instructor);
+
+        return {
+            configured: true,
+            class_id: gymClass.id,
+            max_capacity: gymClass.max_capacity,
+            duration_minutes: detectedDuration,
+            shifts: instructorConfig.shifts,
+            color_theme: gymClass.color_theme,
+            days,
+        };
+    }
+
+    /**
+     * Configure (or reconfigure) the gym open hours.
+     * Creates the "Gimnasio" class if it doesn't exist, then replaces ALL
+     * its schedules with the provided config.
+     *
+     * @param {object} config
+     * @param {number} config.max_capacity - max simultaneous users
+     * @param {array}  config.days - [{ day_of_week, start_time, end_time }]
+     *                 Each "day" is split internally into 1-hour slots so the
+     *                 mobile booking UX stays per-hour.
+     */
+    setGymHours(config) {
+        const db = dbManager.getInstance();
+        const gymId = this.getGymId();
+        const maxCapacity = Math.max(1, Math.min(500, parseInt(config?.max_capacity) || 30));
+        const days = Array.isArray(config?.days) ? config.days : [];
+
+        // Shifts are the source of truth for both schedule slots AND trainer assignments.
+        // A shift may have no trainers (gym is open but no trainer on duty).
+        let shifts = [];
+        if (Array.isArray(config?.shifts)) {
+            shifts = config.shifts
+                .map((s) => ({
+                    id: s.id || `shift-${Math.random().toString(36).slice(2, 8)}`,
+                    days: Array.isArray(s.days) ? s.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) : [],
+                    start: /^\d{2}:\d{2}$/.test(s.start) ? s.start : '00:00',
+                    end: /^\d{2}:\d{2}$/.test(s.end) ? s.end : '23:59',
+                    instructors: Array.isArray(s.instructors) ? s.instructors.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()) : [],
+                }))
+                .filter((s) => s.days.length > 0 && s.start < s.end);
+        } else if (Array.isArray(config?.instructors)) {
+            // Legacy fallback: instructors array → single all-week shift
+            const names = config.instructors.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim());
+            if (names.length) {
+                shifts = [{ id: 'shift-default', days: [0, 1, 2, 3, 4, 5, 6], start: '07:00', end: '22:00', instructors: names }];
+            }
+        } else if (typeof config?.instructor === 'string' && config.instructor.trim()) {
+            shifts = [{ id: 'shift-default', days: [0, 1, 2, 3, 4, 5, 6], start: '07:00', end: '22:00', instructors: [config.instructor.trim()] }];
+        }
+
+        const instructor = shifts.length > 0 ? JSON.stringify({ shifts }) : null;
+
+        // Slot duration: validate against allowed values [30, 60, 90, 120]
+        const allowedDurations = new Set([30, 60, 90, 120]);
+        let duration = parseInt(config?.duration_minutes);
+        if (!allowedDurations.has(duration)) duration = 60;
+
+        const txn = db.transaction(() => {
+            // 1. Ensure the "Gimnasio" class exists
+            let gymClass = db
+                .prepare("SELECT * FROM gym_classes WHERE gym_id = ? AND name = 'Gimnasio' LIMIT 1")
+                .get(gymId);
+
+            if (!gymClass) {
+                const result = db.prepare(`
+                    INSERT INTO gym_classes (gym_id, name, description, instructor, color_theme, max_capacity, duration_minutes, active, synced, updated_at)
+                    VALUES (?, 'Gimnasio', 'Horario de gimnasio libre', ?, 'slate', ?, ?, 1, 0, datetime('now'))
+                `).run(gymId, instructor, maxCapacity, duration);
+                gymClass = { id: result.lastInsertRowid };
+            } else {
+                db.prepare(`
+                    UPDATE gym_classes
+                    SET max_capacity = ?, instructor = ?, duration_minutes = ?, active = 1, synced = 0, updated_at = datetime('now')
+                    WHERE id = ? AND gym_id = ?
+                `).run(maxCapacity, instructor, duration, gymClass.id, gymId);
+            }
+
+            // 2. Log existing schedules for sync_deleted_log, then wipe them
+            const oldSchedules = db
+                .prepare('SELECT id FROM gym_class_schedules WHERE class_id = ? AND gym_id = ?')
+                .all(gymClass.id, gymId);
+            const logDel = db.prepare(
+                'INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)'
+            );
+            for (const s of oldSchedules) {
+                try { logDel.run(gymId, 'gym_class_schedules', s.id); } catch (_) {}
+            }
+            db.prepare('DELETE FROM gym_class_schedules WHERE class_id = ? AND gym_id = ?').run(gymClass.id, gymId);
+
+            // 3. Generate slots from SHIFTS (single source of truth).
+            //    For each shift, for each day enabled, split [start, end] into N-minute slots.
+            //    Deduplicate so overlapping shifts don't create duplicate slots.
+            const insertSch = db.prepare(`
+                INSERT INTO gym_class_schedules (gym_id, class_id, day_of_week, start_time, end_time, synced, updated_at)
+                VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+            `);
+            const fmt = (mins) => {
+                const h = Math.floor(mins / 60);
+                const m = mins % 60;
+                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            };
+            const generatedSet = new Set(); // "dayIdx|startMins" for dedup
+            let totalSlots = 0;
+
+            for (const shift of shifts) {
+                const [sh, sm] = shift.start.split(':').map(Number);
+                const [eh, em] = shift.end.split(':').map(Number);
+                const startMins = sh * 60 + sm;
+                const endMins = eh * 60 + em;
+
+                for (const dayIdx of shift.days) {
+                    for (let cur = startMins; cur + duration <= endMins; cur += duration) {
+                        const key = `${dayIdx}|${cur}`;
+                        if (generatedSet.has(key)) continue;
+                        generatedSet.add(key);
+                        insertSch.run(gymId, gymClass.id, dayIdx, fmt(cur), fmt(cur + duration));
+                        totalSlots++;
+                    }
+                }
+            }
+
+            return { class_id: gymClass.id, total_slots: totalSlots, shifts: shifts.length, duration_minutes: duration };
+        });
+
+        return txn();
+    }
 }
 
 module.exports = new ClassService();

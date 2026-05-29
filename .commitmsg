@@ -1,0 +1,35 @@
+v2.0.9: gym hours with shifts, remove subcategories, profile multi-gym
+
+Major UX improvements + simplification:
+
+Gym hours configuration:
+- New "Configurar Horario del Gimnasio" modal with shift-based scheduling
+- Each shift = (days + start + end + trainers) — single source of truth
+  for both opening hours AND trainer assignments
+- Slot duration selector (30 min / 1 h / 1h 30 / 2 h)
+- Multiple trainers per shift (morning team / afternoon team etc.)
+- Auto-deduplicates overlapping shifts so slots never double up
+- Backend: class.service.setGymHours() creates/updates the special
+  "Gimnasio" class transparently — owner doesn't have to know the
+  internal name convention
+
+Subcategories removed from UX:
+- Exercises now live directly under a CATEGORY (no more 2-level hierarchy)
+- Migration: adds exercises.category_id, backfills from existing
+  subcategory chain at first launch
+- ExerciseModal: single "Categoría *" required dropdown — no more
+  confusing "Subcategoría (Opcional)" that was actually required
+- CategorySidebar: subcategory section removed, "+ Subcategoría" button
+  removed
+- RoutineBuilder: subcategory filter pills removed
+- Back-compat: getExercises COALESCEs the new category_id with the
+  derived chain, so legacy exercises that only had subcategory_id
+  still appear correctly under their category
+
+Plus stability fixes already in code:
+- License switch confirmation dialog + dbManager.wipeAllData() helper
+- Zoom shortcuts hardened (Ctrl+0 / Ctrl++ / Ctrl+-)
+- Multi-gym invite (no more "ya tiene cuenta" dead-end)
+- Exercise validation no longer requires subcategoryId
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>

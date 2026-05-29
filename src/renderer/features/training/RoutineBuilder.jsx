@@ -48,7 +48,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
 
     const filteredExercises = exercises.filter(ex => {
         if (activeCategory && ex.category_id !== activeCategory) return false;
-        if (activeSubcategory && ex.subcategory_id !== activeSubcategory) return false;
+        // Subcategory filter deprecated
         if (searchTerm && !ex.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
         return true;
     });
@@ -225,32 +225,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                     })}
                 </div>
 
-                {/* Subcategories Filters */}
-                {selectedCategoryData && selectedCategoryData.subcategories.length > 0 && (
-                    <div className="flex gap-2 p-2 overflow-x-auto border-b border-white/5 no-scrollbar bg-slate-900/20">
-                        <button
-                            onClick={() => setActiveSubcategory(null)}
-                            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap border transition-all ${!activeSubcategory
-                                ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 shadow-sm'
-                                : 'bg-slate-900/40 text-slate-500 border-white/5 hover:border-white/10'
-                                }`}
-                        >
-                            Todo
-                        </button>
-                        {selectedCategoryData.subcategories.map(sub => (
-                            <button
-                                key={sub.id}
-                                onClick={() => setActiveSubcategory(sub.id)}
-                                className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap border transition-all ${activeSubcategory === sub.id
-                                    ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 shadow-sm'
-                                    : 'bg-slate-900/40 text-slate-500 border-white/5 hover:border-white/10'
-                                    }`}
-                            >
-                                {sub.name}
-                            </button>
-                        ))}
-                    </div>
-                )}
+                {/* Subcategories deprecated — only categories are used now */}
 
                 {/* Search */}
                 <div className="p-3 border-b border-white/5 bg-slate-900/10">

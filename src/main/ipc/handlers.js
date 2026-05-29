@@ -845,6 +845,9 @@ function registerHandlers() {
     handle('classes:getWeeklySchedule', () => classService.getWeeklySchedule());
     handle('classes:getBookingsForDate', (date) => classService.getBookingsForDate(date));
     handle('classes:getBookingsForWeek', (startDate, endDate) => classService.getBookingsForWeek(startDate, endDate));
+    // Gym hours helper (manages the special "Gimnasio" class behind the scenes)
+    handle('classes:getGymHours', () => classService.getGymHours());
+    handle('classes:setGymHours', (config) => classService.setGymHours(config));
     // Sporadic events (one-off class events)
     handle('classes:createEvent', (data) => classService.createEvent(data));
     handle('classes:getEvents', (startDate, endDate) => classService.getEvents(startDate, endDate));

@@ -749,6 +749,30 @@ class DBManager {
         this.safeAddColumn('routine_items', 'custom_fields', 'TEXT'); // JSON storage
         this.safeAddColumn('routine_items', 'intensity', 'TEXT'); // Intensity level
 
+        // 22b. Flatten exercise hierarchy: add direct category_id to exercises
+        // (we keep subcategory_id around for back-compat but UI only uses category_id)
+        this.safeAddColumn('exercises', 'category_id', 'INTEGER');
+        try {
+            // Backfill category_id from existing subcategory_id chain
+            const needsBackfill = this.db.prepare(
+                'SELECT COUNT(*) as n FROM exercises WHERE category_id IS NULL AND subcategory_id IS NOT NULL'
+            ).get().n;
+            if (needsBackfill > 0) {
+                console.log(`[DB] Backfilling category_id for ${needsBackfill} exercises from subcategory chain...`);
+                this.db.prepare(`
+                    UPDATE exercises
+                    SET category_id = (
+                        SELECT category_id FROM exercise_subcategories
+                        WHERE exercise_subcategories.id = exercises.subcategory_id
+                    )
+                    WHERE category_id IS NULL AND subcategory_id IS NOT NULL
+                `).run();
+                console.log('[DB] Backfill complete.');
+            }
+        } catch (e) {
+            console.warn('[DB] Backfill of category_id failed (probably already migrated):', e.message);
+        }
+
         // 20b. Ensure exercise_field_config has is_deleted column (for DBs created before this column existed)
         this.safeAddColumn('exercise_field_config', 'is_deleted', 'INTEGER DEFAULT 0');
 

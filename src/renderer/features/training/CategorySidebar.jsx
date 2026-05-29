@@ -203,13 +203,6 @@ export default function CategorySidebar({
 
                                     <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); setCreatingSubFor(cat.id); setExpandedCats(p => ({ ...p, [cat.id]: true })); }}
-                                            className="p-1 hover:text-blue-400 text-slate-500"
-                                            title="Agregar Subcategoría"
-                                        >
-                                            <Plus size={12} />
-                                        </button>
-                                        <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleDeleteCategory(cat.id, cat.name);
@@ -222,51 +215,7 @@ export default function CategorySidebar({
                                     </div>
                                 </div>
 
-                                {/* SUBCATEGORIES */}
-                                {isExpanded && (
-                                    <div className="ml-6 pl-2 border-l border-white/5 mt-1 space-y-0.5">
-                                        {/* SUB LIST */}
-                                        {cat.subcategories && cat.subcategories.map(sub => (
-                                            <div
-                                                key={sub.id}
-                                                className={`
-                                                group/sub flex items-center justify-between px-2 py-1 rounded text-sm cursor-pointer transition-colors
-                                                ${activeSubcategory === sub.id
-                                                        ? 'bg-blue-600/20 text-blue-400'
-                                                        : 'text-slate-500 hover:text-white hover:bg-slate-800/30'}
-                                            `}
-                                                onClick={() => onSelectSubcategory(sub.id)}
-                                            >
-                                                <span className="truncate">{sub.name}</span>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleDeleteSubcategory(sub.id, sub.name);
-                                                    }}
-                                                    className="opacity-0 group-hover/sub:opacity-100 p-0.5 hover:text-red-400 text-slate-600"
-                                                    title="Eliminar Subcategoría"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </div>
-                                        ))}
-
-                                        {/* CREATE SUB INPUT */}
-                                        {creatingSubFor === cat.id && (
-                                            <form onSubmit={handleCreateSub} className="px-2 py-1">
-                                                <input
-                                                    autoFocus
-                                                    type="text"
-                                                    placeholder="Nombre Sub..."
-                                                    value={newSubName}
-                                                    onChange={e => setNewSubName(e.target.value)}
-                                                    className="w-full bg-slate-950 border border-white/10 rounded px-2 py-0.5 text-xs text-white focus:border-blue-500 outline-none"
-                                                    onBlur={() => !newSubName && setCreatingSubFor(null)} // Cancel on blur if empty
-                                                />
-                                            </form>
-                                        )}
-                                    </div>
-                                )}
+                                {/* Subcategories deprecated — exercises now live directly under categories */}
                             </div>
                         );
                     })}

@@ -5,14 +5,16 @@ const BaseService = require('../BaseService');
 // Validation Schemas
 const exerciseSchema = z.object({
     name: z.string().min(1, "El nombre del ejercicio es obligatorio"),
-    // subcategoryId is optional in the UI ("Opcional") — accept null/undefined
+    // categoryId is REQUIRED — los ejercicios van bajo una categoría directa
+    categoryId: z.number({
+        required_error: 'Debes seleccionar una categoría',
+        invalid_type_error: 'Debes seleccionar una categoría'
+    }).int().positive('Debes seleccionar una categoría'),
+    // subcategoryId is kept for back-compat but no longer used
     subcategoryId: z.number().int().positive().nullable().optional(),
-    // categoryId comes from the form too; keep it permissive
-    categoryId: z.number().int().positive().nullable().optional(),
     video_url: z.string().url().optional().nullable().or(z.literal('')),
     videoUrl: z.string().url().optional().nullable().or(z.literal('')),
     notes: z.string().optional().nullable(),
-    // Legacy fields made optional
     default_sets: z.any().optional(),
     default_reps: z.any().optional(),
     is_failure: z.any().optional(),
@@ -85,16 +87,17 @@ class TrainingService extends BaseService {
     // --- EXERCISES ---
     // --- EXERCISES (Relational) ---
     getExercises(filters = {}) {
+        // Read category directly via e.category_id. Falls back to deriving from
+        // legacy subcategory chain via LEFT JOIN if category_id is NULL.
         let query = `
-            SELECT e.*, 
-                   s.name as subcategory_name, 
-                   s.id as subcategory_id,
-                   c.name as category_name, 
-                   c.icon as category_icon,
-                   c.id as category_id
+            SELECT e.*,
+                   COALESCE(c.id, c2.id) as category_id,
+                   COALESCE(c.name, c2.name) as category_name,
+                   COALESCE(c.icon, c2.icon) as category_icon
             FROM exercises e
+            LEFT JOIN exercise_categories c ON e.category_id = c.id
             LEFT JOIN exercise_subcategories s ON e.subcategory_id = s.id
-            LEFT JOIN exercise_categories c ON s.category_id = c.id
+            LEFT JOIN exercise_categories c2 ON s.category_id = c2.id
         `;
         const params = [];
         const conditions = [];
@@ -104,16 +107,12 @@ class TrainingService extends BaseService {
             params.push(`%${filters.search}%`);
         }
         if (filters.category) {
-            conditions.push('c.name = ?');
-            params.push(filters.category);
-        }
-        if (filters.subcategory) { // Support ID or Name
-            if (typeof filters.subcategory === 'number') {
-                conditions.push('s.id = ?');
-                params.push(filters.subcategory);
+            if (typeof filters.category === 'number') {
+                conditions.push('COALESCE(c.id, c2.id) = ?');
+                params.push(filters.category);
             } else {
-                conditions.push('s.name = ?');
-                params.push(filters.subcategory);
+                conditions.push('COALESCE(c.name, c2.name) = ?');
+                params.push(filters.category);
             }
         }
 
@@ -148,43 +147,29 @@ class TrainingService extends BaseService {
         }
 
         const gymId = this.getGymId();
-        // Accept both camelCase (videoUrl from form) and snake_case (video_url)
         const videoUrl = data.video_url ?? data.videoUrl ?? null;
+        const categoryId = data.categoryId;
 
-        // Resolve subcategoryId:
-        // 1. If user picked one, use it
-        // 2. Else if user picked a category, use the first subcategory of that category
-        // 3. Else if user picked a category but no subcategory exists yet,
-        //    auto-create a "General" subcategory under that category
-        let subcategoryId = data.subcategoryId ?? null;
-        if (!subcategoryId && data.categoryId) {
-            const existing = this.db
-                .prepare('SELECT id FROM exercise_subcategories WHERE category_id = ? AND gym_id = ? ORDER BY id ASC LIMIT 1')
-                .get(data.categoryId, gymId);
-            if (existing) {
-                subcategoryId = existing.id;
-            } else {
-                // No subcategory yet for this category → create a default "General" one
-                const created = this.db
-                    .prepare("INSERT INTO exercise_subcategories (gym_id, category_id, name) VALUES (?, ?, 'General')")
-                    .run(gymId, data.categoryId);
-                subcategoryId = created.lastInsertRowid;
-                console.log(`[Training] Auto-created subcategory 'General' (id=${subcategoryId}) under category #${data.categoryId}`);
-            }
+        // Verify the category exists and belongs to this gym
+        const cat = this.db
+            .prepare('SELECT id FROM exercise_categories WHERE id = ? AND gym_id = ?')
+            .get(categoryId, gymId);
+        if (!cat) {
+            throw new Error('Categoría no encontrada en este gimnasio');
         }
 
         const stmt = this.db.prepare(`
-            INSERT INTO exercises (gym_id, name, subcategory_id, video_url, custom_fields)
+            INSERT INTO exercises (gym_id, name, category_id, video_url, custom_fields)
             VALUES (?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
             gymId,
             data.name,
-            subcategoryId,
+            categoryId,
             videoUrl,
             data.custom_fields ? JSON.stringify(data.custom_fields) : null
         );
-        return { id: info.lastInsertRowid, ...data, subcategoryId, video_url: videoUrl };
+        return { id: info.lastInsertRowid, ...data, categoryId, video_url: videoUrl };
     }
 
     updateExercise(id, data) {
@@ -195,15 +180,15 @@ class TrainingService extends BaseService {
         const validatedData = validation.data;
 
         const stmt = this.db.prepare(`
-            UPDATE exercises 
-            SET name = @name, subcategory_id = @subcategoryId, video_url = @video_url, 
+            UPDATE exercises
+            SET name = @name, category_id = @categoryId, video_url = @video_url,
                 custom_fields = @custom_fields,
                 synced = 0, updated_at = datetime('now')
             WHERE id = @id
         `);
         stmt.run({
             name: validatedData.name,
-            subcategoryId: validatedData.subcategoryId ?? null,
+            categoryId: validatedData.categoryId ?? null,
             video_url: validatedData.video_url ?? validatedData.videoUrl ?? null,
             custom_fields: validatedData.custom_fields ? JSON.stringify(validatedData.custom_fields) : null,
             id

@@ -190,6 +190,9 @@ contextBridge.exposeInMainWorld('api', {
         getWeeklySchedule: () => ipcRenderer.invoke('classes:getWeeklySchedule'),
         getBookingsForDate: (date) => ipcRenderer.invoke('classes:getBookingsForDate', date),
         getBookingsForWeek: (startDate, endDate) => ipcRenderer.invoke('classes:getBookingsForWeek', startDate, endDate),
+        // Gym hours helper
+        getGymHours: () => ipcRenderer.invoke('classes:getGymHours'),
+        setGymHours: (config) => ipcRenderer.invoke('classes:setGymHours', config),
         // Sporadic events
         createEvent: (data) => ipcRenderer.invoke('classes:createEvent', data),
         getEvents: (startDate, endDate) => ipcRenderer.invoke('classes:getEvents', startDate, endDate),

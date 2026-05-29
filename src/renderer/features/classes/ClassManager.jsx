@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CalendarDays, Plus, Users, Clock, Trash2, Edit2, Eye, EyeOff, UserCheck, ChevronLeft, ChevronRight, X, RefreshCw, Phone, Mail, Dumbbell, GripVertical } from 'lucide-react';
+import { CalendarDays, Plus, Users, Clock, Trash2, Edit2, Eye, EyeOff, UserCheck, ChevronLeft, ChevronRight, X, RefreshCw, Phone, Mail, Dumbbell, GripVertical, Settings } from 'lucide-react';
 import ClassFormModal from './ClassFormModal';
 import ScheduleEditor from './ScheduleEditor';
+import GymHoursModal from './GymHoursModal';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 const GYM_CLASS_NAME = 'Gimnasio';
@@ -64,6 +65,7 @@ export default function ClassManager() {
     const [editingClass, setEditingClass] = useState(null);
     const [scheduleClass, setScheduleClass] = useState(null);
     const [classToDelete, setClassToDelete] = useState(null);
+    const [isGymHoursOpen, setIsGymHoursOpen] = useState(false);
 
     // Drag-and-drop toast feedback
     const [moveToast, setMoveToast] = useState(null);
@@ -231,6 +233,7 @@ export default function ClassManager() {
                     weekDates={weekDates} weekLabel={weekLabel} weekOffset={weekOffset} setWeekOffset={setWeekOffset}
                     schedule={gymSchedule} timeSlots={gymTimeSlots} bookingsBySlotDate={bookingsBySlotDate}
                     bookingsLoading={bookingsLoading} onRefresh={loadWeekBookings} onSlotClick={openAttendees}
+                    onOpenGymHours={() => setIsGymHoursOpen(true)}
                 />
             )}
             {activeTab === 'classes' && (
@@ -259,6 +262,12 @@ export default function ClassManager() {
             {/* Modals */}
             {isFormOpen && <ClassFormModal editData={editingClass} onSave={handleFormSave}
                 onClose={() => { setIsFormOpen(false); setEditingClass(null); }} />}
+
+            {isGymHoursOpen && <GymHoursModal
+                isOpen={isGymHoursOpen}
+                onClose={() => setIsGymHoursOpen(false)}
+                onSaved={() => loadData()}
+            />}
             {scheduleClass && <ScheduleEditor gymClass={scheduleClass} onSave={handleScheduleSave}
                 onClose={() => setScheduleClass(null)} />}
             <ConfirmationModal isOpen={!!classToDelete} title="Eliminar clase"
@@ -330,11 +339,21 @@ function DayHeaders({ weekDates }) {
 // GYM TIMETABLE — Simplified: just hour slots with people count
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function GymTimetable({ weekDates, weekLabel, weekOffset, setWeekOffset, schedule, timeSlots, bookingsBySlotDate, bookingsLoading, onRefresh, onSlotClick }) {
+function GymTimetable({ weekDates, weekLabel, weekOffset, setWeekOffset, schedule, timeSlots, bookingsBySlotDate, bookingsLoading, onRefresh, onSlotClick, onOpenGymHours }) {
     return (
         <div className="space-y-4">
-            <WeekNav weekLabel={weekLabel} weekOffset={weekOffset} setWeekOffset={setWeekOffset}
-                bookingsLoading={bookingsLoading} onRefresh={onRefresh} />
+            <div className="flex items-center justify-between gap-3">
+                <WeekNav weekLabel={weekLabel} weekOffset={weekOffset} setWeekOffset={setWeekOffset}
+                    bookingsLoading={bookingsLoading} onRefresh={onRefresh} />
+                <button
+                    onClick={onOpenGymHours}
+                    className="shrink-0 inline-flex items-center gap-2 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 px-4 py-2 rounded-xl text-sm font-bold transition-all"
+                    title="Configurar horario de apertura del gimnasio"
+                >
+                    <Settings size={14} />
+                    Configurar horario
+                </button>
+            </div>
 
             <div className="bg-slate-900/30 rounded-2xl border border-white/5 overflow-hidden">
                 <DayHeaders weekDates={weekDates} />
@@ -342,12 +361,18 @@ function GymTimetable({ weekDates, weekLabel, weekOffset, setWeekOffset, schedul
                 {timeSlots.length === 0 ? (
                     <div className="text-center py-12 px-6 text-slate-500">
                         <Dumbbell className="mx-auto mb-3 text-slate-600" size={40} />
-                        <p className="font-medium mb-2">No hay franjas de gimnasio configuradas</p>
+                        <p className="font-medium mb-2">No hay horario de gimnasio configurado</p>
                         <p className="text-xs text-slate-600 mb-4 max-w-md mx-auto">
-                            Crea una clase llamada <span className="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">Gimnasio</span> en
-                            la pestaña <strong>"Gestión de Clases"</strong> y añade los horarios de apertura.
-                            Tus clientes vern las franjas en la app movil.
+                            Configura los dias y horas en los que el gimnasio esta abierto.
+                            Tus clientes podran reservar plaza desde la app movil.
                         </p>
+                        <button
+                            onClick={onOpenGymHours}
+                            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20"
+                        >
+                            <Settings size={14} />
+                            Configurar horario del gimnasio
+                        </button>
                     </div>
                 ) : (
                     timeSlots.map(time => (

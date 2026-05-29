@@ -9,14 +9,12 @@ export default function ExerciseModal({
     onClose,
     onSuccess = null,              // Callback for external handling
     initialCategory = null,       // pre-select category ID
-    initialSubcategory = null,    // pre-select subcategory ID
     exerciseToEdit = null         // If provided, we are in EDIT mode
 }) {
     const toast = useToast();
     const queryClient = useQueryClient();
     const [name, setName] = useState('');
     const [categoryId, setCategoryId] = useState(initialCategory || '');
-    const [subcategoryId, setSubcategoryId] = useState(initialSubcategory || '');
     const [videoUrl, setVideoUrl] = useState('');
     const [notes, setNotes] = useState('');
     const [customFields, setCustomFields] = useState({});
@@ -35,10 +33,6 @@ export default function ExerciseModal({
 
     // Fetch Categories
     const categories = queryClient.getQueryData(['categories']) || [];
-
-    // Derived subcategories based on selection
-    const selectedCategoryData = categories.find(c => c.id === parseInt(categoryId));
-    const availableSubcategories = selectedCategoryData?.subcategories || [];
 
     // --- MUTATIONS ---
     const createExercise = useMutation({
@@ -87,7 +81,6 @@ export default function ExerciseModal({
         const payload = {
             name,
             categoryId: parseInt(categoryId),
-            subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
             videoUrl,
             notes,
             custom_fields: customFields
@@ -114,21 +107,19 @@ export default function ExerciseModal({
         if (isOpen) {
             if (exerciseToEdit) {
                 setName(exerciseToEdit.name);
-                setCategoryId(exerciseToEdit.category_id);
-                setSubcategoryId(exerciseToEdit.subcategory_id || '');
+                setCategoryId(exerciseToEdit.category_id || '');
                 setVideoUrl(exerciseToEdit.video_url || '');
                 setNotes(exerciseToEdit.notes || '');
                 setCustomFields(exerciseToEdit.custom_fields || {});
             } else {
                 setName('');
                 setCategoryId(initialCategory || '');
-                setSubcategoryId(initialSubcategory || '');
                 setVideoUrl('');
                 setNotes('');
                 setCustomFields({});
             }
         }
-    }, [isOpen, initialCategory, initialSubcategory, exerciseToEdit]);
+    }, [isOpen, initialCategory, exerciseToEdit]);
 
     if (!isOpen) return null;
 
@@ -164,43 +155,28 @@ export default function ExerciseModal({
                     </div>
 
                     {/* Category Selection */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 tracking-wider">Categoría</label>
-                            <div className="relative">
-                                <select
-                                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-blue-500 outline-none appearance-none transition-all pr-10"
-                                    value={categoryId}
-                                    onChange={e => {
-                                        setCategoryId(e.target.value);
-                                        setSubcategoryId('');
-                                    }}
-                                >
-                                    <option value="">Seleccionar...</option>
-                                    {categories.map(cat => (
-                                        <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                    ))}
-                                </select>
-                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
-                            </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 tracking-wider">
+                            Categoría <span className="text-red-400">*</span>
+                        </label>
+                        <div className="relative">
+                            <select
+                                className={`w-full bg-slate-950 border rounded-xl px-4 py-2.5 text-white focus:border-blue-500 outline-none appearance-none transition-all pr-10 ${!categoryId ? 'border-red-500/40' : 'border-white/10'}`}
+                                value={categoryId}
+                                onChange={e => setCategoryId(e.target.value)}
+                            >
+                                <option value="">Seleccionar categoría...</option>
+                                {categories.map(cat => (
+                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                ))}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 tracking-wider">Subcategoría</label>
-                            <div className="relative">
-                                <select
-                                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-blue-500 outline-none appearance-none transition-all pr-10 disabled:opacity-30"
-                                    value={subcategoryId || ''}
-                                    onChange={e => setSubcategoryId(e.target.value)}
-                                    disabled={!categoryId}
-                                >
-                                    <option value="">(Opcional)</option>
-                                    {availableSubcategories.map(sub => (
-                                        <option key={sub.id} value={sub.id}>{sub.name}</option>
-                                    ))}
-                                </select>
-                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
-                            </div>
-                        </div>
+                        {categories.length === 0 && (
+                            <p className="text-xs text-amber-400 mt-1.5">
+                                No hay categorías. Crea una desde "Categorías" antes de añadir ejercicios.
+                            </p>
+                        )}
                     </div>
 
                     {/* DYNAMIC FIELDS */}
