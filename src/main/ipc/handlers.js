@@ -597,12 +597,67 @@ function registerHandlers() {
         data: licService.getLicenseData()
     }));
     handle('license:reportVersion', (version) => licService.updateVersion(version));
-    handle('license:deactivate', () => {
-        const { app } = require('electron');
+    handle('license:deactivate', async (event) => {
+        const { app, dialog, BrowserWindow } = require('electron');
+        const win = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow();
+
+        // Confirm whether to also wipe local DB. Avoids mixing data from
+        // two different gyms when the user switches licenses.
+        const choice = await dialog.showMessageBox(win, {
+            type: 'warning',
+            title: 'Cambiar de licencia',
+            message: 'Vas a desactivar la licencia actual. ¿Quieres borrar tambien los datos del gimnasio actual?',
+            detail:
+                'Si cambias a otro gimnasio sin borrar, los datos antiguos quedaran mezclados con los del nuevo gimnasio en tu PC.\n\n' +
+                'Recomendado: "Borrar datos y desactivar" si vas a activar otra licencia.',
+            buttons: [
+                'Borrar datos y desactivar (recomendado)',
+                'Solo desactivar (mantener datos)',
+                'Cancelar',
+            ],
+            defaultId: 0,
+            cancelId: 2,
+            noLink: true,
+        });
+
+        if (choice.response === 2) {
+            console.log('[IPC] License deactivation cancelled by user');
+            return { success: false, cancelled: true };
+        }
+
+        if (choice.response === 0) {
+            // Wipe the entire local SQLite file before deactivating
+            try {
+                const dbManager = require('../db/database');
+                if (typeof dbManager.wipeAllData === 'function') {
+                    dbManager.wipeAllData();
+                    console.log('[IPC] Local DB wiped before deactivation');
+                } else {
+                    // Fallback: close DB so Electron can delete the file on next start
+                    if (dbManager.close) dbManager.close();
+                    const path = require('path');
+                    const fs = require('fs');
+                    const dbPath = path.join(app.getPath('userData'), 'gym_manager.db');
+                    for (const suffix of ['', '-shm', '-wal']) {
+                        try { fs.unlinkSync(dbPath + suffix); } catch (_) {}
+                    }
+                    console.log('[IPC] Local DB file deleted');
+                }
+            } catch (err) {
+                console.error('[IPC] Failed to wipe local DB:', err.message);
+                // Continue with deactivation anyway
+            }
+        }
+
         licService.deactivate();
         console.log('[IPC] License deactivated. Relaunching app for fresh state...');
-        app.relaunch();
-        app.exit(0);
+        // Schedule relaunch on next tick so the IPC response flushes first
+        setTimeout(() => {
+            app.relaunch();
+            app.exit(0);
+        }, 200);
+
+        return { success: true, wiped: choice.response === 0 };
     });
 
     // Google Integration

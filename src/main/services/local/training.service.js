@@ -150,14 +150,29 @@ class TrainingService extends BaseService {
         const gymId = this.getGymId();
         // Accept both camelCase (videoUrl from form) and snake_case (video_url)
         const videoUrl = data.video_url ?? data.videoUrl ?? null;
-        // If no subcategoryId provided, pick the first subcategory of the category as fallback
+
+        // Resolve subcategoryId:
+        // 1. If user picked one, use it
+        // 2. Else if user picked a category, use the first subcategory of that category
+        // 3. Else if user picked a category but no subcategory exists yet,
+        //    auto-create a "General" subcategory under that category
         let subcategoryId = data.subcategoryId ?? null;
         if (!subcategoryId && data.categoryId) {
-            const fallback = this.db
+            const existing = this.db
                 .prepare('SELECT id FROM exercise_subcategories WHERE category_id = ? AND gym_id = ? ORDER BY id ASC LIMIT 1')
                 .get(data.categoryId, gymId);
-            if (fallback) subcategoryId = fallback.id;
+            if (existing) {
+                subcategoryId = existing.id;
+            } else {
+                // No subcategory yet for this category → create a default "General" one
+                const created = this.db
+                    .prepare("INSERT INTO exercise_subcategories (gym_id, category_id, name) VALUES (?, ?, 'General')")
+                    .run(gymId, data.categoryId);
+                subcategoryId = created.lastInsertRowid;
+                console.log(`[Training] Auto-created subcategory 'General' (id=${subcategoryId}) under category #${data.categoryId}`);
+            }
         }
+
         const stmt = this.db.prepare(`
             INSERT INTO exercises (gym_id, name, subcategory_id, video_url, custom_fields)
             VALUES (?, ?, ?, ?, ?)

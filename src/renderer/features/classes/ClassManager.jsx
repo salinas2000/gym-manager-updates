@@ -340,9 +340,14 @@ function GymTimetable({ weekDates, weekLabel, weekOffset, setWeekOffset, schedul
                 <DayHeaders weekDates={weekDates} />
 
                 {timeSlots.length === 0 ? (
-                    <div className="text-center py-16 text-slate-500">
+                    <div className="text-center py-12 px-6 text-slate-500">
                         <Dumbbell className="mx-auto mb-3 text-slate-600" size={40} />
-                        <p className="font-medium">No hay franjas de gimnasio configuradas</p>
+                        <p className="font-medium mb-2">No hay franjas de gimnasio configuradas</p>
+                        <p className="text-xs text-slate-600 mb-4 max-w-md mx-auto">
+                            Crea una clase llamada <span className="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">Gimnasio</span> en
+                            la pestaña <strong>"Gestión de Clases"</strong> y añade los horarios de apertura.
+                            Tus clientes vern las franjas en la app movil.
+                        </p>
                     </div>
                 ) : (
                     timeSlots.map(time => (
@@ -640,12 +645,14 @@ function AttendeesDrawer({ slot, date, attendees, onClose }) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CLASSES MANAGE VIEW — CRUD cards (excludes Gimnasio)
+// CLASSES MANAGE VIEW — CRUD cards (includes Gimnasio with special badge)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function ClassesManageView({ classes, weeklySchedule, loading, filter, setFilter, onEdit, onToggleActive, onDelete, onSchedule }) {
-    // Filter out the gym-access "class"
-    const managedClasses = useMemo(() => classes.filter(c => c.name !== GYM_CLASS_NAME), [classes]);
+    // Include ALL classes including the special "Gimnasio" one so the owner
+    // can edit its capacity, color and schedules from the management view.
+    // Gimnasio is rendered with a distinct badge so it's not confused with a regular class.
+    const managedClasses = useMemo(() => classes, [classes]);
 
     const scheduleByDay = DAY_NAMES.map((name, i) => ({
         day: i, name, slots: weeklySchedule.filter(s => s.day_of_week === i),

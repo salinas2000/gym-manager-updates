@@ -926,6 +926,72 @@ class DBManager {
             console.log('Database connection closed.');
         }
     }
+
+    /**
+     * Wipe all user data from every table while preserving the schema.
+     * Used when switching licenses to a different gym, so the new gym
+     * starts from an empty state and old gym data does not leak in.
+     * NOTE: Does NOT delete the file — just truncates all tables.
+     */
+    wipeAllData() {
+        if (!this.db) {
+            throw new Error('Database not initialized. Cannot wipe.');
+        }
+        // List of tables to clear. Order matters because of foreign keys.
+        // Child tables first, parents last.
+        const tables = [
+            'gym_class_bookings_local',
+            'gym_class_schedules',
+            'gym_classes',
+            'routine_items',
+            'routines',
+            'mesocycles',
+            'payments',
+            'memberships',
+            'customers',
+            'tariffs',
+            'exercises',
+            'exercise_subcategories',
+            'exercise_categories',
+            'inventory_movements',
+            'inventory_items',
+            'sync_deleted_log',
+            'cloud_remote_loads_processed',
+        ];
+
+        // Use a transaction to ensure all-or-nothing wipe
+        this.db.pragma('foreign_keys = OFF');
+        try {
+            const txn = this.db.transaction(() => {
+                for (const table of tables) {
+                    try {
+                        // Check existence (some tables only exist after migrations)
+                        const exists = this.db
+                            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+                            .get(table);
+                        if (!exists) continue;
+                        this.db.prepare(`DELETE FROM ${table}`).run();
+                        // Reset AUTOINCREMENT counter
+                        this.db
+                            .prepare("DELETE FROM sqlite_sequence WHERE name=?")
+                            .run(table);
+                    } catch (e) {
+                        console.warn(`[DB] wipeAllData: failed clearing ${table}: ${e.message}`);
+                    }
+                }
+                // Also reset settings that are gym-specific (keep system ones)
+                try {
+                    this.db
+                        .prepare("DELETE FROM settings WHERE key IN ('gym_name', 'manager_name')")
+                        .run();
+                } catch (_) {}
+            });
+            txn();
+            console.log('[DB] All gym data wiped. Schema intact.');
+        } finally {
+            this.db.pragma('foreign_keys = ON');
+        }
+    }
 }
 
 module.exports = new DBManager();

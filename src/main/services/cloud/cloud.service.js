@@ -772,28 +772,61 @@ class CloudService {
         if (!email) throw new Error('El cliente necesita un email para recibir la invitación');
 
         const redirectTo = 'https://app.gymanagerpro.com/login';
+        const normalizedEmail = email.trim().toLowerCase();
 
-        // 1. Check if already invited
-        const { data: existing } = await this.supabase
+        // 1. Check if this specific (gym, customer) link already exists
+        const { data: existingLink } = await this.supabase
             .from('mobile_client_links')
             .select('id, auth_user_id, linked_at')
             .match({ gym_id: gymId, customer_local_id: customerId })
             .maybeSingle();
 
-        // If already has account → send password reset email via Supabase
-        if (existing?.linked_at) {
-            const { error: resetError } = await this.supabase.auth.resetPasswordForEmail(email, { redirectTo });
-
-            if (resetError) {
-                throw new Error(`Error enviando email de recuperación: ${resetError.message}`);
-            }
-
-            console.log(`[CLOUD_SYNC] 🔄 Password reset sent to ${email} for customer #${customerId}`);
-            return { success: true, message: `Email de recuperación enviado a ${email}` };
+        // Already fully linked for THIS gym+customer → send password reset
+        if (existingLink?.linked_at && existingLink?.auth_user_id) {
+            const { error: resetError } = await this.supabase.auth.resetPasswordForEmail(normalizedEmail, { redirectTo });
+            if (resetError) throw new Error(`Error enviando email de recuperación: ${resetError.message}`);
+            console.log(`[CLOUD_SYNC] 🔄 Password reset sent to ${normalizedEmail} for customer #${customerId} (gym ${gymId})`);
+            return { success: true, message: `Email de recuperación enviado a ${normalizedEmail}` };
         }
 
-        // 2. Create or update the link record (auth_user_id will be filled by trigger on signup)
-        if (!existing) {
+        // 2. Look up if this email ALREADY exists in auth.users (multi-gym scenario)
+        let existingAuthUser = null;
+        try {
+            const { data: listed } = await this.supabase.auth.admin.listUsers();
+            existingAuthUser = (listed?.users || []).find(
+                (u) => u.email?.toLowerCase() === normalizedEmail
+            ) || null;
+        } catch (err) {
+            console.warn('[CLOUD_SYNC] Failed to list auth users (continuing):', err.message);
+        }
+
+        // 3a. MULTI-GYM PATH: user already has an account in another gym
+        if (existingAuthUser) {
+            // Just create/upsert the link with the existing auth_user_id — no email needed
+            const { error: upsertError } = await this.supabase
+                .from('mobile_client_links')
+                .upsert(
+                    {
+                        gym_id: gymId,
+                        customer_local_id: customerId,
+                        auth_user_id: existingAuthUser.id,
+                        invited_at: new Date().toISOString(),
+                        linked_at: new Date().toISOString(),
+                    },
+                    { onConflict: 'auth_user_id,gym_id' }
+                );
+
+            if (upsertError) throw new Error(`Error vinculando cliente: ${upsertError.message}`);
+
+            console.log(`[CLOUD_SYNC] 🔗 Multi-gym link created for ${normalizedEmail} → gym ${gymId}, customer #${customerId}`);
+            return {
+                success: true,
+                message: `${normalizedEmail} ya tiene cuenta. Se le ha dado acceso a este gimnasio automaticamente — al iniciar sesion vera ambos gimnasios.`,
+            };
+        }
+
+        // 3b. NEW USER PATH: create pending link + send invitation email
+        if (!existingLink) {
             const { error: linkError } = await this.supabase
                 .from('mobile_client_links')
                 .insert({
@@ -802,12 +835,10 @@ class CloudService {
                     auth_user_id: null,
                     invited_at: new Date().toISOString(),
                 });
-
             if (linkError) throw new Error(`Error creando link: ${linkError.message}`);
         }
 
-        // 3. Invite user via Supabase (sends email through Supabase's configured SMTP + templates)
-        const { error: inviteError } = await this.supabase.auth.admin.inviteUserByEmail(email, {
+        const { error: inviteError } = await this.supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
             redirectTo,
             data: {
                 gym_id: gymId,
@@ -816,14 +847,38 @@ class CloudService {
         });
 
         if (inviteError) {
+            // Edge case: between listUsers and inviteUser, the user got registered
             if (inviteError.message.includes('already been registered')) {
-                return { success: false, message: 'Este email ya tiene una cuenta. El cliente puede iniciar sesión directamente.' };
+                // Retry the multi-gym path
+                try {
+                    const { data: retry } = await this.supabase.auth.admin.listUsers();
+                    const user = (retry?.users || []).find(u => u.email?.toLowerCase() === normalizedEmail);
+                    if (user) {
+                        await this.supabase
+                            .from('mobile_client_links')
+                            .upsert(
+                                {
+                                    gym_id: gymId,
+                                    customer_local_id: customerId,
+                                    auth_user_id: user.id,
+                                    invited_at: new Date().toISOString(),
+                                    linked_at: new Date().toISOString(),
+                                },
+                                { onConflict: 'auth_user_id,gym_id' }
+                            );
+                        return {
+                            success: true,
+                            message: `${normalizedEmail} ya tiene cuenta. Acceso al gimnasio concedido automaticamente.`,
+                        };
+                    }
+                } catch (_) { /* fall through */ }
+                return { success: false, message: 'Este email ya tiene una cuenta pero no se pudo vincular automaticamente. Intentalo de nuevo.' };
             }
             throw new Error(`Error enviando invitación: ${inviteError.message}`);
         }
 
-        console.log(`[CLOUD_SYNC] 📧 Mobile invitation sent to ${email} for customer #${customerId}`);
-        return { success: true, message: `Invitación enviada a ${email}` };
+        console.log(`[CLOUD_SYNC] 📧 Mobile invitation sent to ${normalizedEmail} for customer #${customerId} (gym ${gymId})`);
+        return { success: true, message: `Invitación enviada a ${normalizedEmail}` };
     }
 
     /**

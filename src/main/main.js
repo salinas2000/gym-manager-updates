@@ -123,7 +123,47 @@ function createWindow() {
     }
 
     mainWindow.once('ready-to-show', () => {
+        // Reset zoom on every launch so users never get stuck with a tiny UI
+        // (e.g. after accidentally pressing Ctrl+- multiple times)
+        try {
+            mainWindow.webContents.setZoomFactor(1.0);
+            mainWindow.webContents.setZoomLevel(0);
+        } catch (_) { /* noop */ }
         mainWindow.show();
+    });
+
+    // Reset zoom whenever the page reloads/navigates
+    mainWindow.webContents.on('did-finish-load', () => {
+        try {
+            // Only reset if zoom is extremely off (user might have set it intentionally)
+            const currentLevel = mainWindow.webContents.getZoomLevel();
+            if (Math.abs(currentLevel) > 5) {
+                mainWindow.webContents.setZoomLevel(0);
+            }
+        } catch (_) { /* noop */ }
+    });
+
+    // Global keyboard shortcuts for zoom — handle them in main process
+    // because some keyboards/Electron versions ignore the default Ctrl++ binding
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (!input.control && !input.meta) return;
+        // Ctrl/Cmd + 0 → reset to 100%
+        if (input.key === '0') {
+            mainWindow.webContents.setZoomLevel(0);
+            event.preventDefault();
+        }
+        // Ctrl/Cmd + Plus (or shift+plus on layouts requiring shift)
+        else if (input.key === '+' || input.key === '=') {
+            const current = mainWindow.webContents.getZoomLevel();
+            mainWindow.webContents.setZoomLevel(Math.min(current + 0.5, 5));
+            event.preventDefault();
+        }
+        // Ctrl/Cmd + Minus
+        else if (input.key === '-') {
+            const current = mainWindow.webContents.getZoomLevel();
+            mainWindow.webContents.setZoomLevel(Math.max(current - 0.5, -3));
+            event.preventDefault();
+        }
     });
 
     // Notify renderer when maximize state changes
