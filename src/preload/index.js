@@ -27,6 +27,16 @@ contextBridge.exposeInMainWorld('api', {
         getGroup: (groupId) => ipcRenderer.invoke('payments:getGroup', groupId),
         exportExcel: (options) => ipcRenderer.invoke('payments:exportExcel', options),
     },
+    trainers: {
+        getAll: (filter) => ipcRenderer.invoke('trainers:getAll', filter),
+        getById: (id) => ipcRenderer.invoke('trainers:getById', id),
+        create: (data) => ipcRenderer.invoke('trainers:create', data),
+        update: (id, data) => ipcRenderer.invoke('trainers:update', id, data),
+        toggleActive: (id) => ipcRenderer.invoke('trainers:toggleActive', id),
+        delete: (id) => ipcRenderer.invoke('trainers:delete', id),
+        setSchedule: (id, schedule) => ipcRenderer.invoke('trainers:setSchedule', id, schedule),
+        getOnDuty: (day, start, end) => ipcRenderer.invoke('trainers:getOnDuty', day, start, end),
+    },
     tariffs: {
         getAll: () => ipcRenderer.invoke('tariffs:getAll'),
         create: (data) => ipcRenderer.invoke('tariffs:create', data),
@@ -193,6 +203,7 @@ contextBridge.exposeInMainWorld('api', {
         // Gym hours helper
         getGymHours: () => ipcRenderer.invoke('classes:getGymHours'),
         setGymHours: (config) => ipcRenderer.invoke('classes:setGymHours', config),
+        setGymEnabled: (enabled) => ipcRenderer.invoke('classes:setGymEnabled', enabled),
         // Sporadic events
         createEvent: (data) => ipcRenderer.invoke('classes:createEvent', data),
         getEvents: (startDate, endDate) => ipcRenderer.invoke('classes:getEvents', startDate, endDate),

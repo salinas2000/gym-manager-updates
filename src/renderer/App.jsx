@@ -23,6 +23,7 @@ import AdminDashboard from './features/admin/AdminDashboard';
 import TemplatesPage from './features/templates/TemplatesPage';
 import InventoryPage from './features/inventory/InventoryPage';
 import ClassManager from './features/classes/ClassManager';
+import TrainerManager from './features/trainers/TrainerManager';
 
 function Dashboard() {
     const [currentView, setCurrentView] = useState('customers');
@@ -46,6 +47,8 @@ function Dashboard() {
                 return <InventoryPage />;
             case 'classes':
                 return <ClassManager />;
+            case 'trainers':
+                return <TrainerManager />;
             case 'finance':
                 return <PaymentsPage />;
             case 'tariffs':

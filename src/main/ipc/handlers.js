@@ -33,7 +33,13 @@ function registerHandlers() {
                 const result = await callback(...args);
                 // Auto-sync after successful mutations
                 if (isMutationChannel(channel)) {
-                    syncService.scheduleSync(3);
+                    // High-value mutations sync ASAP (1s) so clients see them quickly.
+                    // Less critical ones (settings, templates) get a normal 3s debounce.
+                    const isHighValue = channel.includes('classes:') ||
+                                        channel.includes('trainers:') ||
+                                        channel.includes('customers:') ||
+                                        channel.includes('payments:');
+                    syncService.scheduleSync(isHighValue ? 1 : 3);
                 }
                 return { success: true, data: result };
             } catch (error) {
@@ -832,6 +838,15 @@ function registerHandlers() {
     });
     // --- CLASSES MODULE (Gym classes & weekly schedules) ---
     const classService = require('../services/local/class.service');
+    const trainerService = require('../services/local/trainer.service');
+    handle('trainers:getAll', (filter) => trainerService.getAll(filter));
+    handle('trainers:getById', (id) => trainerService.getById(id));
+    handle('trainers:create', (data) => trainerService.create(data));
+    handle('trainers:update', (id, data) => trainerService.update(id, data));
+    handle('trainers:toggleActive', (id) => trainerService.toggleActive(id));
+    handle('trainers:delete', (id) => trainerService.delete(id));
+    handle('trainers:setSchedule', (id, schedule) => trainerService.setSchedule(id, schedule));
+    handle('trainers:getOnDuty', (day, start, end) => trainerService.getOnDuty(day, start, end));
     handle('classes:getAll', (filter) => classService.getAll(filter));
     handle('classes:getById', (id) => classService.getById(id));
     handle('classes:create', (data) => classService.create(data));
@@ -848,6 +863,7 @@ function registerHandlers() {
     // Gym hours helper (manages the special "Gimnasio" class behind the scenes)
     handle('classes:getGymHours', () => classService.getGymHours());
     handle('classes:setGymHours', (config) => classService.setGymHours(config));
+    handle('classes:setGymEnabled', (enabled) => classService.setGymEnabled(enabled));
     // Sporadic events (one-off class events)
     handle('classes:createEvent', (data) => classService.createEvent(data));
     handle('classes:getEvents', (startDate, endDate) => classService.getEvents(startDate, endDate));

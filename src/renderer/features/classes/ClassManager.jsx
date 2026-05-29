@@ -677,10 +677,19 @@ function ClassesManageView({ classes, weeklySchedule, loading, filter, setFilter
     // Include ALL classes including the special "Gimnasio" one so the owner
     // can edit its capacity, color and schedules from the management view.
     // Gimnasio is rendered with a distinct badge so it's not confused with a regular class.
-    const managedClasses = useMemo(() => classes, [classes]);
+    // Hide the special "Gimnasio" class from the regular class management.
+    // It's not a class — it represents the gym open hours and is configured
+    // via the dedicated "Configurar horario del gimnasio" modal in the Gym tab.
+    const managedClasses = useMemo(() => classes.filter(c => c.name !== GYM_CLASS_NAME), [classes]);
 
+    // Filter out Gimnasio schedules from the "Horario Semanal de Clases" — they
+    // belong to the dedicated "Horario del Gimnasio" view, not here.
+    const classOnlySchedule = useMemo(
+        () => weeklySchedule.filter(s => s.class_name !== GYM_CLASS_NAME),
+        [weeklySchedule]
+    );
     const scheduleByDay = DAY_NAMES.map((name, i) => ({
-        day: i, name, slots: weeklySchedule.filter(s => s.day_of_week === i),
+        day: i, name, slots: classOnlySchedule.filter(s => s.day_of_week === i),
     }));
     const [expandedDay, setExpandedDay] = useState(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1);
 

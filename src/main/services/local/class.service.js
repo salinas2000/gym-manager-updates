@@ -589,12 +589,30 @@ class ClassService extends BaseService {
         return {
             configured: true,
             class_id: gymClass.id,
+            enabled: gymClass.active === 1,
             max_capacity: gymClass.max_capacity,
             duration_minutes: detectedDuration,
             shifts: instructorConfig.shifts,
             color_theme: gymClass.color_theme,
             days,
         };
+    }
+
+    /**
+     * Quick toggle to enable/disable the gym schedule in the mobile app
+     * without having to reconfigure everything. When disabled (active=0),
+     * the gym slots disappear for clients but the configuration is kept.
+     */
+    setGymEnabled(enabled) {
+        const db = dbManager.getInstance();
+        const gymId = this.getGymId();
+        const activeFlag = enabled ? 1 : 0;
+        const result = db.prepare(`
+            UPDATE gym_classes
+            SET active = ?, synced = 0, updated_at = datetime('now')
+            WHERE gym_id = ? AND name = 'Gimnasio'
+        `).run(activeFlag, gymId);
+        return { success: true, updated: result.changes, enabled: !!enabled };
     }
 
     /**
@@ -613,6 +631,7 @@ class ClassService extends BaseService {
         const gymId = this.getGymId();
         const maxCapacity = Math.max(1, Math.min(500, parseInt(config?.max_capacity) || 30));
         const days = Array.isArray(config?.days) ? config.days : [];
+        const enabledFlag = config?.enabled === false ? 0 : 1;
 
         // Shifts are the source of truth for both schedule slots AND trainer assignments.
         // A shift may have no trainers (gym is open but no trainer on duty).
@@ -645,23 +664,48 @@ class ClassService extends BaseService {
         if (!allowedDurations.has(duration)) duration = 60;
 
         const txn = db.transaction(() => {
-            // 1. Ensure the "Gimnasio" class exists
-            let gymClass = db
-                .prepare("SELECT * FROM gym_classes WHERE gym_id = ? AND name = 'Gimnasio' LIMIT 1")
-                .get(gymId);
-
-            if (!gymClass) {
+            // 1. Ensure the canonical "Gimnasio" class exists. If there are
+            //    duplicates from earlier manual creates, consolidate them all
+            //    into the oldest one and delete the rest.
+            // Pick the row with non-null instructor FIRST (preserves shifts on consolidate)
+            // then fall back to oldest by id.
+            const all = db
+                .prepare(`
+                    SELECT * FROM gym_classes WHERE gym_id = ? AND name = 'Gimnasio'
+                    ORDER BY (CASE WHEN instructor IS NOT NULL AND instructor != '' THEN 0 ELSE 1 END), id ASC
+                `)
+                .all(gymId);
+            let gymClass;
+            if (all.length === 0) {
                 const result = db.prepare(`
                     INSERT INTO gym_classes (gym_id, name, description, instructor, color_theme, max_capacity, duration_minutes, active, synced, updated_at)
-                    VALUES (?, 'Gimnasio', 'Horario de gimnasio libre', ?, 'slate', ?, ?, 1, 0, datetime('now'))
-                `).run(gymId, instructor, maxCapacity, duration);
+                    VALUES (?, 'Gimnasio', 'Horario de gimnasio libre', ?, 'slate', ?, ?, ?, 0, datetime('now'))
+                `).run(gymId, instructor, maxCapacity, duration, enabledFlag);
                 gymClass = { id: result.lastInsertRowid };
             } else {
+                gymClass = all[0];
+                // Move schedules from duplicates onto the canonical one, then delete the dups
+                if (all.length > 1) {
+                    const logDel = db.prepare(
+                        'INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)'
+                    );
+                    for (let i = 1; i < all.length; i++) {
+                        try {
+                            db.prepare('UPDATE gym_class_schedules SET class_id = ? WHERE class_id = ? AND gym_id = ?')
+                                .run(gymClass.id, all[i].id, gymId);
+                            logDel.run(gymId, 'gym_classes', all[i].id);
+                            db.prepare('DELETE FROM gym_classes WHERE id = ? AND gym_id = ?').run(all[i].id, gymId);
+                            console.log(`[Class] Removed duplicate Gimnasio id=${all[i].id} (consolidated into ${gymClass.id})`);
+                        } catch (e) {
+                            console.warn(`[Class] Failed consolidating Gimnasio #${all[i].id}: ${e.message}`);
+                        }
+                    }
+                }
                 db.prepare(`
                     UPDATE gym_classes
-                    SET max_capacity = ?, instructor = ?, duration_minutes = ?, active = 1, synced = 0, updated_at = datetime('now')
+                    SET max_capacity = ?, instructor = ?, duration_minutes = ?, active = ?, synced = 0, updated_at = datetime('now')
                     WHERE id = ? AND gym_id = ?
-                `).run(maxCapacity, instructor, duration, gymClass.id, gymId);
+                `).run(maxCapacity, instructor, duration, enabledFlag, gymClass.id, gymId);
             }
 
             // 2. Log existing schedules for sync_deleted_log, then wipe them

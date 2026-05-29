@@ -749,6 +749,36 @@ class DBManager {
         this.safeAddColumn('routine_items', 'custom_fields', 'TEXT'); // JSON storage
         this.safeAddColumn('routine_items', 'intensity', 'TEXT'); // Intensity level
 
+        // 22a. Trainers (entities) + their per-day schedules
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS trainers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                color_theme TEXT DEFAULT 'blue',
+                phone TEXT,
+                email TEXT,
+                active INTEGER DEFAULT 1,
+                synced INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS trainer_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT NOT NULL,
+                trainer_id INTEGER NOT NULL,
+                day_of_week INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                synced INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (trainer_id) REFERENCES trainers(id) ON DELETE CASCADE
+            )
+        `);
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_trainers_gym ON trainers(gym_id)');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_trainer_schedules_gym ON trainer_schedules(gym_id, day_of_week)');
+
         // 22b. Flatten exercise hierarchy: add direct category_id to exercises
         // (we keep subcategory_id around for back-compat but UI only uses category_id)
         this.safeAddColumn('exercises', 'category_id', 'INTEGER');

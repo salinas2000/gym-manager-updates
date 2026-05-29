@@ -258,6 +258,33 @@ class SyncService extends BaseService {
                     synced_at: new Date().toISOString(),
                 }),
             },
+            {
+                local: 'trainers',
+                cloud: 'cloud_trainers',
+                map: (r) => ({
+                    gym_id: r.gym_id,
+                    local_id: r.id,
+                    name: r.name,
+                    color_theme: r.color_theme || 'blue',
+                    phone: r.phone,
+                    email: r.email,
+                    active: r.active,
+                    synced_at: new Date().toISOString(),
+                }),
+            },
+            {
+                local: 'trainer_schedules',
+                cloud: 'cloud_trainer_schedules',
+                map: (r) => ({
+                    gym_id: r.gym_id,
+                    local_id: r.id,
+                    trainer_id: r.trainer_id,
+                    day_of_week: r.day_of_week,
+                    start_time: r.start_time,
+                    end_time: r.end_time,
+                    synced_at: new Date().toISOString(),
+                }),
+            },
         ];
     }
 

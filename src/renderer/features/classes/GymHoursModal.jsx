@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Dumbbell, Save, Users, User, Timer, Plus, UserPlus } from 'lucide-react';
+import { X, Dumbbell, Save, Users, Timer, Power, Info } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
 const DAY_NAMES = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
@@ -11,75 +11,128 @@ const SLOT_DURATIONS = [
 ];
 
 /**
- * Modal for configuring the gym open hours.
- * Hides the "you must create a class called Gimnasio" complexity behind
- * a clean UI: just toggle the days the gym is open and set open/close time.
+ * Configurar Horario del Gimnasio.
+ *
+ * Sólo define HORARIO DE APERTURA + AFORO. La asignación de entrenadores
+ * NO se hace aquí — se gestiona desde la sección "Entrenadores" (cada
+ * entrenador tiene su propio horario semanal) y la app móvil cruza
+ * automáticamente las dos cosas para mostrar quién está de turno en cada
+ * franja.
  */
 export default function GymHoursModal({ isOpen, onClose, onSaved }) {
     const toast = useToast();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [enabled, setEnabled] = useState(true);
     const [maxCapacity, setMaxCapacity] = useState(30);
     const [duration, setDuration] = useState(60);
-    // shifts: Array<{ id, days: number[], start: 'HH:MM', end: 'HH:MM', instructors: string[] }>
-    // Cada turno define ALA VEZ horario de apertura Y entrenadores asignados.
-    const [shifts, setShifts] = useState([]);
+    const [days, setDays] = useState(() =>
+        DAY_NAMES.map((name, i) => ({
+            day_of_week: i,
+            name,
+            enabled: i < 5, // Mon-Fri by default
+            start_time: '07:00',
+            end_time: '22:00',
+        }))
+    );
 
     useEffect(() => {
         if (!isOpen) return;
         setLoading(true);
         window.api.classes.getGymHours().then((res) => {
             if (res?.success && res.data?.configured) {
+                setEnabled(res.data.enabled !== false);
                 setMaxCapacity(res.data.max_capacity || 30);
                 setDuration(res.data.duration_minutes || 60);
-                setShifts(Array.isArray(res.data.shifts) ? res.data.shifts : []);
+
+                // Reconstruct days from existing shifts (back-compat) or from days field
+                const dayHours = new Map(); // day_of_week → {start, end}
+                if (Array.isArray(res.data.shifts) && res.data.shifts.length > 0) {
+                    for (const shift of res.data.shifts) {
+                        for (const d of shift.days) {
+                            const existing = dayHours.get(d);
+                            if (!existing) {
+                                dayHours.set(d, { start: shift.start, end: shift.end });
+                            } else {
+                                if (shift.start < existing.start) existing.start = shift.start;
+                                if (shift.end > existing.end) existing.end = shift.end;
+                            }
+                        }
+                    }
+                } else if (Array.isArray(res.data.days)) {
+                    for (const d of res.data.days) {
+                        dayHours.set(d.day_of_week, { start: d.start_time, end: d.end_time });
+                    }
+                }
+
+                setDays((prev) => prev.map((d) => {
+                    const found = dayHours.get(d.day_of_week);
+                    return found
+                        ? { ...d, enabled: true, start_time: found.start, end_time: found.end }
+                        : { ...d, enabled: false };
+                }));
             }
         }).catch(console.error).finally(() => setLoading(false));
     }, [isOpen]);
 
     if (!isOpen) return null;
 
+    const updateDay = (idx, field, value) => {
+        setDays((prev) => prev.map((d, i) => (i === idx ? { ...d, [field]: value } : d)));
+    };
+
+    const toggleAllWeekdays = () => {
+        const allEnabled = days.slice(0, 5).every((d) => d.enabled);
+        setDays((prev) => prev.map((d, i) => (i < 5 ? { ...d, enabled: !allEnabled } : d)));
+    };
+
     const handleSave = async () => {
-        if (shifts.length === 0) {
-            toast.error('Añade al menos un turno para definir el horario del gimnasio');
+        const activeDays = days.filter((d) => d.enabled);
+
+        // Solo exigimos días con horario si está activado
+        if (enabled && activeDays.length === 0) {
+            toast.error('Activa al menos un día o desactiva el gimnasio');
             return;
         }
-
-        // Validate shifts
-        for (const sh of shifts) {
-            if (sh.days.length === 0) {
-                toast.error('Cada turno debe tener al menos un día seleccionado');
-                return;
-            }
-            if (sh.start >= sh.end) {
-                toast.error('Hora de fin debe ser posterior a la de inicio');
+        for (const d of activeDays) {
+            if (d.start_time >= d.end_time) {
+                toast.error(`${d.name}: la hora de cierre debe ser posterior a la de apertura`);
                 return;
             }
         }
 
         setSaving(true);
         try {
+            // Convertimos cada día activo en 1 shift sin instructors (los entrenadores
+            // vienen aparte de la tabla trainers). Mantenemos el formato shifts para
+            // que el backend genere los slots correctamente.
+            const shifts = activeDays.map((d, i) => ({
+                id: `day-${d.day_of_week}-${i}`,
+                days: [d.day_of_week],
+                start: d.start_time,
+                end: d.end_time,
+                instructors: [], // ya NO se asignan aquí
+            }));
+
             const config = {
+                enabled,
                 max_capacity: maxCapacity,
                 duration_minutes: duration,
-                shifts: shifts.map((s) => ({
-                    id: s.id,
-                    days: s.days,
-                    start: s.start,
-                    end: s.end,
-                    instructors: s.instructors.map((x) => x.trim()).filter(Boolean),
-                })),
+                shifts,
             };
             const res = await window.api.classes.setGymHours(config);
             if (res?.success) {
-                toast.success(`Horario configurado (${res.data?.total_slots || 0} franjas de 1h)`);
+                toast.success(enabled
+                    ? `Horario configurado (${res.data?.total_slots || 0} franjas/semana)`
+                    : 'Gimnasio desactivado en la app movil'
+                );
                 if (onSaved) onSaved();
                 onClose();
             } else {
                 toast.error(res?.error || 'Error al guardar el horario');
             }
         } catch (err) {
-            toast.error(err.message || 'Error al guardar el horario');
+            toast.error(err.message || 'Error al guardar');
         } finally {
             setSaving(false);
         }
@@ -91,10 +144,7 @@ export default function GymHoursModal({ isOpen, onClose, onSaved }) {
             <div className="relative w-full max-w-2xl max-h-[90vh] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
                 {/* Header */}
                 <div className="relative bg-gradient-to-br from-slate-800 to-slate-900 p-6 border-b border-white/5">
-                    <button
-                        onClick={onClose}
-                        className="absolute top-4 right-4 p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors"
-                    >
+                    <button onClick={onClose} className="absolute top-4 right-4 p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors">
                         <X size={18} />
                     </button>
                     <div className="flex items-center gap-4">
@@ -104,7 +154,7 @@ export default function GymHoursModal({ isOpen, onClose, onSaved }) {
                         <div>
                             <h2 className="text-xl font-bold text-white">Configurar Horario del Gimnasio</h2>
                             <p className="text-sm text-slate-400 mt-0.5">
-                                Define cuando esta abierto el gimnasio. Tus clientes lo veran en la app movil para reservar.
+                                Define los días y horas en que el gimnasio está abierto.
                             </p>
                         </div>
                     </div>
@@ -118,221 +168,146 @@ export default function GymHoursModal({ isOpen, onClose, onSaved }) {
                         </div>
                     ) : (
                         <>
-                            {/* Grid: 2 fields side-by-side */}
-                            <div className="grid grid-cols-2 gap-3">
-                                {/* Capacity */}
-                                <div className="bg-slate-800/40 rounded-xl p-4 border border-white/5">
-                                    <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-2">
-                                        <Users size={11} />
-                                        Aforo maximo
-                                    </label>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={500}
-                                        value={maxCapacity}
-                                        onChange={(e) => setMaxCapacity(parseInt(e.target.value) || 1)}
-                                        className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white text-center text-base font-bold focus:border-blue-500 outline-none"
-                                    />
-                                    <p className="text-[10px] text-slate-500 mt-1.5">personas a la vez</p>
-                                </div>
+                            {/* Info banner */}
+                            <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 flex items-start gap-3">
+                                <Info size={16} className="text-blue-400 shrink-0 mt-0.5" />
+                                <p className="text-xs text-slate-300 leading-relaxed">
+                                    <strong className="text-blue-300">Los entrenadores se gestionan aparte.</strong> Crea cada entrenador en la sección "Entrenadores" con su horario semanal. La app móvil mostrará automáticamente quién está de turno en cada franja del gimnasio.
+                                </p>
+                            </div>
 
-                                {/* Slot duration */}
-                                <div className="bg-slate-800/40 rounded-xl p-4 border border-white/5">
-                                    <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-2">
-                                        <Timer size={11} />
-                                        Duracion de cada franja
-                                    </label>
-                                    <select
-                                        value={duration}
-                                        onChange={(e) => setDuration(parseInt(e.target.value))}
-                                        className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-2 text-white text-sm font-medium focus:border-blue-500 outline-none appearance-none"
+                            {/* Toggle visible en app */}
+                            <div className={`rounded-xl p-4 border transition-colors ${enabled ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-800/40 border-white/10'}`}>
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="flex-1">
+                                        <p className="text-sm font-bold text-white">Visible en la app movil</p>
+                                        <p className="text-xs text-slate-400 mt-0.5">
+                                            {enabled
+                                                ? 'Los clientes ven el horario del gimnasio y pueden reservar plaza'
+                                                : 'Desactivado: el gimnasio NO aparece en la app movil de los clientes'}
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEnabled((v) => !v)}
+                                        className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${enabled ? 'bg-emerald-500' : 'bg-slate-600'}`}
                                     >
-                                        {SLOT_DURATIONS.map(d => (
-                                            <option key={d.value} value={d.value}>{d.label}</option>
-                                        ))}
-                                    </select>
-                                    <p className="text-[10px] text-slate-500 mt-1.5">duracion por reserva</p>
+                                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${enabled ? 'translate-x-5' : 'translate-x-0.5'} self-center`} />
+                                    </button>
                                 </div>
                             </div>
 
-                            {/* Turnos de entrenadores */}
-                            <div className="bg-slate-800/40 rounded-xl p-4 border border-white/5">
-                                <div className="flex items-center justify-between mb-3">
-                                    <label className="flex items-center gap-2 text-xs uppercase font-bold text-slate-400 tracking-widest">
-                                        <User size={12} />
-                                        Turnos de entrenadores
-                                        {shifts.length > 0 && (
-                                            <span className="text-[10px] text-blue-400 normal-case tracking-normal font-medium ml-1">
-                                                ({shifts.length})
-                                            </span>
-                                        )}
-                                    </label>
-                                    <button
-                                        onClick={() => setShifts((prev) => [
-                                            ...prev,
-                                            {
-                                                id: `shift-${Date.now()}-${prev.length}`,
-                                                days: [0, 1, 2, 3, 4],
-                                                start: prev.length === 0 ? '07:00' : '14:00',
-                                                end: prev.length === 0 ? '14:00' : '22:00',
-                                                instructors: [''],
-                                            },
-                                        ])}
-                                        className="inline-flex items-center gap-1.5 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
-                                    >
-                                        <Plus size={12} />
-                                        Añadir turno
-                                    </button>
+                            <div className={`space-y-5 ${!enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                                {/* Aforo + Duración */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-slate-800/40 rounded-xl p-4 border border-white/5">
+                                        <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-2">
+                                            <Users size={11} />
+                                            Aforo maximo
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={500}
+                                            value={maxCapacity}
+                                            onChange={(e) => setMaxCapacity(parseInt(e.target.value) || 1)}
+                                            className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white text-center text-base font-bold focus:border-blue-500 outline-none"
+                                        />
+                                        <p className="text-[10px] text-slate-500 mt-1.5">personas a la vez</p>
+                                    </div>
+                                    <div className="bg-slate-800/40 rounded-xl p-4 border border-white/5">
+                                        <label className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-2">
+                                            <Timer size={11} />
+                                            Duracion por reserva
+                                        </label>
+                                        <select
+                                            value={duration}
+                                            onChange={(e) => setDuration(parseInt(e.target.value))}
+                                            className="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-2 text-white text-sm font-medium focus:border-blue-500 outline-none appearance-none"
+                                        >
+                                            {SLOT_DURATIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                                        </select>
+                                        <p className="text-[10px] text-slate-500 mt-1.5">cada franja del calendario</p>
+                                    </div>
                                 </div>
 
-                                <p className="text-[10px] text-slate-500 mb-3">
-                                    Define qué entrenadores trabajan en cada franja del día (mañana/tarde/noche). Cada cliente verá el entrenador correspondiente al reservar.
-                                </p>
-
-                                {shifts.length === 0 ? (
-                                    <div className="text-center py-4 text-slate-500">
-                                        <UserPlus size={28} className="mx-auto mb-1.5 text-slate-600" />
-                                        <p className="text-xs">Sin turnos configurados</p>
-                                        <p className="text-[10px] text-slate-600 mt-0.5">
-                                            Ej. Turno mañana 07:00-14:00 con Juan; tarde 14:00-22:00 con María
-                                        </p>
+                                {/* Días + horario */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <label className="text-xs uppercase font-bold text-slate-400 tracking-widest">
+                                            Dias de apertura y horario
+                                        </label>
+                                        <button
+                                            onClick={toggleAllWeekdays}
+                                            className="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors"
+                                        >
+                                            {days.slice(0, 5).every((d) => d.enabled) ? 'Desactivar L-V' : 'Activar L-V'}
+                                        </button>
                                     </div>
-                                ) : (
-                                    <div className="space-y-3">
-                                        {shifts.map((shift, sidx) => (
-                                            <div key={shift.id} className="bg-slate-900/60 rounded-lg border border-white/10 p-3 space-y-2.5">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-xs font-bold text-white">Turno {sidx + 1}</span>
-                                                    <button
-                                                        onClick={() => setShifts((prev) => prev.filter((_, i) => i !== sidx))}
-                                                        className="p-1 hover:bg-red-500/15 rounded text-slate-500 hover:text-red-400 transition-colors"
-                                                        title="Eliminar turno"
-                                                    >
-                                                        <X size={12} />
-                                                    </button>
+                                    <div className="space-y-2">
+                                        {days.map((day, idx) => (
+                                            <div
+                                                key={day.day_of_week}
+                                                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${day.enabled
+                                                    ? 'bg-slate-800/60 border-blue-500/20'
+                                                    : 'bg-slate-800/20 border-white/5'}`}
+                                            >
+                                                <button
+                                                    onClick={() => updateDay(idx, 'enabled', !day.enabled)}
+                                                    className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition-all ${day.enabled
+                                                        ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20'
+                                                        : 'bg-slate-700/40 text-slate-500 hover:bg-slate-700'}`}
+                                                >
+                                                    <Power size={16} />
+                                                </button>
+                                                <div className="flex-1">
+                                                    <p className={`font-medium ${day.enabled ? 'text-white' : 'text-slate-500'}`}>
+                                                        {day.name}
+                                                    </p>
                                                 </div>
-
-                                                {/* Days */}
-                                                <div>
-                                                    <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1.5">Dias</p>
-                                                    <div className="flex gap-1">
-                                                        {DAY_NAMES.map((dn, di) => {
-                                                            const enabled = shift.days.includes(di);
-                                                            return (
-                                                                <button
-                                                                    key={di}
-                                                                    onClick={() => setShifts((prev) => prev.map((s, i) => {
-                                                                        if (i !== sidx) return s;
-                                                                        const newDays = enabled
-                                                                            ? s.days.filter((x) => x !== di)
-                                                                            : [...s.days, di].sort((a, b) => a - b);
-                                                                        return { ...s, days: newDays };
-                                                                    }))}
-                                                                    className={`flex-1 py-1.5 rounded-md text-[11px] font-bold transition-all ${
-                                                                        enabled
-                                                                            ? 'bg-blue-600 text-white shadow-sm'
-                                                                            : 'bg-slate-800/60 text-slate-500 hover:bg-slate-800'
-                                                                    }`}
-                                                                >
-                                                                    {dn.slice(0, 1)}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-
-                                                {/* Time range */}
-                                                <div>
-                                                    <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1.5">Horario</p>
+                                                {day.enabled && (
                                                     <div className="flex items-center gap-2">
                                                         <input
                                                             type="time"
-                                                            value={shift.start}
-                                                            onChange={(e) => setShifts((prev) => prev.map((s, i) => i === sidx ? { ...s, start: e.target.value } : s))}
-                                                            className="bg-slate-800 border border-white/10 rounded-md px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none"
+                                                            value={day.start_time}
+                                                            onChange={(e) => updateDay(idx, 'start_time', e.target.value)}
+                                                            className="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none"
                                                         />
                                                         <span className="text-slate-500 text-sm">-</span>
                                                         <input
                                                             type="time"
-                                                            value={shift.end}
-                                                            onChange={(e) => setShifts((prev) => prev.map((s, i) => i === sidx ? { ...s, end: e.target.value } : s))}
-                                                            className="bg-slate-800 border border-white/10 rounded-md px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none"
+                                                            value={day.end_time}
+                                                            onChange={(e) => updateDay(idx, 'end_time', e.target.value)}
+                                                            className="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none"
                                                         />
                                                     </div>
-                                                </div>
-
-                                                {/* Trainers */}
-                                                <div>
-                                                    <div className="flex items-center justify-between mb-1.5">
-                                                        <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Entrenadores</p>
-                                                        <button
-                                                            onClick={() => setShifts((prev) => prev.map((s, i) => i === sidx ? { ...s, instructors: [...s.instructors, ''] } : s))}
-                                                            className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
-                                                        >
-                                                            <Plus size={10} /> Otro
-                                                        </button>
-                                                    </div>
-                                                    <div className="space-y-1.5">
-                                                        {shift.instructors.map((name, iidx) => (
-                                                            <div key={iidx} className="flex items-center gap-1.5">
-                                                                <input
-                                                                    type="text"
-                                                                    value={name}
-                                                                    onChange={(e) => setShifts((prev) => prev.map((s, i) => i === sidx ? { ...s, instructors: s.instructors.map((n, j) => j === iidx ? e.target.value : n) } : s))}
-                                                                    placeholder="Nombre del entrenador"
-                                                                    className="flex-1 bg-slate-800 border border-white/10 rounded-md px-2.5 py-1.5 text-white text-xs focus:border-blue-500 outline-none"
-                                                                />
-                                                                {shift.instructors.length > 1 && (
-                                                                    <button
-                                                                        onClick={() => setShifts((prev) => prev.map((s, i) => i === sidx ? { ...s, instructors: s.instructors.filter((_, j) => j !== iidx) } : s))}
-                                                                        className="p-1 hover:bg-red-500/15 rounded text-slate-500 hover:text-red-400 transition-colors"
-                                                                    >
-                                                                        <X size={11} />
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
-                                )}
-                            </div>
+                                </div>
 
-                            {/* Summary — derivado de los turnos */}
-                            <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
-                                <p className="text-xs text-slate-400 mb-1">Resumen</p>
-                                {(() => {
-                                    // Total slots derived from shifts (deduped by day+time)
-                                    const generatedSet = new Set();
-                                    const activeDaySet = new Set();
-                                    for (const s of shifts) {
-                                        const [sh, sm] = s.start.split(':').map(Number);
-                                        const [eh, em] = s.end.split(':').map(Number);
-                                        const startMins = sh * 60 + sm;
-                                        const endMins = eh * 60 + em;
-                                        for (const dayIdx of s.days) {
-                                            activeDaySet.add(dayIdx);
-                                            for (let cur = startMins; cur + duration <= endMins; cur += duration) {
-                                                generatedSet.add(`${dayIdx}|${cur}`);
-                                            }
+                                {/* Summary */}
+                                <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+                                    <p className="text-xs text-slate-400 mb-1">Resumen</p>
+                                    {(() => {
+                                        const active = days.filter((d) => d.enabled);
+                                        const totalMins = active.reduce((acc, d) => {
+                                            const [sh, sm] = d.start_time.split(':').map(Number);
+                                            const [eh, em] = d.end_time.split(':').map(Number);
+                                            return acc + Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+                                        }, 0);
+                                        const totalSlots = Math.floor(totalMins / duration);
+                                        if (active.length === 0) {
+                                            return <p className="text-sm text-slate-500">Sin días activos — el gimnasio aparecerá cerrado en la app móvil.</p>;
                                         }
-                                    }
-                                    const uniqueTrainers = new Set();
-                                    shifts.forEach((s) => s.instructors.forEach((n) => { if (n.trim()) uniqueTrainers.add(n.trim()); }));
-                                    if (shifts.length === 0) {
-                                        return <p className="text-sm text-slate-500">Sin turnos — el gimnasio aparecerá cerrado en la app móvil.</p>;
-                                    }
-                                    return (
-                                        <p className="text-sm text-blue-300 font-medium">
-                                            {activeDaySet.size} dias abiertos · {generatedSet.size} franjas/semana de {duration} min · aforo {maxCapacity}
-                                            {' · '}{shifts.length} turno{shifts.length > 1 ? 's' : ''}
-                                            {uniqueTrainers.size > 0 && ` · ${uniqueTrainers.size} entrenador${uniqueTrainers.size !== 1 ? 'es' : ''}`}
-                                        </p>
-                                    );
-                                })()}
+                                        return (
+                                            <p className="text-sm text-blue-300 font-medium">
+                                                {active.length} dias abiertos · {totalSlots} franjas/semana de {duration} min · aforo {maxCapacity}
+                                            </p>
+                                        );
+                                    })()}
+                                </div>
                             </div>
                         </>
                     )}
@@ -340,10 +315,7 @@ export default function GymHoursModal({ isOpen, onClose, onSaved }) {
 
                 {/* Footer */}
                 <div className="p-4 border-t border-white/5 bg-slate-900/50 flex justify-between items-center">
-                    <button
-                        onClick={onClose}
-                        className="text-slate-400 hover:text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-white/5 transition-all"
-                    >
+                    <button onClick={onClose} className="text-slate-400 hover:text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-white/5 transition-all">
                         Cancelar
                     </button>
                     <button
