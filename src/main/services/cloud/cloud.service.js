@@ -39,7 +39,26 @@ class CloudService {
                 return;
             }
 
-            console.log('[CLOUD_SYNC] ✅ Initializing with secure credentials');
+            // SECURITY (Option C): this client is used ONLY for realtime
+            // channel subscriptions on cloud_remote_loads and
+            // gym_class_bookings. Every CRUD / storage / admin operation now
+            // routes through Edge Functions authenticated with the per-gym
+            // owner_token (see owner-sync.client.js, owner-storage.client.js,
+            // owner-data.client.js, _callOwnerAdmin, license.service.js).
+            //
+            // The SUPABASE_KEY env var MUST be a publishable / anon key
+            // (starts with `sb_publishable_`). With RLS policies in place on
+            // the two realtime tables, the publishable key is safe to embed.
+            // If the legacy service_role is detected, log a loud warning so
+            // it's obvious during the transition.
+            const looksLikeServiceRole = typeof supabase.key === 'string'
+                && supabase.key.startsWith('eyJ') // JWT prefix
+                && supabase.key.length > 200;
+            if (looksLikeServiceRole) {
+                console.warn('[CLOUD_SYNC] ⚠️ SECURITY: SUPABASE_KEY looks like a service_role JWT. Replace with a publishable key (sb_publishable_*). Realtime works with either, but service_role grants god-mode if extracted from the installer.');
+            } else {
+                console.log('[CLOUD_SYNC] ✅ Initializing realtime client with publishable key');
+            }
             this.supabase = createClient(supabase.url, supabase.key);
         } catch (error) {
             console.error('[CLOUD_SYNC] ❌ Failed to initialize:', error.message);
@@ -248,24 +267,13 @@ class CloudService {
         try {
             const userDataPath = app.getPath('userData');
             const dbPath = path.join(userDataPath, 'gym_manager.db');
-
             if (!fs.existsSync(dbPath)) return null;
-
             const fileBuffer = fs.readFileSync(dbPath);
-            // Naming convention: {TIMESTAMP}_gym_manager.db
             const fileName = `${targetGymId}/sys_backups/${backupId}_gym_manager.db`;
-
-            const { error } = await this.supabase
-                .storage
-                .from('training_files')
-                .upload(fileName, fileBuffer, {
-                    contentType: 'application/x-sqlite3',
-                    upsert: true
-                });
-
-            if (error) throw error;
+            const ownerStorage = require('./owner-storage.client');
+            const res = await ownerStorage.upload(fileName, fileBuffer, 'application/x-sqlite3', { upsert: true });
+            if (!res?.success) throw new Error(res?.error || 'upload_failed');
             return fileName;
-
         } catch (err) {
             console.error('Snapshot Upload Error:', err);
             throw new Error('Error subiendo archivo .db: ' + err.message);
@@ -276,22 +284,12 @@ class CloudService {
         try {
             const userDataPath = app.getPath('userData');
             const configPath = path.join(userDataPath, 'templates', targetGymId, 'template_config.json');
-
             if (!fs.existsSync(configPath)) return null;
-
             const fileBuffer = fs.readFileSync(configPath);
-            // Standardized Naming: {TIMESTAMP}_template_config.json
             const fileName = `${targetGymId}/sys_backups/${backupId}_template_config.json`;
-
-            const { error } = await this.supabase
-                .storage
-                .from('training_files')
-                .upload(fileName, fileBuffer, {
-                    contentType: 'application/json',
-                    upsert: true
-                });
-
-            if (error) throw error;
+            const ownerStorage = require('./owner-storage.client');
+            const res = await ownerStorage.upload(fileName, fileBuffer, 'application/json', { upsert: true });
+            if (!res?.success) throw new Error(res?.error || 'upload_failed');
             return fileName;
         } catch (err) {
             console.error('[CLOUD_SYNC] Template Config Backup Error:', err);
@@ -303,22 +301,16 @@ class CloudService {
         try {
             const userDataPath = app.getPath('userData');
             const excelPath = path.join(userDataPath, 'templates', targetGymId, 'org_template.xlsx');
-
             if (!fs.existsSync(excelPath)) return null;
-
             const fileBuffer = fs.readFileSync(excelPath);
-            // Standardized Naming: {TIMESTAMP}_org_template.xlsx
             const fileName = `${targetGymId}/sys_backups/${backupId}_org_template.xlsx`;
-
-            const { error } = await this.supabase
-                .storage
-                .from('training_files')
-                .upload(fileName, fileBuffer, {
-                    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    upsert: true
-                });
-
-            if (error) throw error;
+            const ownerStorage = require('./owner-storage.client');
+            const res = await ownerStorage.upload(
+                fileName, fileBuffer,
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                { upsert: true }
+            );
+            if (!res?.success) throw new Error(res?.error || 'upload_failed');
             return fileName;
         } catch (err) {
             console.error('[CLOUD_SYNC] Template Excel Backup Error:', err);
@@ -327,26 +319,21 @@ class CloudService {
     }
 
     async uploadTrainingFile(gymId, customerId, buffer, fileName) {
-        if (!this.supabase) return null;
         const targetGymId = this._resolveGymId(gymId);
         const year = new Date().getFullYear();
         const filePath = `${targetGymId}/${customerId}/${year}/${fileName}`;
-
-        const { data, error } = await this.supabase
-            .storage
-            .from('training_files')
-            .upload(filePath, buffer, {
-                contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                upsert: true
-            });
-
-        if (error) {
-            console.error('Storage Upload Error:', error);
-            throw error;
+        const ownerStorage = require('./owner-storage.client');
+        const upRes = await ownerStorage.upload(
+            filePath, buffer,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            { upsert: true }
+        );
+        if (!upRes?.success) {
+            console.error('Storage Upload Error:', upRes?.error);
+            throw new Error(upRes?.error || 'upload_failed');
         }
-
-        const { data: publicData } = this.supabase.storage.from('training_files').getPublicUrl(filePath);
-        return publicData.publicUrl;
+        const urlRes = await ownerStorage.getPublicUrl(filePath);
+        return urlRes?.success ? urlRes.url : null;
     }
     async exportDatabase(targetPath) {
         try {
@@ -433,17 +420,17 @@ class CloudService {
      * Tracks lastModified timestamp to detect re-uploads of the same file.
      */
     async checkRemoteLoad(gymId) {
-        if (!this.supabase || !gymId) return;
+        if (!gymId) return;
 
         try {
-            // 1. STORAGE-BASED CHECK (legacy: full DB)
-            const { data, error } = await this.supabase
-                .storage
-                .from('training_files')
-                .list(`${gymId}/remote_load/`);
+            const ownerStorage = require('./owner-storage.client');
+            const ownerData = require('./owner-data.client');
 
-            if (!error) {
-                const remoteFile = data && data.find(file => file.name === 'gym_manager.db');
+            // 1. STORAGE-BASED CHECK (legacy: full DB)
+            const listRes = await ownerStorage.list(`${gymId}/remote_load/`);
+            if (listRes?.success) {
+                const items = listRes.items || [];
+                const remoteFile = items.find(file => file.name === 'gym_manager.db');
                 if (remoteFile && this.mainWindow) {
                     const fileTimestamp = remoteFile.updated_at || remoteFile.created_at;
                     if (fileTimestamp !== this._lastRemoteLoadTimestamp) {
@@ -461,13 +448,13 @@ class CloudService {
 
             // 2. TABLE-BASED CHECK (Phase 2 fallback when Realtime fails)
             // Look for any pending rows for this gym (exercise_dataset, customer_dataset, etc.)
-            const { data: pendingRows, error: tblErr } = await this.supabase
-                .from('cloud_remote_loads')
-                .select('id, gym_id, payload_type, payload_path, created_at')
-                .eq('gym_id', gymId)
-                .eq('status', 'pending');
-
-            if (tblErr || !pendingRows) return;
+            const selRes = await ownerData.select('cloud_remote_loads', {
+                gymId,
+                columns: 'id, gym_id, payload_type, payload_path, created_at',
+                filters: { status: 'pending' },
+            });
+            if (!selRes?.success) return;
+            const pendingRows = selRes.rows || [];
 
             this._notifiedLoadIds = this._notifiedLoadIds || new Set();
             for (const row of pendingRows) {
@@ -494,46 +481,48 @@ class CloudService {
     }
 
     async applyRemoteLoad(gymId, loadId = null) {
-        if (!this.supabase || !gymId) throw new Error('Cargador no inicializado.');
+        if (!gymId) throw new Error('Cargador no inicializado.');
 
+        const ownerStorage = require('./owner-storage.client');
+        const ownerData = require('./owner-data.client');
         const remotePath = `${gymId}/remote_load/gym_manager.db`;
 
         try {
-            // 1. Download the Database
-            const { data, error } = await this.supabase
-                .storage
-                .from('training_files')
-                .download(remotePath);
+            // 1. Download the Database (presigned URL)
+            const dlRes = await ownerStorage.download(remotePath);
+            if (!dlRes?.success) throw new Error(dlRes?.error || 'download_failed');
 
-            if (error) throw error;
-
-            // 2. Save temporarily to disk
+            // 2. Save temporarily to disk — owner-storage already returns a Buffer
             const tempPath = path.join(app.getPath('temp'), `remote_load_${Date.now()}.db`);
-            const arrayBuffer = await data.arrayBuffer();
-            fs.writeFileSync(tempPath, Buffer.from(arrayBuffer));
+            fs.writeFileSync(tempPath, dlRes.data);
 
             // 3. Import DB
             const importRes = await this.importDatabase(tempPath);
             if (!importRes.success) throw new Error(importRes.error);
 
             // 4. Cleanup DB from cloud
-            await this.supabase.storage.from('training_files').remove([remotePath]);
+            await ownerStorage.remove([remotePath]);
 
             // 5. Restore Templates (Priority: Remote Load staging -> Fallback: Sys Backups)
             await this._restoreTemplateFiles(gymId);
 
             // 6. Update status in tracking table
             if (loadId) {
-                await this.supabase
-                    .from('cloud_remote_loads')
-                    .update({ status: 'applied', applied_at: new Date().toISOString() })
-                    .eq('id', loadId);
+                await ownerData.upsert('cloud_remote_loads',
+                    [{ id: loadId, status: 'applied', applied_at: new Date().toISOString() }],
+                    { onConflict: 'id' });
             } else {
-                await this.supabase
-                    .from('cloud_remote_loads')
-                    .update({ status: 'applied', applied_at: new Date().toISOString() })
-                    .eq('gym_id', gymId)
-                    .eq('status', 'pending');
+                // Mark every pending row for this gym as applied
+                const pendingRes = await ownerData.select('cloud_remote_loads', {
+                    gymId,
+                    columns: 'id',
+                    filters: { status: 'pending' },
+                });
+                const ids = (pendingRes?.rows || []).map(r => r.id);
+                if (ids.length) {
+                    const rows = ids.map(id => ({ id, status: 'applied', applied_at: new Date().toISOString() }));
+                    await ownerData.upsert('cloud_remote_loads', rows, { onConflict: 'id' });
+                }
             }
 
             // 7. Cleanup temp file
@@ -543,10 +532,9 @@ class CloudService {
         } catch (err) {
             console.error('[CLOUD_SYNC] applyRemoteLoad Error:', err);
             if (loadId) {
-                await this.supabase
-                    .from('cloud_remote_loads')
-                    .update({ status: 'failed', error: err.message })
-                    .eq('id', loadId);
+                await ownerData.upsert('cloud_remote_loads',
+                    [{ id: loadId, status: 'failed', error: err.message }],
+                    { onConflict: 'id' });
             }
             throw err;
         }
@@ -562,39 +550,33 @@ class CloudService {
      * @param {object} datasetJson
      */
     async pushDatasetToGym(kind, targetGymId, datasetJson) {
-        if (!this.supabase) throw new Error('Supabase no inicializado');
         if (!targetGymId) throw new Error('targetGymId requerido');
         if (!datasetJson) throw new Error('dataset requerido');
         if (!['exercise_dataset', 'customer_dataset'].includes(kind)) {
             throw new Error('Tipo de dataset inválido: ' + kind);
         }
 
+        const ownerStorage = require('./owner-storage.client');
+        const ownerData = require('./owner-data.client');
+
         const folder = kind === 'exercise_dataset' ? 'exercise_dataset' : 'customer_dataset';
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const remotePath = `${targetGymId}/${folder}/${ts}.json`;
         const body = Buffer.from(JSON.stringify(datasetJson, null, 2), 'utf-8');
 
-        // 1. Upload JSON to storage
-        const { error: upErr } = await this.supabase
-            .storage
-            .from('training_files')
-            .upload(remotePath, body, {
-                contentType: 'application/json',
-                upsert: false,
-            });
-        if (upErr) throw new Error('Error subiendo dataset: ' + upErr.message);
+        // 1. Upload JSON to storage (presigned)
+        const upRes = await ownerStorage.upload(remotePath, body, 'application/json', { upsert: false });
+        if (!upRes?.success) throw new Error('Error subiendo dataset: ' + (upRes?.error || 'upload_failed'));
 
         // 2. Register in cloud_remote_loads (triggers Realtime push to receiver)
-        const { error: dbErr } = await this.supabase
-            .from('cloud_remote_loads')
-            .insert([{
-                gym_id: targetGymId,
-                status: 'pending',
-                payload_type: kind,
-                payload_path: remotePath,
-                created_at: new Date().toISOString(),
-            }]);
-        if (dbErr) throw new Error('Error registrando push: ' + dbErr.message);
+        const dbRes = await ownerData.upsert('cloud_remote_loads', [{
+            gym_id: targetGymId,
+            status: 'pending',
+            payload_type: kind,
+            payload_path: remotePath,
+            created_at: new Date().toISOString(),
+        }]);
+        if (!dbRes?.success) throw new Error('Error registrando push: ' + (dbRes?.error || 'insert_failed'));
 
         return { success: true, path: remotePath };
     }
@@ -604,13 +586,15 @@ class CloudService {
      * vía el service correspondiente (additivo, no destructivo).
      */
     async _applyDataset(kind, payloadPath, loadId) {
-        if (!this.supabase) throw new Error('Supabase no inicializado');
         if (!payloadPath) throw new Error('payload_path requerido');
 
-        const { data, error } = await this.supabase.storage.from('training_files').download(payloadPath);
-        if (error) throw new Error('Error descargando dataset: ' + error.message);
+        const ownerStorage = require('./owner-storage.client');
+        const ownerData = require('./owner-data.client');
 
-        const text = await data.text();
+        const dlRes = await ownerStorage.download(payloadPath);
+        if (!dlRes?.success) throw new Error('Error descargando dataset: ' + (dlRes?.error || 'download_failed'));
+
+        const text = dlRes.data.toString('utf-8');
         const dataset = JSON.parse(text);
 
         let stats;
@@ -626,12 +610,11 @@ class CloudService {
 
         // Marcar como aplicado y limpiar el archivo del storage
         if (loadId) {
-            await this.supabase
-                .from('cloud_remote_loads')
-                .update({ status: 'applied', applied_at: new Date().toISOString() })
-                .eq('id', loadId);
+            await ownerData.upsert('cloud_remote_loads',
+                [{ id: loadId, status: 'applied', applied_at: new Date().toISOString() }],
+                { onConflict: 'id' });
         }
-        try { await this.supabase.storage.from('training_files').remove([payloadPath]); }
+        try { await ownerStorage.remove([payloadPath]); }
         catch (e) { console.warn('[CLOUD_SYNC] No se pudo borrar storage:', e.message); }
 
         return stats;
@@ -645,7 +628,6 @@ class CloudService {
     }
 
     async sendCustomersToGym(targetGymId, customerIds) {
-        if (!this.supabase) throw new Error('Supabase no inicializado');
         if (!targetGymId || !customerIds?.length) throw new Error('Gym ID y clientes requeridos');
 
         const customerService = require('../local/customer.service');
@@ -680,11 +662,12 @@ class CloudService {
             };
         });
 
-        const { error } = await this.supabase
-            .from('cloud_customers')
-            .upsert(records, { onConflict: 'gym_id,local_id' });
-
-        if (error) throw new Error(`Error enviando clientes: ${error.message}`);
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.upsert('cloud_customers', records, {
+            onConflict: 'gym_id,local_id',
+            gymId: targetGymId,
+        });
+        if (!res?.success) throw new Error(`Error enviando clientes: ${res?.error || 'upsert_failed'}`);
 
         console.log(`[CLOUD_SYNC] Sent ${records.length} customers to gym ${targetGymId}`);
         return { success: true, sent: records.length };
@@ -693,6 +676,7 @@ class CloudService {
     async _restoreTemplateFiles(gymId) {
         try {
             console.log(`[CLOUD_SYNC] Restore Templates for gym: ${gymId}`);
+            const ownerStorage = require('./owner-storage.client');
             const userDataPath = app.getPath('userData');
             const targetDir = path.join(userDataPath, 'templates', gymId);
             if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
@@ -703,13 +687,12 @@ class CloudService {
 
             for (const file of filesToCheck) {
                 const remotePath = `${gymId}/remote_load/${file}`;
-                const { data, error } = await this.supabase.storage.from('training_files').download(remotePath);
-
-                if (data && !error) {
+                const dlRes = await ownerStorage.download(remotePath);
+                if (dlRes?.success && dlRes.data) {
                     console.log(`[CLOUD_SYNC] ✅ Found EXACT MATCH restore for ${file}`);
-                    fs.writeFileSync(path.join(targetDir, file), Buffer.from(await data.arrayBuffer()));
+                    fs.writeFileSync(path.join(targetDir, file), dlRes.data);
                     // Cleanup remote staging
-                    await this.supabase.storage.from('training_files').remove([remotePath]);
+                    await ownerStorage.remove([remotePath]);
                     restoredCount++;
                 }
             }
@@ -722,15 +705,12 @@ class CloudService {
             // STRATEGY B: Fallback to latest in sys_backups (Legacy / Partial Restore)
             if (restoredCount < 2) {
                 console.log('[CLOUD_SYNC] Exact templates not found. Falling back to LATEST from sys_backups (Legacy Mode).');
-                const { data: files, error } = await this.supabase
-                    .storage
-                    .from('training_files')
-                    .list(`${gymId}/sys_backups`, { // Removed trailing slash fix
-                        limit: 100,
-                        sortBy: { column: 'name', order: 'desc' }
-                    });
-
-                if (error || !files) return;
+                const listRes = await ownerStorage.list(`${gymId}/sys_backups`, {
+                    limit: 100,
+                    sortBy: { column: 'name', order: 'desc' },
+                });
+                if (!listRes?.success) return;
+                const files = listRes.items || [];
 
                 const latestConfig = files.find(f => f.name.startsWith('template_config_'));
                 const latestExcel = files.find(f => f.name.startsWith('org_template_'));
@@ -738,14 +718,14 @@ class CloudService {
                 // Only download if we didn't already restore the exact one
                 if (latestConfig && !fs.existsSync(path.join(targetDir, 'template_config.json'))) {
                     console.log('[CLOUD_SYNC] Downloading latest template_config (fallback)...');
-                    const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestConfig.name}`);
-                    if (data) fs.writeFileSync(path.join(targetDir, 'template_config.json'), Buffer.from(await data.arrayBuffer()));
+                    const dl = await ownerStorage.download(`${gymId}/sys_backups/${latestConfig.name}`);
+                    if (dl?.success && dl.data) fs.writeFileSync(path.join(targetDir, 'template_config.json'), dl.data);
                 }
 
                 if (latestExcel && !fs.existsSync(path.join(targetDir, 'org_template.xlsx'))) {
                     console.log('[CLOUD_SYNC] Downloading latest org_template (fallback)...');
-                    const { data } = await this.supabase.storage.from('training_files').download(`${gymId}/sys_backups/${latestExcel.name}`);
-                    if (data) fs.writeFileSync(path.join(targetDir, 'org_template.xlsx'), Buffer.from(await data.arrayBuffer()));
+                    const dl = await ownerStorage.download(`${gymId}/sys_backups/${latestExcel.name}`);
+                    if (dl?.success && dl.data) fs.writeFileSync(path.join(targetDir, 'org_template.xlsx'), dl.data);
                 }
             }
 
@@ -827,125 +807,6 @@ class CloudService {
             customer_local_id: customerId,
             email,
         });
-    }
-
-    /**
-     * Legacy direct-Supabase invite — kept as `inviteToMobile_LEGACY` only for
-     * reference. NOT exposed via IPC. Will be removed after a release of
-     * verification that the Edge Function path works end-to-end.
-     */
-    async inviteToMobile_LEGACY(gymId, customerId, email, customerName = '') {
-        if (!this.supabase) throw new Error('Supabase no configurado');
-        if (!email) throw new Error('El cliente necesita un email para recibir la invitación');
-
-        const redirectTo = 'https://app.gymanagerpro.com/login';
-        const normalizedEmail = email.trim().toLowerCase();
-
-        // 1. Check if this specific (gym, customer) link already exists
-        const { data: existingLink } = await this.supabase
-            .from('mobile_client_links')
-            .select('id, auth_user_id, linked_at')
-            .match({ gym_id: gymId, customer_local_id: customerId })
-            .maybeSingle();
-
-        // Already fully linked for THIS gym+customer → send password reset
-        if (existingLink?.linked_at && existingLink?.auth_user_id) {
-            const { error: resetError } = await this.supabase.auth.resetPasswordForEmail(normalizedEmail, { redirectTo });
-            if (resetError) throw new Error(`Error enviando email de recuperación: ${resetError.message}`);
-            console.log(`[CLOUD_SYNC] 🔄 Password reset sent to ${normalizedEmail} for customer #${customerId} (gym ${gymId})`);
-            return { success: true, message: `Email de recuperación enviado a ${normalizedEmail}` };
-        }
-
-        // 2. Look up if this email ALREADY exists in auth.users (multi-gym scenario)
-        let existingAuthUser = null;
-        try {
-            const { data: listed } = await this.supabase.auth.admin.listUsers();
-            existingAuthUser = (listed?.users || []).find(
-                (u) => u.email?.toLowerCase() === normalizedEmail
-            ) || null;
-        } catch (err) {
-            console.warn('[CLOUD_SYNC] Failed to list auth users (continuing):', err.message);
-        }
-
-        // 3a. MULTI-GYM PATH: user already has an account in another gym
-        if (existingAuthUser) {
-            // Just create/upsert the link with the existing auth_user_id — no email needed
-            const { error: upsertError } = await this.supabase
-                .from('mobile_client_links')
-                .upsert(
-                    {
-                        gym_id: gymId,
-                        customer_local_id: customerId,
-                        auth_user_id: existingAuthUser.id,
-                        invited_at: new Date().toISOString(),
-                        linked_at: new Date().toISOString(),
-                    },
-                    { onConflict: 'auth_user_id,gym_id' }
-                );
-
-            if (upsertError) throw new Error(`Error vinculando cliente: ${upsertError.message}`);
-
-            console.log(`[CLOUD_SYNC] 🔗 Multi-gym link created for ${normalizedEmail} → gym ${gymId}, customer #${customerId}`);
-            return {
-                success: true,
-                message: `${normalizedEmail} ya tiene cuenta. Se le ha dado acceso a este gimnasio automaticamente — al iniciar sesion vera ambos gimnasios.`,
-            };
-        }
-
-        // 3b. NEW USER PATH: create pending link + send invitation email
-        if (!existingLink) {
-            const { error: linkError } = await this.supabase
-                .from('mobile_client_links')
-                .insert({
-                    gym_id: gymId,
-                    customer_local_id: customerId,
-                    auth_user_id: null,
-                    invited_at: new Date().toISOString(),
-                });
-            if (linkError) throw new Error(`Error creando link: ${linkError.message}`);
-        }
-
-        const { error: inviteError } = await this.supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
-            redirectTo,
-            data: {
-                gym_id: gymId,
-                customer_local_id: customerId,
-            },
-        });
-
-        if (inviteError) {
-            // Edge case: between listUsers and inviteUser, the user got registered
-            if (inviteError.message.includes('already been registered')) {
-                // Retry the multi-gym path
-                try {
-                    const { data: retry } = await this.supabase.auth.admin.listUsers();
-                    const user = (retry?.users || []).find(u => u.email?.toLowerCase() === normalizedEmail);
-                    if (user) {
-                        await this.supabase
-                            .from('mobile_client_links')
-                            .upsert(
-                                {
-                                    gym_id: gymId,
-                                    customer_local_id: customerId,
-                                    auth_user_id: user.id,
-                                    invited_at: new Date().toISOString(),
-                                    linked_at: new Date().toISOString(),
-                                },
-                                { onConflict: 'auth_user_id,gym_id' }
-                            );
-                        return {
-                            success: true,
-                            message: `${normalizedEmail} ya tiene cuenta. Acceso al gimnasio concedido automaticamente.`,
-                        };
-                    }
-                } catch (_) { /* fall through */ }
-                return { success: false, message: 'Este email ya tiene una cuenta pero no se pudo vincular automaticamente. Intentalo de nuevo.' };
-            }
-            throw new Error(`Error enviando invitación: ${inviteError.message}`);
-        }
-
-        console.log(`[CLOUD_SYNC] 📧 Mobile invitation sent to ${normalizedEmail} for customer #${customerId} (gym ${gymId})`);
-        return { success: true, message: `Invitación enviada a ${normalizedEmail}` };
     }
 
     /**

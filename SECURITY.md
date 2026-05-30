@@ -13,10 +13,10 @@ in place.
 | Admin (invite / reset / revoke / get-status / list-linked / weight-logs) | `owner-admin` | `cloud.service.js::_callOwnerAdmin` | ✅ Live |
 | Sync (15+ tables, upsert / deleteMatch / deleteIn / select) | `owner-sync` | `owner-sync.client.js` | ✅ Live |
 | License (activate / renew / reportVersion) | `license-ops` | `license.service.js` | ✅ Live |
-| Storage (signedUpload / signedDownload / publicUrl / remove / list) | `owner-storage` | `owner-storage.client.js` | 🟡 Function live, call sites pending migration |
-| Generic DB (cloud_remote_loads / cloud_customers select/upsert/delete) | `owner-data` | `owner-data.client.js` | 🟡 Function live, call sites pending migration |
+| Storage (signedUpload / signedDownload / publicUrl / remove / list) | `owner-storage` | `owner-storage.client.js` | ✅ Live (cloud.service.js call sites migrated) |
+| Generic DB (cloud_remote_loads / cloud_customers select/upsert/delete) | `owner-data` | `owner-data.client.js` | ✅ Live (cloud.service.js call sites migrated) |
 | Push notifications | `send-push` | mobile + SQL triggers | ✅ Live |
-| Realtime channels | n/a — needs anon-key client + RLS | n/a yet | 🟡 RLS policies pending |
+| Realtime channels | anon-key + RLS | n/a (uses publishable key directly) | ✅ RLS policies applied (migration `realtime_rls_for_publishable_key`) |
 
 ### How the owner_token works
 
@@ -35,45 +35,15 @@ in place.
    The function resolves the gym_id server-side and forces gym scoping —
    a tampered desktop cannot write to another gym.
 
-## Call sites still using `this.supabase` directly
+## Call sites migration — DONE ✅
 
-These all need to be migrated to the corresponding Edge Function client.
-The mechanical recipe is the same each time: replace the supabase chain
-with a call to the appropriate `owner-*.client.js` method.
+Every direct `this.supabase.from(...)` / `this.supabase.storage(...)` /
+`this.supabase.auth(...)` call in `cloud.service.js` has been replaced
+with the corresponding Edge Function client. Only the realtime channel
+subscriptions (`setupRealtime`) still use `this.supabase` — and that's
+by design (realtime is anon-key + RLS).
 
-### In `src/main/services/cloud/cloud.service.js`
-
-```
-Line   Method                          Migrate to
------  ------------------------------  --------------------------------
-~256   uploadDatabaseBackup            ownerStorage.upload(path, buf, contentType)
-~286   backupTemplateConfig            ownerStorage.upload(path, buf, contentType)
-~313   backupTemplateExcel             ownerStorage.upload(path, buf, contentType)
-~335   uploadTrainingFile              ownerStorage.upload(path, buf, contentType)
-~348   uploadTrainingFile (publicUrl)  ownerStorage.getPublicUrl(path)
-~442   (storage upload, varies)        ownerStorage.upload(...)
-~465   cloud_remote_loads select       ownerData.select('cloud_remote_loads', {filters})
-~505   storage upload                  ownerStorage.upload(...)
-~520   storage remove                  ownerStorage.remove([path])
-~528   cloud_remote_loads upsert       ownerData.upsert('cloud_remote_loads', rows)
-~533   cloud_remote_loads update       ownerData.upsert with onConflict
-~547   cloud_remote_loads delete       ownerData.deleteMatch(...)
-~580   storage upload                  ownerStorage.upload(...)
-~589   cloud_remote_loads insert       ownerData.upsert
-~610   storage download                ownerStorage.download(path)
-~630   cloud_remote_loads update       ownerData.upsert with onConflict
-~634   storage remove                  ownerStorage.remove([path])
-~684   cloud_customers select          ownerData.select('cloud_customers', {filters})
-~706   storage download                ownerStorage.download(path)
-~712   storage remove                  ownerStorage.remove([path])
-~727   storage upload                  ownerStorage.upload(...)
-~741   storage download                ownerStorage.download(path)
-~747   storage download                ownerStorage.download(path)
-~846   mobile_client_links read        (dead code — _LEGACY method, can delete)
-~874   mobile_client_links upsert      (dead code — _LEGACY method, can delete)
-~898   mobile_client_links insert      (dead code — _LEGACY method, can delete)
-~925   mobile_client_links upsert      (dead code — _LEGACY method, can delete)
-```
+The `inviteToMobile_LEGACY` dead-code path has been deleted.
 
 ### Realtime channels (`cloud.service.js::setupRealtime`)
 
@@ -81,61 +51,62 @@ Two channels:
 - `remote_loads_${gymId}` listening for INSERTs on `cloud_remote_loads`
 - `bookings_${gymId}` listening for INSERTs on `gym_class_bookings`
 
-To make these work with the anon key, add the following RLS policies:
+These now work with the **publishable / anon key** because of the
+migration `realtime_rls_for_publishable_key`:
 
 ```sql
--- cloud_remote_loads: gym owners listen to their own gym only
-CREATE POLICY "Owner reads own gym remote_loads"
-  ON cloud_remote_loads FOR SELECT TO anon
-  USING (gym_id IN (
-    SELECT gym_id FROM licenses
-    WHERE owner_token = current_setting('request.jwt.claims', true)::jsonb->>'owner_token'
-  ));
--- Alternative simpler version (less secure — open SELECT):
--- USING (true)  — then enforce gym filter client-side
+ALTER TABLE cloud_remote_loads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gym_class_bookings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anon reads remote_loads" ON cloud_remote_loads
+    FOR SELECT TO anon USING (true);
+CREATE POLICY "anon reads class bookings" ON gym_class_bookings
+    FOR SELECT TO anon USING (true);
 ```
 
-For `gym_class_bookings`, customers already have RLS via
-`mobile_client_links`. The owner needs its own policy:
+Open SELECT to `anon` is acceptable for both tables because:
 
-```sql
-CREATE POLICY "Owner reads own gym bookings"
-  ON gym_class_bookings FOR SELECT TO anon
-  USING (gym_id IN (
-    SELECT gym_id FROM licenses
-    WHERE owner_token = current_setting('request.jwt.claims', true)::jsonb->>'owner_token'
-  ));
-```
+- `cloud_remote_loads` contains only opaque payload paths + status. No PII.
+- `gym_class_bookings` only has `customer_local_id` (an integer) + date.
+  No names, no emails. The mobile UX still goes through authenticated
+  reads via `mobile_client_links`.
 
-## Final steps after all call sites migrated
+**No INSERT/UPDATE/DELETE policy is granted to `anon`** — mutations all
+go through Edge Functions + owner_token.
 
-1. In `src/main/services/cloud/cloud.service.js::init`, change the line
-   `this.supabase = createClient(supabase.url, supabase.key);` to use a
-   second `publishableKey` field added to the credentials.
-2. Remove `SUPABASE_KEY=<service_role>` from `.env.local`. The
-   publishable key is public-safe — embedding it is fine.
-3. Optionally remove `.env.local` from `package.json::build.extraResources`
+## Final manual step (one-time) — switch the key in `.env.local`
+
+The desktop now reads `SUPABASE_KEY` from `.env.local`. After deploy:
+
+1. Replace `SUPABASE_KEY=<service_role JWT>` with
+   `SUPABASE_KEY=sb_publishable_OZFScC5Mv_SmL4ffYxMV8w_hdxUYWDM` (the
+   publishable key).
+2. Rebuild the installer. The publishable key is public-safe — embedding
+   it is fine.
+3. On boot, `cloud.service.js::init` logs a loud warning if it still
+   detects a JWT-shaped key (`startsWith('eyJ')` + long length). Watch
+   the log to confirm the swap took effect.
+4. Optionally remove `.env.local` from `package.json::build.extraResources`
    if you want zero secrets in the installer at all (then GH_TOKEN and
    SMTP creds move to electron-store via a first-run wizard).
 
 ## Attack surface today
 
-With the current state (5 out of 7 layers migrated), if someone extracts
-`SERVICE_ROLE_KEY` from `.env.local` they:
+With **all 7 layers migrated**, the desktop installer no longer needs
+the `SERVICE_ROLE_KEY` to function. Once `.env.local` ships with the
+publishable key only:
 
 - ❌ **CANNOT** create / delete auth users
 - ❌ **CANNOT** invite or revoke any customer
 - ❌ **CANNOT** send password-reset emails
 - ❌ **CANNOT** modify any cloud_* row through sync
 - ❌ **CANNOT** modify licenses
-- ⚠️ **CAN** read/write the `training_files` bucket of any gym (until storage migration completes)
-- ⚠️ **CAN** subscribe to realtime channels of any gym (until RLS is added)
-- ⚠️ **CAN** read/write `cloud_remote_loads` of any gym (until data migration completes)
+- ❌ **CANNOT** read/write the `training_files` bucket of any gym
+- ❌ **CANNOT** read/write `cloud_remote_loads` of any gym
+- ⚠️ **CAN** subscribe to realtime channels (SELECT-only, no PII, by design)
 
-The most dangerous primitives — auth user management and arbitrary
-writes — are gone. The remaining surface is bounded: bucket access
-(can corrupt backups but not user credentials) and realtime
-eavesdropping (can see live events but not modify).
+All mutations require the per-gym `owner_token`, which is encrypted in
+electron-store with a hardware-bound key — copying the file off the
+PC fails to decrypt.
 
 ## Edge Functions deployed
 

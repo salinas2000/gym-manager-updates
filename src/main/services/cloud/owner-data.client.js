@@ -57,7 +57,7 @@ class OwnerDataClient {
      *   });
      */
     async select(table, { gymId, columns, filters, order, ascending, limit } = {}) {
-        return await this._call('select', {
+        const res = await this._call('select', {
             table,
             gym_id: gymId,
             columns,
@@ -66,6 +66,10 @@ class OwnerDataClient {
             ascending,
             limit,
         });
+        // Edge Function returns { success, data: [...] }. Normalize so callers
+        // can read either .rows or .data uniformly.
+        if (res?.success && Array.isArray(res.data) && !res.rows) res.rows = res.data;
+        return res;
     }
 
     async upsert(table, rows, { onConflict, gymId } = {}) {
