@@ -6,12 +6,57 @@ const crypto = require('crypto');
 const z = require('zod');
 const credentialManager = require('../../config/credentials');
 
-// Initialize only if credentials are loaded (already init'd in main.js)
+/**
+ * SECURITY: This service is the MASTER-only admin tool (multi-gym
+ * provisioning, global stats, license generation, organization assets).
+ * Every method calls `checkMaster()` which refuses non-master licenses.
+ *
+ * Because these operations genuinely need broad cross-gym access, this is
+ * the ONE place that still requires the service_role key. After Option C
+ * the bundled .env.local SUPABASE_KEY is the publishable key — to keep
+ * master tools usable on the developer's PC, the service_role lives in a
+ * SEPARATE env var `MASTER_SUPABASE_KEY` (or `GYM_MASTER_SUPABASE_KEY`)
+ * that is NEVER shipped to customer installers.
+ *
+ * If the master key isn't present:
+ *   - Customer installers: master functions silently disable. checkMaster()
+ *     already refuses non-master licenses anyway, so this is a no-op for them.
+ *   - Master PC without the var set: admin functions throw with a clear
+ *     "MASTER_SUPABASE_KEY not configured" message.
+ */
+function loadMasterKey() {
+    // 1. System env (preferred for CI / production)
+    if (process.env.MASTER_SUPABASE_KEY) return process.env.MASTER_SUPABASE_KEY;
+    if (process.env.GYM_MASTER_SUPABASE_KEY) return process.env.GYM_MASTER_SUPABASE_KEY;
+
+    // 2. .env.master.local (NOT bundled into customer installers).
+    // We deliberately DO NOT search %APPDATA% or process.resourcesPath so
+    // even if a customer hand-copies their .env.local to admin.master, this
+    // file is only ever read from the dev project directory.
+    try {
+        const candidates = [
+            path.join(__dirname, '../../../../.env.master.local'),
+        ];
+        for (const p of candidates) {
+            if (fs.existsSync(p)) {
+                const text = fs.readFileSync(p, 'utf-8');
+                const m = text.match(/^\s*MASTER_SUPABASE_KEY\s*=\s*(.+?)\s*$/m);
+                if (m && m[1]) return m[1].trim();
+            }
+        }
+    } catch { /* ignore */ }
+    return null;
+}
+
 let supabase = null;
 if (credentialManager.isLoaded()) {
     const creds = credentialManager.get();
-    if (creds.supabase?.url && creds.supabase?.key) {
-        supabase = createClient(creds.supabase.url, creds.supabase.key);
+    const masterKey = loadMasterKey();
+    if (creds.supabase?.url && masterKey) {
+        supabase = createClient(creds.supabase.url, masterKey);
+        console.log('[AdminService] ✅ Master-key client initialized');
+    } else if (creds.supabase?.url) {
+        console.log('[AdminService] ℹ️ MASTER_SUPABASE_KEY not set — master tools disabled (this is normal for non-master installers).');
     }
 }
 
