@@ -301,26 +301,22 @@ class ClassService extends BaseService {
     /**
      * Get bookings from Supabase for a given date.
      * Called from desktop to see who's signed up.
-     * Uses direct query with service_role key (bypasses RLS).
+     * Routes through owner-data Edge Function (owner_token bearer).
      */
     async getBookingsForDate(date) {
-        const cloudService = require('../cloud/cloud.service');
-        const supabase = cloudService.supabase;
-
-        if (!supabase) throw new Error('Supabase no configurado');
-
+        const ownerData = require('../cloud/owner-data.client');
         const gymId = this.getGymId();
 
-        const { data, error } = await supabase
-            .from('gym_class_bookings')
-            .select('*')
-            .eq('gym_id', gymId)
-            .eq('booking_date', date)
-            .eq('status', 'confirmed');
+        const res = await ownerData.select('gym_class_bookings', {
+            gymId,
+            filters: {
+                booking_date: date,
+                status: 'confirmed',
+            },
+        });
+        if (!res?.success) throw new Error(`Error cargando reservas: ${res?.error || 'select_failed'}`);
 
-        if (error) throw new Error(`Error cargando reservas: ${error.message}`);
-
-        const bookings = data || [];
+        const bookings = res.data || [];
 
         // Enrich with customer names from local DB
         const db = dbManager.getInstance();
@@ -344,71 +340,61 @@ class ClassService extends BaseService {
 
     /**
      * Create a sporadic (one-off) class event.
-     * Inserts directly to Supabase via service role.
+     * Routes through owner-data Edge Function.
      */
     async createEvent(data) {
-        const cloudService = require('../cloud/cloud.service');
-        const supabase = cloudService.supabase;
-        if (!supabase) throw new Error('Supabase no configurado');
-
+        const ownerData = require('../cloud/owner-data.client');
         const gymId = this.getGymId();
-        const { error, data: result } = await supabase
-            .from('gym_class_events')
-            .insert({
-                gym_id: gymId,
-                class_id: data.class_id,
-                event_date: data.event_date,
-                start_time: data.start_time,
-                end_time: data.end_time,
-                max_capacity_override: data.max_capacity_override || null,
-                instructor_override: data.instructor_override || null,
-                notes: data.notes || null,
-            })
-            .select()
-            .single();
 
-        if (error) throw new Error(`Error creando evento: ${error.message}`);
-        return result;
+        const res = await ownerData.insert('gym_class_events', [{
+            class_id: data.class_id,
+            event_date: data.event_date,
+            start_time: data.start_time,
+            end_time: data.end_time,
+            max_capacity_override: data.max_capacity_override || null,
+            instructor_override: data.instructor_override || null,
+            notes: data.notes || null,
+        }], { gymId, returning: true });
+        if (!res?.success) throw new Error(`Error creando evento: ${res?.error || 'insert_failed'}`);
+        return Array.isArray(res.data) ? res.data[0] : null;
     }
 
     /**
      * Fetch sporadic events for a date range.
      */
     async getEvents(startDate, endDate) {
-        const cloudService = require('../cloud/cloud.service');
-        const supabase = cloudService.supabase;
-        if (!supabase) throw new Error('Supabase no configurado');
-
+        const ownerData = require('../cloud/owner-data.client');
         const gymId = this.getGymId();
-        const { data, error } = await supabase
-            .from('gym_class_events')
-            .select('*')
-            .eq('gym_id', gymId)
-            .gte('event_date', startDate)
-            .lte('event_date', endDate)
-            .order('event_date', { ascending: true })
-            .order('start_time', { ascending: true });
 
-        if (error) throw new Error(`Error cargando eventos: ${error.message}`);
-        return data || [];
+        const res = await ownerData.select('gym_class_events', {
+            gymId,
+            // Array form on the same column applies all ops in sequence.
+            filters: {
+                event_date: [
+                    { op: 'gte', value: startDate },
+                    { op: 'lte', value: endDate },
+                ],
+            },
+            order: [
+                { column: 'event_date', ascending: true },
+                { column: 'start_time', ascending: true },
+            ],
+        });
+        if (!res?.success) throw new Error(`Error cargando eventos: ${res?.error || 'select_failed'}`);
+        return res.data || [];
     }
 
     /**
      * Cancel a sporadic event (soft delete — set cancelled=true).
      */
     async cancelEvent(eventId) {
-        const cloudService = require('../cloud/cloud.service');
-        const supabase = cloudService.supabase;
-        if (!supabase) throw new Error('Supabase no configurado');
-
+        const ownerData = require('../cloud/owner-data.client');
         const gymId = this.getGymId();
-        const { error } = await supabase
-            .from('gym_class_events')
-            .update({ cancelled: true })
-            .eq('id', eventId)
-            .eq('gym_id', gymId);
-
-        if (error) throw new Error(`Error cancelando evento: ${error.message}`);
+        const res = await ownerData.update('gym_class_events',
+            { cancelled: true },
+            { gymId, filters: { id: eventId } }
+        );
+        if (!res?.success) throw new Error(`Error cancelando evento: ${res?.error || 'update_failed'}`);
         return true;
     }
 
@@ -416,48 +402,37 @@ class ClassService extends BaseService {
      * Delete a sporadic event (hard delete).
      */
     async deleteEvent(eventId) {
-        const cloudService = require('../cloud/cloud.service');
-        const supabase = cloudService.supabase;
-        if (!supabase) throw new Error('Supabase no configurado');
-
+        const ownerData = require('../cloud/owner-data.client');
         const gymId = this.getGymId();
-        const { error } = await supabase
-            .from('gym_class_events')
-            .delete()
-            .eq('id', eventId)
-            .eq('gym_id', gymId);
-
-        if (error) throw new Error(`Error eliminando evento: ${error.message}`);
+        const res = await ownerData.deleteMatch('gym_class_events',
+            { id: eventId },
+            { gymId }
+        );
+        if (!res?.success) throw new Error(`Error eliminando evento: ${res?.error || 'delete_failed'}`);
         return true;
     }
 
     /**
      * Get bookings from Supabase for a date range (week view).
-     * Returns bookings enriched with customer names from local DB.
-     * Uses direct query with service_role key (bypasses RLS).
+     * Routes through owner-data Edge Function.
      */
     async getBookingsForWeek(startDate, endDate) {
-        const cloudService = require('../cloud/cloud.service');
-        const supabase = cloudService.supabase;
-
-        if (!supabase) {
-            console.error('[CLASS] Supabase client is null!');
-            return [];
-        }
-
+        const ownerData = require('../cloud/owner-data.client');
         const gymId = this.getGymId();
 
-        const { data, error } = await supabase
-            .from('gym_class_bookings')
-            .select('*')
-            .eq('gym_id', gymId)
-            .eq('status', 'confirmed')
-            .gte('booking_date', startDate)
-            .lte('booking_date', endDate);
+        const res = await ownerData.select('gym_class_bookings', {
+            gymId,
+            filters: {
+                status: 'confirmed',
+                booking_date: [
+                    { op: 'gte', value: startDate },
+                    { op: 'lte', value: endDate },
+                ],
+            },
+        });
+        if (!res?.success) throw new Error(`Error cargando reservas: ${res?.error || 'select_failed'}`);
 
-        if (error) throw new Error(`Error cargando reservas: ${error.message}`);
-
-        const bookings = data || [];
+        const bookings = res.data || [];
 
         // Enrich with customer names from local DB
         const db = dbManager.getInstance();

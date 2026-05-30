@@ -72,8 +72,26 @@ class OwnerDataClient {
         return res;
     }
 
-    async upsert(table, rows, { onConflict, gymId } = {}) {
-        return await this._call('upsert', { table, rows, onConflict, gym_id: gymId });
+    async upsert(table, rows, { onConflict, gymId, returning } = {}) {
+        return await this._call('upsert', { table, rows, onConflict, gym_id: gymId, returning });
+    }
+
+    /**
+     * Insert rows (no upsert semantics). Pass `returning: true` to get the
+     * inserted rows back in the response under `.data`.
+     */
+    async insert(table, rows, { gymId, returning } = {}) {
+        return await this._call('insert', { table, rows, gym_id: gymId, returning });
+    }
+
+    /**
+     * Update rows matching `filters`. Same filter shape as `select`.
+     *   await client.update('gym_class_events',
+     *     { cancelled: true },
+     *     { filters: { id: eventId } });
+     */
+    async update(table, values, { gymId, filters } = {}) {
+        return await this._call('update', { table, values, filters, gym_id: gymId });
     }
 
     async deleteMatch(table, match, { gymId } = {}) {
