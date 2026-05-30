@@ -93,6 +93,8 @@ contextBridge.exposeInMainWorld('api', {
         getCustomerWeightLogs: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerWeightLogs', { gymId, customerId }),
         getCustomerMobileStatus: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerMobileStatus', { gymId, customerId }),
         getMobileLinkedCustomers: (gymId) => ipcRenderer.invoke('cloud:getMobileLinkedCustomers', { gymId }),
+        resetMobilePassword: (gymId, customerId) => ipcRenderer.invoke('cloud:resetMobilePassword', { gymId, customerId }),
+        revokeMobileAccess: (gymId, customerId) => ipcRenderer.invoke('cloud:revokeMobileAccess', { gymId, customerId }),
     },
     training: {
         getExercises: () => ipcRenderer.invoke('training:getExercises'),
@@ -122,6 +124,7 @@ contextBridge.exposeInMainWorld('api', {
         exportDataset: () => ipcRenderer.invoke('training:exportDataset'),
         getFieldConfigs: () => ipcRenderer.invoke('training:getFieldConfigs'),
         getAllFieldConfigs: () => ipcRenderer.invoke('training:getAllFieldConfigs'),
+        getCatalog: () => ipcRenderer.invoke('training:getCatalog'),
         updateFieldConfig: (key, data) => ipcRenderer.invoke('training:updateFieldConfig', key, data),
         addFieldConfig: (label, type, options) => ipcRenderer.invoke('training:addFieldConfig', label, type, options),
         deleteFieldConfig: (key) => ipcRenderer.invoke('training:deleteFieldConfig', key),
@@ -140,11 +143,7 @@ contextBridge.exposeInMainWorld('api', {
         getStatus: () => ipcRenderer.invoke('license:getStatus'),
         reportVersion: (v) => ipcRenderer.invoke('license:reportVersion', v),
     },
-    google: {
-        startAuth: () => ipcRenderer.invoke('google:startAuth'),
-        getStatus: () => ipcRenderer.invoke('google:getStatus'),
-        signOut: () => ipcRenderer.invoke('google:signOut'),
-    },
+    // google removed in v2.2.0
     updater: {
         getVersion: () => ipcRenderer.invoke('updater:getVersion'),
         check: () => ipcRenderer.invoke('updater:check'),
@@ -177,15 +176,7 @@ contextBridge.exposeInMainWorld('api', {
         pushDB: (data) => ipcRenderer.invoke('admin:pushDB', data),
         pickDB: () => ipcRenderer.invoke('admin:pickDB'),
     },
-    templates: {
-        generate: (config) => ipcRenderer.invoke('templates:generate', config),
-        selectLogo: () => ipcRenderer.invoke('templates:selectLogo'),
-        getInfo: () => ipcRenderer.invoke('templates:getInfo'),
-        loadConfig: (filename) => ipcRenderer.invoke('templates:loadConfig', filename),
-        delete: (filename) => ipcRenderer.invoke('templates:delete', filename),
-        activate: (filename) => ipcRenderer.invoke('templates:activate', filename),
-        getFieldConfigs: () => ipcRenderer.invoke('templates:getFieldConfigs'),
-    },
+    // templates removed in v2.2.0
     classes: {
         getAll: (filter) => ipcRenderer.invoke('classes:getAll', filter),
         getById: (id) => ipcRenderer.invoke('classes:getById', id),

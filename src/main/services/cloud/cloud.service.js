@@ -754,20 +754,87 @@ class CloudService {
         }
     }
 
+    // ─── OWNER-ADMIN EDGE FUNCTION CLIENT ───────────────────────────────────────
+    //
+    // All admin operations (invite/reset/revoke/etc) used to call
+    // supabase.auth.admin.* directly with the service_role key bundled in the
+    // installer. That key gave anyone with the .exe full backend access. The
+    // operations now route through the owner-admin Edge Function, which we
+    // authenticate with the per-gym `owner_token` stored encrypted by the
+    // license service (hardware-bound electron-store).
+
+    async _callOwnerAdmin(op, args) {
+        if (!this.credentials?.supabase?.url) {
+            return { success: false, error: 'Supabase no configurado' };
+        }
+        const licenseService = require('../local/license.service');
+        const token = licenseService.getOwnerToken();
+        if (!token) {
+            return {
+                success: false,
+                error: 'Sesión de propietario no disponible. Vuelve a iniciar sesión o conéctate a internet para renovar la licencia.'
+            };
+        }
+        const url = `${this.credentials.supabase.url}/functions/v1/owner-admin`;
+        try {
+            const ctrl = new AbortController();
+            const timeoutId = setTimeout(() => ctrl.abort(), 15000);
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ op, args }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(timeoutId);
+            let body = null;
+            try { body = await res.json(); } catch { /* non-json */ }
+            if (!res.ok) {
+                return {
+                    success: false,
+                    error: body?.error || `Error ${res.status} al llamar a owner-admin`,
+                    status: res.status,
+                };
+            }
+            return body || { success: true };
+        } catch (err) {
+            return {
+                success: false,
+                error: err.name === 'AbortError'
+                    ? 'Timeout llamando a owner-admin (15s)'
+                    : `Error de red: ${err.message}`,
+            };
+        }
+    }
+
     // ─── MOBILE CLIENT INVITATION ───────────────────────────────────────────────
 
     /**
-     * Invite a gym client to the mobile app.
-     * Creates a mobile_client_links record, generates an invite link via Supabase,
-     * and sends the email via the gym's own SMTP (nodemailer).
+     * Invite a gym client to the mobile app. Routes through the owner-admin
+     * Edge Function — no service_role key on this side.
      *
      * @param {string} gymId - The gym identifier
      * @param {number} customerId - Local customer ID
      * @param {string} email - Customer's email address
-     * @param {string} customerName - Customer's display name
      * @returns {{ success: boolean, message: string }}
      */
-    async inviteToMobile(gymId, customerId, email, customerName = '') {
+    async inviteToMobile(gymId, customerId, email /*, customerName = '' */) {
+        if (!email) return { success: false, error: 'El cliente necesita un email para recibir la invitación' };
+        return await this._callOwnerAdmin('inviteToMobile', {
+            gym_id: this._resolveGymId(gymId),
+            customer_local_id: customerId,
+            email,
+        });
+    }
+
+    /**
+     * Legacy direct-Supabase invite — kept as `inviteToMobile_LEGACY` only for
+     * reference. NOT exposed via IPC. Will be removed after a release of
+     * verification that the Edge Function path works end-to-end.
+     */
+    async inviteToMobile_LEGACY(gymId, customerId, email, customerName = '') {
         if (!this.supabase) throw new Error('Supabase no configurado');
         if (!email) throw new Error('El cliente necesita un email para recibir la invitación');
 
@@ -883,29 +950,19 @@ class CloudService {
 
     /**
      * Fetch weight logs that a client has recorded from the mobile app.
-     * Returns an array of { id, weight_kg, measured_at, notes } sorted desc.
+     * Routes through the owner-admin Edge Function.
      */
     async getCustomerWeightLogs(gymId, customerLocalId) {
-        if (!this.supabase) {
-            return { success: false, error: 'Supabase no inicializado', data: [] };
-        }
         const resolvedGymId = this._resolveGymId(gymId);
-        if (!resolvedGymId) {
-            return { success: false, error: 'Gym ID no resuelto', data: [] };
-        }
-        try {
-            const { data, error } = await this.supabase
-                .from('customer_weight_logs')
-                .select('id, weight_kg, measured_at, notes')
-                .eq('gym_id', resolvedGymId)
-                .eq('customer_local_id', customerLocalId)
-                .order('measured_at', { ascending: false });
-
-            if (error) return { success: false, error: error.message, data: [] };
-            return { success: true, data: data || [] };
-        } catch (err) {
-            return { success: false, error: err.message, data: [] };
-        }
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const res = await this._callOwnerAdmin('getCustomerWeightLogs', {
+            gym_id: resolvedGymId,
+            customer_local_id: customerLocalId,
+        });
+        // The Edge Function returns { success, data: [...] }. Normalize so
+        // callers that expect `data: []` always get an array even on error.
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        return { success: true, data: Array.isArray(res.data) ? res.data : [] };
     }
 
     /**
@@ -915,82 +972,58 @@ class CloudService {
      * - invited: TRUE if there is a pending invite (row without auth_user_id)
      */
     async getCustomerMobileStatus(gymId, customerLocalId) {
-        if (!this.supabase) {
-            return { success: false, error: 'Supabase no inicializado', registered: false };
-        }
         const resolvedGymId = this._resolveGymId(gymId);
-        if (!resolvedGymId) {
-            return { success: false, error: 'Gym ID no resuelto', registered: false };
-        }
-        try {
-            const { data: linkRows, error: linkErr } = await this.supabase
-                .from('mobile_client_links')
-                .select('auth_user_id, invited_at, linked_at')
-                .eq('gym_id', resolvedGymId)
-                .eq('customer_local_id', customerLocalId);
-
-            if (linkErr) return { success: false, error: linkErr.message, registered: false };
-
-            const links = linkRows || [];
-            const registered = links.some((l) => l.auth_user_id && l.linked_at);
-            const invited = links.length > 0;
-            const linkedRow = links.find((l) => l.auth_user_id && l.linked_at);
-            const pendingRow = links.find((l) => !l.auth_user_id);
-
-            // Try to fetch the auth user's email (only works if RLS allows service_role)
-            let authEmail = null;
-            if (linkedRow?.auth_user_id) {
-                const { data: authUser } = await this.supabase.auth.admin.getUserById(linkedRow.auth_user_id);
-                authEmail = authUser?.user?.email ?? null;
-            }
-
-            return {
-                success: true,
-                registered,
-                invited,
-                linked_at: linkedRow?.linked_at ?? null,
-                invited_at: pendingRow?.invited_at ?? linkedRow?.invited_at ?? null,
-                auth_user_id: linkedRow?.auth_user_id ?? null,
-                auth_email: authEmail,
-            };
-        } catch (err) {
-            return { success: false, error: err.message, registered: false };
-        }
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', registered: false };
+        const res = await this._callOwnerAdmin('getCustomerMobileStatus', {
+            gym_id: resolvedGymId,
+            customer_local_id: customerLocalId,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', registered: false };
+        // Edge Function returns the same shape we used to return inline.
+        return res;
     }
 
     /**
      * Bulk fetch: returns an array of customer_local_id values that have
-     * an ACTIVE mobile_client_links row (i.e., the client has registered
-     * in the mobile app). Used to display a "📱" badge in the customer list
-     * without doing N+1 queries.
+     * an ACTIVE mobile_client_links row (linked + pending). Routes through
+     * the owner-admin Edge Function.
      */
     async getMobileLinkedCustomers(gymId) {
-        if (!this.supabase) {
-            return { success: false, error: 'Supabase no inicializado', data: [] };
-        }
         const resolvedGymId = this._resolveGymId(gymId);
-        if (!resolvedGymId) {
-            return { success: false, error: 'Gym ID no resuelto', data: [] };
-        }
-        try {
-            const { data, error } = await this.supabase
-                .from('mobile_client_links')
-                .select('customer_local_id, auth_user_id, linked_at')
-                .eq('gym_id', resolvedGymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: { linked: [], pending: [] } };
+        const res = await this._callOwnerAdmin('getMobileLinkedCustomers', { gym_id: resolvedGymId });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: { linked: [], pending: [] } };
+        const data = res.data || { linked: [], pending: [] };
+        return { success: true, data };
+    }
 
-            if (error) return { success: false, error: error.message, data: [] };
+    /**
+     * Send a password-reset email to the customer's mobile-app account.
+     * Only valid if the customer is already linked (auth_user_id present).
+     * @param {string} gymId
+     * @param {number} customerLocalId
+     * @returns {{ success: boolean, message?: string, error?: string }}
+     */
+    async resetMobilePassword(gymId, customerLocalId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        return await this._callOwnerAdmin('resetMobilePassword', {
+            gym_id: resolvedGymId,
+            customer_local_id: customerLocalId,
+        });
+    }
 
-            const linked = (data || [])
-                .filter((row) => row.auth_user_id && row.linked_at)
-                .map((row) => row.customer_local_id);
-            const pending = (data || [])
-                .filter((row) => !row.auth_user_id)
-                .map((row) => row.customer_local_id);
-
-            return { success: true, data: { linked, pending } };
-        } catch (err) {
-            return { success: false, error: err.message, data: { linked: [], pending: [] } };
-        }
+    /**
+     * Revoke a customer's access to the mobile app for THIS gym.
+     * Routes through the owner-admin Edge Function.
+     */
+    async revokeMobileAccess(gymId, customerLocalId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        return await this._callOwnerAdmin('revokeMobileAccess', {
+            gym_id: resolvedGymId,
+            customer_local_id: customerLocalId,
+        });
     }
 
     /**

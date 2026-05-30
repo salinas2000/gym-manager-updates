@@ -114,6 +114,45 @@ export function GymProvider({ children }) {
         reportVersion();
     }, []);
 
+    // Auto-refresh: keeps the customer list + mobile-link map fresh without
+    // forcing the user to hit Ctrl+R. Two triggers:
+    //   1. Window regains focus / tab becomes visible → quick refresh.
+    //   2. Background poll every 60s while window is visible.
+    // We bail out cheaply when the document is hidden so we don't burn cycles
+    // for an unattended window.
+    useEffect(() => {
+        const tick = async () => {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            if (!window.api) return;
+            try {
+                const [customersRes] = await Promise.all([
+                    window.api.customers.getAll(),
+                ]);
+                if (customersRes?.success) {
+                    setCustomers(customersRes.data || []);
+                }
+                // Mobile links are cheap (single Supabase query) — refresh too
+                refreshMobileLinks();
+            } catch (err) {
+                // Non-fatal — next tick will retry
+                console.warn('[GymContext] Auto-refresh failed:', err.message);
+            }
+        };
+
+        const interval = setInterval(tick, 60_000);
+        const onVisibility = () => {
+            if (!document.hidden) tick();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        window.addEventListener('focus', tick);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', onVisibility);
+            window.removeEventListener('focus', tick);
+        };
+    }, []);
+
     const addCustomer = async (data) => {
         if (!window.api) return false;
         const result = await window.api.customers.create(data);

@@ -29,7 +29,10 @@ export default function ExerciseModal({
         enabled: isOpen
     });
 
-    const activeFields = fieldConfigs.filter(f => f.is_active);
+    // The exercise base lets the trainer set DEFAULT prescriptions. Show
+    // every prescribable catalog field (most of them, except Notas which is
+    // pure customer side).
+    const activeFields = fieldConfigs.filter(f => f.is_active && f.is_prescribable !== 0);
 
     // Fetch Categories
     const categories = queryClient.getQueryData(['categories']) || [];

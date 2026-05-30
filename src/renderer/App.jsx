@@ -20,7 +20,7 @@ import SettingsPage from './pages/SettingsPage'; // Backup Page
 import GeneralSettings from './features/settings/SettingsPage'; // New Config Page
 // Admin Module
 import AdminDashboard from './features/admin/AdminDashboard';
-import TemplatesPage from './features/templates/TemplatesPage';
+// TemplatesPage removed in v2.2.0 — replaced by mobile app routine view
 import InventoryPage from './features/inventory/InventoryPage';
 import ClassManager from './features/classes/ClassManager';
 import TrainerManager from './features/trainers/TrainerManager';
@@ -65,8 +65,6 @@ function Dashboard() {
                 return <TrainingHistoryPage initialCustomer={selectedCustomer} onNavigate={handleNavigate} />;
             case 'library':
                 return <LibraryPage />;
-            case 'templates':
-                return <TemplatesPage />;
             case 'customers':
             default:
                 return (

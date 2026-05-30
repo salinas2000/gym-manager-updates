@@ -201,7 +201,15 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 isTemplate,
                 allowOverlap,
                 daysPerWeek: days.length, // Auto-calculate from number of routines
+                // Pass `id` for each day. For days loaded from the DB this is
+                // the real routine id (integer assigned by SQLite); for days
+                // added fresh in the editor it's a Date.now() float that won't
+                // collide with any DB id. The backend uses an existence check
+                // (does this id appear in routines WHERE mesocycle_id = ?) to
+                // decide UPDATE vs INSERT — so passing a non-DB id here is
+                // safe and simply triggers INSERT.
                 routines: days.map(d => ({
+                    id: d.id,
                     name: d.name,
                     dayGroup: '',
                     items: d.items

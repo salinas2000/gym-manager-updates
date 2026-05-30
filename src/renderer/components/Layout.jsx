@@ -194,14 +194,7 @@ export default function Layout({ children, currentView, onNavigate }) {
                             color="text-slate-400"
                         />
 
-                        <SectionLabel label="Herramientas" />
-                        <SidebarItem
-                            icon={Palette}
-                            label="Diseñador"
-                            active={currentView === 'templates'}
-                            onClick={() => onNavigate('templates')}
-                            color="text-pink-400"
-                        />
+                        {/* Diseñador (templates) removed in v2.2.0 */}
 
                         {settings?.isMaster && (
                             <div className="pt-2">

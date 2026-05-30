@@ -1,27 +1,15 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Download, Trash2, FileSpreadsheet, Cloud, CloudOff, RefreshCw, MailX } from 'lucide-react';
+import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Trash2, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useGym } from '../../context/GymContext';
 
-export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false, onNavigate }) {
+export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false }) {
 
     const queryClient = useQueryClient();
     const { customers } = useGym();
-    const customer = customers?.find(c => c.id === customerId);
-    const hasEmail = !!(customer?.email && customer.email.trim());
+    const customer = customers?.find(c => c.id === customerId); // eslint-disable-line @typescript-eslint/no-unused-vars
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
-    const [isGoogleConnected, setIsGoogleConnected] = useState(false);
-
-    // Check Google Status
-    // Check Google Status
-    React.useEffect(() => {
-        const checkStatus = async () => {
-            const res = await window.api.google.getStatus();
-            setIsGoogleConnected(res.success && res.data.connected);
-        };
-        checkStatus();
-    }, []);
 
     // Helper to open modal
     const requestConfirm = ({ title, message, type = 'info', confirmText, onConfirm }) => {
@@ -45,57 +33,15 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
         enabled: !!customerId
     });
 
-    const [isValidating, setIsValidating] = useState(false);
-    const handleRefresh = async () => {
-        setIsValidating(true);
-        try {
-            const r = await refetch();
-            const list = r.data || [];
-            const toCheck = list.filter(m => m.drive_link);
-            if (isGoogleConnected && toCheck.length > 0) {
-                const results = await Promise.all(
-                    toCheck.map(m => window.api.training.validateDriveLink(m.id, m.drive_link))
-                );
-                if (results.some(res => res === false)) {
-                    await refetch(); // re-fetch so links cleared by the backend disappear
-                }
-            }
-        } finally {
-            setIsValidating(false);
-        }
-    };
+    const handleRefresh = () => refetch();
 
     // Delete Mutation
     const deleteMutation = useMutation({
-        mutationFn: async (mesoId) => {
-            return await window.api.training.deleteMesocycle(mesoId);
-        },
+        mutationFn: async (mesoId) => await window.api.training.deleteMesocycle(mesoId),
         onSuccess: () => {
-            // Invalidate and refetch
             queryClient.invalidateQueries(['mesocycles', customerId]);
         }
     });
-
-    // --- AUTO-SYNC DRIVE LINKS ---
-    // Check validity of all drive links when list loads
-    const driveLinksFingerprint = mesocycles.map(m => m.drive_link || '').join('|');
-
-    React.useEffect(() => {
-        if (!customerId || !isGoogleConnected) return; // Don't sync if disconnected
-        const toCheck = mesocycles.filter(m => m.drive_link);
-        if (toCheck.length === 0) return;
-
-        // Run checks in background
-        Promise.all(toCheck.map(m => window.api.training.validateDriveLink(m.id, m.drive_link)))
-            .then(results => {
-                // If any link was invalid (results[i] === false), refresh
-                if (results.some(res => res === false)) {
-                    console.log('Sync: Found broken links. Refreshing...');
-                    queryClient.invalidateQueries(['mesocycles', customerId]);
-                }
-            });
-    }, [customerId, driveLinksFingerprint, queryClient, isGoogleConnected]);
-
 
     const getStatusConfig = (status) => {
         switch (status) {
@@ -199,12 +145,12 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                 <div className="flex items-center gap-2">
                     <button
                         onClick={handleRefresh}
-                        disabled={isFetching || isValidating}
+                        disabled={isFetching}
                         className="bg-slate-800/60 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-2 rounded-xl flex items-center gap-2 font-medium transition-all border border-white/5 disabled:opacity-50 disabled:cursor-wait"
-                        title="Actualizar lista y revalidar enlaces de Drive"
+                        title="Actualizar lista"
                     >
-                        <RefreshCw size={16} className={(isFetching || isValidating) ? 'animate-spin' : ''} />
-                        {isValidating ? 'Comprobando...' : 'Actualizar'}
+                        <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
+                        Actualizar
                     </button>
                     {!readOnly && (
                         <button
@@ -274,18 +220,6 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                                     >
                                         <FileSpreadsheet size={18} />
                                     </button>
-                                    <UploadButton
-                                        meso={meso}
-                                        requestConfirm={requestConfirm} // Pass confirm handler
-                                        isGoogleConnected={isGoogleConnected}
-                                        hasEmail={hasEmail}
-                                        onNavigate={onNavigate}
-                                        onUpload={async () => {
-                                            const res = await window.api.training.uploadToDrive(meso.id);
-                                            if (res.success) return res.data;
-                                            throw new Error(res.error);
-                                        }}
-                                    />
                                     <div className="bg-slate-950 p-2 rounded-full text-slate-500 group-hover:text-white group-hover:bg-blue-600 transition-all">
                                         <ChevronRight size={20} />
                                     </div>
@@ -310,147 +244,3 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
     );
 }
 
-// Subcomponent for handling upload state locally
-function UploadButton({ meso, onUpload, requestConfirm, isGoogleConnected, onNavigate, hasEmail = true }) {
-    // Initialize state based on persisted link
-    const [status, setStatus] = React.useState(meso.drive_link ? 'success' : 'idle');
-    const [link, setLink] = React.useState(meso.drive_link || null);
-    const [errorMessage, setErrorMessage] = React.useState('');
-
-    // Sync local state when the persisted drive_link changes (e.g. after refresh / auto-validation)
-    React.useEffect(() => {
-        setLink(meso.drive_link || null);
-        setStatus(prev => {
-            if (prev === 'uploading') return prev; // don't interrupt in-flight upload
-            return meso.drive_link ? 'success' : 'idle';
-        });
-    }, [meso.drive_link]);
-
-    // Si no hay email, el upload no tiene sentido (Google Drive comparte por email)
-    // y si ya hay drive_link previo, dejamos abrir el enlace pero NO crear nuevos.
-    if (!hasEmail && !meso.drive_link) {
-        return (
-            <button
-                disabled
-                className="p-2 bg-slate-800/30 text-slate-600 rounded-full border border-white/5 cursor-not-allowed"
-                title="Cliente sin email — no se puede compartir por Drive"
-            >
-                <MailX size={18} />
-            </button>
-        );
-    }
-
-    const handleClick = async (e) => {
-        e.stopPropagation();
-
-        // 0. CHECK CONNECTION (Always first)
-        if (!isGoogleConnected) {
-            requestConfirm({
-                title: 'Sincronización Desactivada',
-                message: (
-                    <div className="space-y-2">
-                        <p>No se puede verificar ni subir archivos porque Google Drive está desconectado.</p>
-                        <p className="text-sm text-slate-400">Ve a Configuración -&gt; Integraciones para activarlo.</p>
-                    </div>
-                ),
-                type: 'warning',
-                confirmText: 'Ir a Configuración',
-                onConfirm: () => {
-                    if (onNavigate) onNavigate('settings', 'integrations');
-                }
-            });
-            return;
-        }
-
-        // --- VALIDATION AND OPEN LOGIC ---
-        if (status === 'success' && link) {
-            setStatus('uploading'); // Show spinner while checking
-            try {
-                const isValid = await window.api.training.validateDriveLink(meso.id, link);
-                if (isValid) {
-                    window.open(link, '_blank');
-                    setStatus('success');
-                } else {
-                    setErrorMessage('El archivo fue eliminado de Drive.');
-                    setLink(null);
-                    setStatus('idle'); // Allow re-upload
-                }
-            } catch (err) {
-                console.error(err);
-                // On network error, maybe just try opening? 
-                window.open(link, '_blank');
-                setStatus('success');
-            }
-            return;
-        }
-
-        if (status === 'uploading') return;
-
-        // Use the custom modal instead of window.confirm
-        requestConfirm({
-            title: 'Subir a Google Drive',
-            message: `¿Deseas subir la rutina de "${meso.name}" y generar un link para compartir?`,
-            type: 'info',
-            confirmText: 'Subir Rutina',
-            onConfirm: async () => {
-                setStatus('uploading');
-                setErrorMessage('');
-                try {
-                    const url = await onUpload();
-                    setLink(url);
-                    setStatus('success');
-                } catch (err) {
-                    console.error(err);
-                    setErrorMessage(err.message);
-                    setStatus('error');
-                    setTimeout(() => setStatus('idle'), 5000);
-                }
-            }
-        });
-    };
-
-    if (status === 'uploading') {
-        return (
-            <div className="p-2 bg-slate-800/50 rounded-full border border-white/5 cursor-wait">
-                <div className="w-[18px] h-[18px] border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-        );
-    }
-
-    // DISCONNECTED STATE (Prioritize over Success)
-    if (!isGoogleConnected) {
-        return (
-            <button
-                onClick={handleClick}
-                className="p-2 bg-slate-800/30 text-slate-500 rounded-full border border-white/5 hover:bg-slate-800 hover:text-slate-300 transition-all"
-                title="Sin conexión a Drive (Click para activar)"
-            >
-                <CloudOff size={18} />
-            </button>
-        );
-    }
-
-    if (status === 'success') {
-        return (
-            <button
-                onClick={handleClick}
-                className="p-2 bg-green-500/20 text-green-400 rounded-full border border-green-500/50 hover:bg-green-500 hover:text-white transition-all"
-                title="Abrir en Drive (Subida Completada)"
-            >
-                <CheckCircle size={18} />
-            </button>
-        );
-    }
-
-    return (
-        <button
-            onClick={handleClick}
-            className={`p-2 rounded-full border border-white/5 transition-colors ${status === 'error' ? 'bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white' :
-                'bg-slate-800/50 text-blue-400 hover:bg-blue-600 hover:text-white'
-                }`}
-            title={status === 'error' ? "Error al subir (Click para reintentar)" : "Subir a Google Drive"}
-        >
-            {status === 'error' ? <AlertCircle size={18} /> : <Cloud size={18} />}
-        </button>
-    );
-}

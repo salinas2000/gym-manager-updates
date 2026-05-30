@@ -356,10 +356,13 @@ class TrainingService extends BaseService {
     getMesocyclesByCustomer(customerId) {
         // Exclude templates from the user timeline; filter by current gym to avoid cross-gym leaks
         const gymId = this.getGymId();
+        // Chronological order: earliest mesocycle first, newest last.
+        // SQLite sorts NULLs first by default with ASC, so push them last
+        // explicitly. Stable tie-break by id keeps creation order intact.
         const mesocycles = this.db.prepare(`
             SELECT * FROM mesocycles
             WHERE customer_id = ? AND is_template = 0 AND gym_id = ?
-            ORDER BY start_date DESC
+            ORDER BY (start_date IS NULL), start_date ASC, id ASC
         `).all(customerId, gymId);
 
         // Calculate status calculated fields
@@ -460,18 +463,30 @@ class TrainingService extends BaseService {
         if (!meso) throw new Error('Mesociclo no encontrado');
 
         const gymId = this.getGymId();
+        // CRITICAL: wrap the entire delete in a single transaction. Without
+        // it, a crash between the sync_deleted_log inserts and the actual
+        // DELETE would leave the log claiming we deleted rows that still
+        // exist locally — next sync would wipe them from cloud and then
+        // re-upload them, causing a flap. With db.transaction, better-sqlite3
+        // rolls back atomically if anything throws.
         const logStmt = this.db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)');
+        const getRoutines = this.db.prepare('SELECT id FROM routines WHERE mesocycle_id = ?');
+        const getItems = this.db.prepare('SELECT id FROM routine_items WHERE routine_id = ?');
+        const deleteMeso = this.db.prepare('DELETE FROM mesocycles WHERE id = ?');
 
-        // Log cascaded deletions: routines → routine_items (CASCADE in DB)
-        const routines = this.db.prepare('SELECT id FROM routines WHERE mesocycle_id = ?').all(id);
-        for (const r of routines) {
-            const items = this.db.prepare('SELECT id FROM routine_items WHERE routine_id = ?').all(r.id);
-            for (const item of items) logStmt.run(gymId, 'routine_items', item.id);
-            logStmt.run(gymId, 'routines', r.id);
-        }
-        logStmt.run(gymId, 'mesocycles', id);
+        const tx = this.db.transaction((mesoId) => {
+            // Log cascaded deletions: routines → routine_items (CASCADE in DB)
+            const routines = getRoutines.all(mesoId);
+            for (const r of routines) {
+                const items = getItems.all(r.id);
+                for (const item of items) logStmt.run(gymId, 'routine_items', item.id);
+                logStmt.run(gymId, 'routines', r.id);
+            }
+            logStmt.run(gymId, 'mesocycles', mesoId);
+            return deleteMeso.run(mesoId);
+        });
 
-        return this.db.prepare('DELETE FROM mesocycles WHERE id = ?').run(id);
+        return tx(id);
     }
 
     // --- TEMPLATES ---
@@ -502,8 +517,9 @@ class TrainingService extends BaseService {
     }
 
     // Transactional Save: Mesocycle + Routines + Items
-    // Transactional Save: Mesocycle + Routines + Items
+    // v2.2.0 — surgical routine reconciliation (no more duplicate-day bug)
     saveMesocycle(data) {
+        console.log('[saveMesocycle v2.2.0] called for meso id=', data?.id, 'routines=', (data?.routines || []).length);
         // Validation
         const validation = mesocycleSchema.safeParse(data);
         if (!validation.success) {
@@ -547,32 +563,126 @@ class TrainingService extends BaseService {
         `);
 
         const updateMeso = this.db.prepare(`
-            UPDATE mesocycles 
-            SET name = @name, start_date = @startDate, end_date = @endDate, 
+            UPDATE mesocycles
+            SET name = @name, start_date = @startDate, end_date = @endDate,
                 notes = @notes, active = 1, is_template = @isTemplate, days_per_week = @daysPerWeek,
                 synced = 0, updated_at = datetime('now')
             WHERE id = @id
         `);
 
-        // Routines & Items
-        const deleteRoutines = this.db.prepare('DELETE FROM routines WHERE mesocycle_id = ?');
-
+        // Routine reconciliation statements.
+        // KEY FIX: instead of `DELETE FROM routines WHERE mesocycle_id = ?` (which
+        // wiped all rows and re-inserted them with NEW local ids — leaving the
+        // cloud with both the orphaned old "Día 1" AND the new one, producing
+        // the duplicate-day bug), we now:
+        //   1. Look up the routines already in this mesocycle.
+        //   2. UPDATE in place the ones the payload still has.
+        //   3. INSERT only the truly new ones.
+        //   4. DELETE + log to sync_deleted_log the ones removed from the payload.
+        const getExistingRoutines = this.db.prepare('SELECT id FROM routines WHERE mesocycle_id = ?');
         const insertRoutine = this.db.prepare(`
            INSERT INTO routines (gym_id, mesocycle_id, name, day_group, notes)
-           VALUES (@gymId, @mesocycleId, @name, @dayGroup, @notes) 
+           VALUES (@gymId, @mesocycleId, @name, @dayGroup, @notes)
         `);
+        const updateRoutine = this.db.prepare(`
+            UPDATE routines
+            SET name = @name, day_group = @dayGroup, notes = @notes,
+                synced = 0, updated_at = datetime('now')
+            WHERE id = @id
+        `);
+        const deleteRoutineById = this.db.prepare('DELETE FROM routines WHERE id = ?');
+
+        // Item reconciliation — preserves per-item local_ids so that
+        // customer_workout_logs (which reference routine_item_id) don't get
+        // orphaned every time the user edits anything else in the routine.
+        const getExistingItems = this.db.prepare('SELECT id FROM routine_items WHERE routine_id = ?');
+        const deleteItemsByRoutine = this.db.prepare('DELETE FROM routine_items WHERE routine_id = ?');
+        const deleteSingleItem = this.db.prepare('DELETE FROM routine_items WHERE id = ?');
+        const logDelete = this.db.prepare(
+            'INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)'
+        );
 
         const insertItem = this.db.prepare(`
             INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity, custom_fields)
             VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity, @customFields)
         `);
 
+        const updateItemStmt = this.db.prepare(`
+            UPDATE routine_items
+            SET exercise_id = @exerciseId,
+                series = @series,
+                reps = @reps,
+                rpe = @rpe,
+                notes = @notes,
+                order_index = @orderIndex,
+                intensity = @intensity,
+                custom_fields = @customFields,
+                synced = 0,
+                updated_at = datetime('now')
+            WHERE id = @id
+        `);
+
+        // Helper: reconcile the items of ONE routine against a payload list.
+        // Items in payload with a matching DB id → UPDATE in place (preserves
+        // workout_logs that reference routine_item_id). Items without an id
+        // are inserted fresh. Anything in the existing set that the payload
+        // doesn't keep is deleted + logged for cloud cleanup.
+        const reconcileItems = (routineId, payloadItems) => {
+            const existingItemIds = new Set(getExistingItems.all(routineId).map(i => i.id));
+            const keptItemIds = new Set();
+            let order = 0;
+            for (const item of payloadItems || []) {
+                const itemId = item.id;
+                const isExistingItem =
+                    typeof itemId === 'number' &&
+                    Number.isInteger(itemId) &&
+                    existingItemIds.has(itemId);
+                const customFields = (item.customFields || item.custom_fields)
+                    ? JSON.stringify(item.customFields || item.custom_fields)
+                    : null;
+                if (isExistingItem) {
+                    updateItemStmt.run({
+                        id: itemId,
+                        exerciseId: item.exerciseId || item.exercise_id,
+                        series: item.series ?? null,
+                        reps: item.reps ?? null,
+                        rpe: item.rpe || '',
+                        notes: item.notes || '',
+                        orderIndex: order++,
+                        intensity: item.intensity || '',
+                        customFields,
+                    });
+                    keptItemIds.add(itemId);
+                } else {
+                    insertItem.run({
+                        gymId,
+                        routineId,
+                        exerciseId: item.exerciseId || item.exercise_id,
+                        series: item.series ?? null,
+                        reps: item.reps ?? null,
+                        rpe: item.rpe || '',
+                        notes: item.notes || '',
+                        orderIndex: order++,
+                        intensity: item.intensity || '',
+                        customFields,
+                    });
+                }
+            }
+            // Anything existing but not in payload → delete + log
+            for (const oldItemId of existingItemIds) {
+                if (keptItemIds.has(oldItemId)) continue;
+                logDelete.run(gymId, 'routine_items', oldItemId);
+                deleteSingleItem.run(oldItemId);
+            }
+        };
+
         // EXECUTE TRANSACTION
         const transaction = this.db.transaction((mesoData) => {
             let mesoId = mesoData.id;
+            let existingRoutineIds = new Set();
 
             if (mesoId) {
-                // Update existing
+                // Update existing mesocycle
                 updateMeso.run({
                     id: mesoId,
                     name: mesoData.name,
@@ -582,10 +692,12 @@ class TrainingService extends BaseService {
                     isTemplate: mesoData.isTemplate,
                     daysPerWeek: mesoData.daysPerWeek || 0
                 });
-                // Rebuild routines (Delete all + Re-insert)
-                deleteRoutines.run(mesoId);
+                // Snapshot of what's currently in the DB for this mesocycle
+                existingRoutineIds = new Set(getExistingRoutines.all(mesoId).map(r => r.id));
+                console.log('[saveMesocycle v2.2.0] existing routines for meso', mesoId, '→', [...existingRoutineIds]);
+                console.log('[saveMesocycle v2.2.0] payload routine ids →', (mesoData.routines || []).map(r => ({ id: r.id, idType: typeof r.id, isInt: Number.isInteger(r.id), name: r.name })));
             } else {
-                // Insert new
+                // Insert new mesocycle
                 const info = insertMeso.run({
                     gymId,
                     customerId: mesoData.customerId,
@@ -599,38 +711,68 @@ class TrainingService extends BaseService {
                 mesoId = info.lastInsertRowid;
             }
 
-            // Insert Routines
+            // Track which existing routines the payload kept (everything else
+            // will be deleted at the end).
+            const keptRoutineIds = new Set();
+
+            // Reconcile each routine in the payload
             if (mesoData.routines && mesoData.routines.length > 0) {
                 for (const routine of mesoData.routines) {
-                    const rInfo = insertRoutine.run({
-                        gymId,
-                        mesocycleId: mesoId,
-                        name: routine.name,
-                        dayGroup: routine.dayGroup || '',
-                        notes: ''
-                    });
-                    const routineId = rInfo.lastInsertRowid;
+                    let routineId;
+                    const isExistingDbRoutine =
+                        typeof routine.id === 'number' &&
+                        Number.isInteger(routine.id) &&
+                        existingRoutineIds.has(routine.id);
 
-                    // Insert Items
-                    if (routine.items && routine.items.length > 0) {
-                        let order = 0;
-                        for (const item of routine.items) {
-                            insertItem.run({
-                                gymId,
-                                routineId,
-                                exerciseId: item.exerciseId || item.exercise_id, // Flexible ID source
-                                series: item.series,
-                                reps: item.reps,
-                                rpe: item.rpe || '',
-                                notes: item.notes || '',
-                                orderIndex: order++,
-                                intensity: item.intensity || '',
-                                customFields: (item.customFields || item.custom_fields) ? JSON.stringify(item.customFields || item.custom_fields) : null
-                            });
-                        }
+                    if (isExistingDbRoutine) {
+                        console.log('[saveMesocycle v2.2.0] UPDATE in-place routine id=', routine.id);
+                        // UPDATE the existing routine row (metadata only)
+                        updateRoutine.run({
+                            id: routine.id,
+                            name: routine.name,
+                            dayGroup: routine.dayGroup || '',
+                            notes: ''
+                        });
+                        routineId = routine.id;
+                        keptRoutineIds.add(routineId);
+                        // Reconcile items in place — preserves item local_ids
+                        // so customer_workout_logs stay attached to their slots.
+                        reconcileItems(routineId, routine.items);
+                    } else {
+                        console.log('[saveMesocycle v2.2.0] INSERT new routine (payload id=', routine.id, 'not in existing set)');
+                        // INSERT a new routine row
+                        const rInfo = insertRoutine.run({
+                            gymId,
+                            mesocycleId: mesoId,
+                            name: routine.name,
+                            dayGroup: routine.dayGroup || '',
+                            notes: ''
+                        });
+                        routineId = rInfo.lastInsertRowid;
+                        console.log('[saveMesocycle v2.2.0] → new routine id=', routineId);
+                        // No existing items on a brand-new routine — just insert
+                        // the payload items. reconcileItems handles this correctly
+                        // (existingItemIds is empty, so everything is INSERT).
+                        reconcileItems(routineId, routine.items);
                     }
                 }
             }
+
+            // Anything that existed before but the payload no longer has → delete + log
+            console.log('[saveMesocycle v2.2.0] kept routines →', [...keptRoutineIds], '/ existing was →', [...existingRoutineIds]);
+            for (const oldId of existingRoutineIds) {
+                if (keptRoutineIds.has(oldId)) continue;
+                // Log all its items as deleted too (cloud needs to drop them)
+                const itemIds = getExistingItems.all(oldId).map(i => i.id);
+                console.log('[saveMesocycle v2.2.0] DELETE orphan routine id=', oldId, 'items=', itemIds, 'gymId=', gymId);
+                for (const iid of itemIds) {
+                    logDelete.run(gymId, 'routine_items', iid);
+                }
+                deleteItemsByRoutine.run(oldId);
+                logDelete.run(gymId, 'routines', oldId);
+                deleteRoutineById.run(oldId);
+            }
+
             return { success: true, id: mesoId };
         });
 
@@ -659,17 +801,26 @@ class TrainingService extends BaseService {
     }
 
     // --- FIELD CONFIGURATION ---
+    // All field-config reads/writes are scoped to the currently licensed gym.
+    // Returning everything (across gyms) would mix tenants and let one gym's
+    // toggle silently affect another's.
     getExerciseFieldConfigs() {
-        const configs = this.db.prepare('SELECT * FROM exercise_field_config WHERE is_deleted = 0 ORDER BY created_at ASC').all();
+        const gymId = this.getGymId();
+        const configs = this.db
+            .prepare('SELECT * FROM exercise_field_config WHERE is_deleted = 0 AND gym_id = ? ORDER BY created_at ASC')
+            .all(gymId);
         return configs.map(c => ({
             ...c,
             options: c.options ? JSON.parse(c.options) : null
         }));
     }
 
-    // New method to get ALL configs including deleted ones for rendering history
+    // Returns ALL configs (including deleted) for the current gym only.
     getAllExerciseFieldConfigs() {
-        const configs = this.db.prepare('SELECT * FROM exercise_field_config ORDER BY created_at ASC').all();
+        const gymId = this.getGymId();
+        const configs = this.db
+            .prepare('SELECT * FROM exercise_field_config WHERE gym_id = ? ORDER BY created_at ASC')
+            .all(gymId);
         return configs.map(c => ({
             ...c,
             options: c.options ? JSON.parse(c.options) : null
@@ -677,19 +828,32 @@ class TrainingService extends BaseService {
     }
 
     updateExerciseFieldConfig(key, data) {
+        // is_loggable and is_prescribable are hardcoded per catalog entry —
+        // we look them up rather than trusting whatever the caller passed.
+        const { getCatalogField } = require('../../constants/field-catalog');
+        const catalog = getCatalogField(key);
+        const gymId = this.getGymId();
+        // Filter by (gym_id, field_key) so a toggle in gym A never bleeds to gym B.
         const stmt = this.db.prepare(`
-            UPDATE exercise_field_config 
-            SET label = @label, type = @type, is_active = @is_active, 
-                is_mandatory_in_template = @is_mandatory_in_template, options = @options
-            WHERE field_key = @field_key
+            UPDATE exercise_field_config
+            SET label = @label, type = @type, is_active = @is_active,
+                is_mandatory_in_template = @is_mandatory_in_template,
+                is_loggable = @is_loggable, is_prescribable = @is_prescribable,
+                options = @options,
+                synced = 0, updated_at = datetime('now')
+            WHERE field_key = @field_key AND gym_id = @gym_id
         `);
         stmt.run({
             label: data.label,
             type: data.type || 'text',
             is_active: data.is_active ? 1 : 0,
             is_mandatory_in_template: data.is_mandatory_in_template ? 1 : 0,
+            // Catalog wins when the key is canonical; otherwise honor caller.
+            is_loggable: catalog ? (catalog.loggable ? 1 : 0) : (data.is_loggable ? 1 : 0),
+            is_prescribable: catalog ? (catalog.prescribable ? 1 : 0) : (data.is_prescribable ?? 1),
             options: data.options ? JSON.stringify(data.options) : null,
-            field_key: key
+            field_key: key,
+            gym_id: gymId,
         });
         return { success: true };
     }
@@ -707,25 +871,37 @@ class TrainingService extends BaseService {
         if (existing) {
             this.db.prepare(`
                 UPDATE exercise_field_config
-                SET label = ?, type = ?, options = ?, is_active = 1, is_deleted = 0
+                SET label = ?, type = ?, options = ?, is_active = 1, is_deleted = 0,
+                    synced = 0, updated_at = datetime('now')
                 WHERE field_key = ? AND gym_id = ?
             `).run(label, type || 'text', optionsJson, key, gymId);
         } else {
             this.db.prepare(`
-                INSERT INTO exercise_field_config (gym_id, field_key, label, type, options, is_active)
-                VALUES (?, ?, ?, ?, ?, 1)
+                INSERT INTO exercise_field_config (gym_id, field_key, label, type, options, is_active, synced, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, 0, datetime('now'))
             `).run(gymId, key, label, type || 'text', optionsJson);
         }
         return { success: true, key };
     }
 
     deleteFieldConfig(key) {
+        // Catalog entries are off-limits — the entire 9 are required for the
+        // mobile app to render correctly. Anything else can be archived.
+        const { isCatalogField } = require('../../constants/field-catalog');
+        if (isCatalogField(key)) {
+            throw new Error(`El campo "${key}" forma parte del catálogo y no se puede eliminar`);
+        }
+        const gymId = this.getGymId();
         const transaction = this.db.transaction(() => {
-            // 1. Mark field config as deleted
-            this.db.prepare('UPDATE exercise_field_config SET is_deleted = 1, is_active = 0 WHERE field_key = ?').run(key);
+            // 1. Mark field config as deleted FOR THIS GYM ONLY
+            this.db
+                .prepare('UPDATE exercise_field_config SET is_deleted = 1, is_active = 0 WHERE field_key = ? AND gym_id = ?')
+                .run(key, gymId);
 
-            // 2. Remove field from exercises.custom_fields JSON
-            const exercises = this.db.prepare("SELECT id, custom_fields FROM exercises WHERE custom_fields IS NOT NULL AND custom_fields != '{}'").all();
+            // 2. Remove field from exercises.custom_fields JSON (scoped to gym)
+            const exercises = this.db
+                .prepare("SELECT id, custom_fields FROM exercises WHERE custom_fields IS NOT NULL AND custom_fields != '{}' AND gym_id = ?")
+                .all(gymId);
             const updateExStmt = this.db.prepare('UPDATE exercises SET custom_fields = ? WHERE id = ?');
             for (const ex of exercises) {
                 try {
@@ -737,8 +913,10 @@ class TrainingService extends BaseService {
                 } catch { /* skip malformed JSON */ }
             }
 
-            // 3. Remove field from routine_items.custom_fields JSON
-            const items = this.db.prepare("SELECT id, custom_fields FROM routine_items WHERE custom_fields IS NOT NULL AND custom_fields != '{}'").all();
+            // 3. Remove field from routine_items.custom_fields JSON (scoped to gym)
+            const items = this.db
+                .prepare("SELECT id, custom_fields FROM routine_items WHERE custom_fields IS NOT NULL AND custom_fields != '{}' AND gym_id = ?")
+                .all(gymId);
             const updateItemStmt = this.db.prepare('UPDATE routine_items SET custom_fields = ? WHERE id = ?');
             for (const item of items) {
                 try {

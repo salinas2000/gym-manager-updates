@@ -43,8 +43,14 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
         }
     });
 
-    // Filter active fields for NEW entry UI
-    const activeFields = fieldConfigs.filter(f => f.is_active && !f.is_deleted);
+    // Fields the TRAINER can prescribe in the routine. Anything flagged
+    // is_prescribable (which is most of the catalog except Notas) appears.
+    // Fields that are ALSO loggable (Peso, Repeticiones, RPE, RIR) still
+    // appear here — the prescribed value becomes the customer's placeholder
+    // in the mobile, and the customer logs the actual value per set.
+    const activeFields = fieldConfigs.filter(
+        f => f.is_active && !f.is_deleted && f.is_prescribable !== 0
+    );
 
     const filteredExercises = exercises.filter(ex => {
         if (activeCategory && ex.category_id !== activeCategory) return false;
@@ -63,13 +69,15 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
             ? JSON.parse(exercise.custom_fields)
             : (exercise.custom_fields || {});
 
-        // Filter out deleted/orphaned fields
+        // Filter out:
+        //   - deleted/orphan fields (no live config)
+        //   - fields that are NOT prescribable (e.g. Notas — pure customer side)
         const baseCustomFields = {};
         for (const [key, val] of Object.entries(rawFields)) {
             const fc = fieldConfigs.find(f => f.field_key === key);
-            if (fc && !fc.is_deleted) {
-                baseCustomFields[key] = val;
-            }
+            if (!fc || fc.is_deleted) continue;
+            if (fc.is_prescribable === 0) continue;
+            baseCustomFields[key] = val;
         }
 
         setDays(days.map(day => {
@@ -373,12 +381,11 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                         const itemKeys = Object.keys(itemFields);
                                         const configKeys = activeFields.map(f => f.field_key);
 
-                                        // All keys that should be rendered:
-                                        // 1. All active configurations
-                                        // 2. Any field that HAS data AND has a valid (non-deleted) config
+                                        // Keys to render: every prescribable catalog field plus any
+                                        // legacy item key that's still prescribable.
                                         const validItemKeys = itemKeys.filter(k => {
                                             const fc = fieldConfigs.find(f => f.field_key === k);
-                                            return fc && !fc.is_deleted;
+                                            return fc && !fc.is_deleted && fc.is_prescribable !== 0;
                                         });
                                         const allKeys = Array.from(new Set([...configKeys, ...validItemKeys]));
 

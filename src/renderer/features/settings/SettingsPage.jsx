@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNotifications } from '../../context/NotificationContext';
 import { useGym } from '../../context/GymContext';
-import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Cloud, HardDrive, Database } from 'lucide-react';
+import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Database } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import SettingsLicense from './SettingsLicense';
 
@@ -138,9 +137,6 @@ export default function SettingsPage({ initialTab = 'general' }) {
                 <button onClick={() => setActiveTab('license')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'license' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     <Key size={16} /> Licencia
                 </button>
-                <button onClick={() => setActiveTab('integrations')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'integrations' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
-                    <Cloud size={16} /> Integraciones
-                </button>
                 <button onClick={() => setActiveTab('updates')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'updates' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     <ShieldCheck size={16} /> Actualizaciones
                 </button>
@@ -225,13 +221,6 @@ export default function SettingsPage({ initialTab = 'general' }) {
             )}
 
 
-            {/* TAB CONTENT: INTEGRATIONS */}
-            {
-                activeTab === 'integrations' && (
-                    <IntegrationsTab confirmAction={requestConfirm} />
-                )
-            }
-
             {/* TAB CONTENT: UPDATES */}
             {
                 activeTab === 'updates' && (
@@ -265,123 +254,6 @@ export default function SettingsPage({ initialTab = 'general' }) {
         </div >
     );
 }
-
-function IntegrationsTab({ confirmAction }) {
-    const [status, setStatus] = useState({ connected: false, user: null });
-    const [isLoading, setIsLoading] = useState(false);
-
-    useEffect(() => {
-        checkStatus();
-    }, []);
-
-    const checkStatus = async () => {
-        if (!window.api.google) return;
-        try {
-            const res = await window.api.google.getStatus();
-            if (res.success) {
-                setStatus(res.data);
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    const { addNotification, removeNotification } = useNotifications();
-
-    const handleConnect = async () => {
-        setIsLoading(true);
-        try {
-            const res = await window.api.google.startAuth();
-            if (res.success) {
-                setStatus({ connected: true, user: res.user });
-                // Update Notification Center
-                addNotification({
-                    id: 'google-status',
-                    type: 'status',
-                    title: 'Google Drive Conectado',
-                    message: `Sincronizando con ${res.user?.email || 'Tu Cuenta'}`,
-                    userEmail: res.user?.email,
-                    priority: 'low',
-                    persistent: true,
-                    action: {
-                        label: 'Configurar',
-                        view: 'settings',
-                        data: 'integrations'
-                    }
-                });
-            } else {
-                alert('Error al conectar: ' + res.error);
-            }
-        } catch (e) {
-            console.error(e);
-            alert('Error inesperado al conectar')
-        }
-        setIsLoading(false);
-    };
-
-    const handleDisconnect = async () => {
-        confirmAction({
-            title: 'Desconectar Google Drive',
-            message: '¿Estás seguro de que quieres desconectar tu cuenta de Google Drive? Tendrás que volver a autorizar el acceso para subir archivos.',
-            type: 'warning',
-            confirmText: 'Desconectar',
-            onConfirm: async () => {
-                await window.api.google.signOut();
-                setStatus({ connected: false, user: null });
-                removeNotification('google-status');
-            }
-        });
-    };
-
-    return (
-        <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-slate-900/50 rounded-2xl p-8 border border-white/5 shadow-xl">
-                <div className="flex items-start gap-6">
-                    <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg p-3">
-                        <HardDrive size={32} className="text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                        <h3 className="text-xl font-bold text-white mb-2">Google Drive</h3>
-                        <p className="text-slate-400 text-sm mb-6 max-w-xl">
-                            Conecta tu cuenta de Google para subir automáticamente las rutinas y entrenamientos. Los archivos se guardarán en una carpeta "GIMNASIO" y se generará un enlace público para compartir con tus clientes.
-                        </p>
-
-                        {status.connected ? (
-                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    {status.user?.picture ? (
-                                        <img src={status.user.picture} className="w-10 h-10 rounded-full border border-emerald-500/30" />
-                                    ) : (
-                                        <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold">
-                                            {status.user?.name?.charAt(0) || 'U'}
-                                        </div>
-                                    )}
-                                    <div>
-                                        <p className="text-white font-bold">{status.user?.name || 'Usuario Conectado'}</p>
-                                        <p className="text-emerald-400 text-xs">{status.user?.email}</p>
-                                    </div>
-                                </div>
-                                <button onClick={handleDisconnect} className="text-red-400 hover:text-red-300 text-sm font-medium hover:underline">
-                                    Desconectar
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={handleConnect}
-                                disabled={isLoading}
-                                className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg hover:shadow-blue-500/20 disabled:opacity-50 disabled:cursor-wait"
-                            >
-                                {isLoading ? 'Conectando...' : 'Conectar Cuenta de Google'}
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-
 
 function UpdateTab() {
     const [status, setStatus] = useState('idle');

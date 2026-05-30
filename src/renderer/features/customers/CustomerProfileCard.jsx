@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Phone, CreditCard, Dumbbell, Calendar, TrendingUp, Clock, Wallet, MapPin, Heart, Ruler, Weight, Save, Pencil, FileText, Smartphone, CheckCircle2, XCircle, Send, TrendingDown, Minus } from 'lucide-react';
+import { X, User, Mail, Phone, CreditCard, Dumbbell, Calendar, TrendingUp, Clock, Wallet, MapPin, Heart, Ruler, Weight, Save, Pencil, FileText, Smartphone, CheckCircle2, XCircle, Send, KeyRound, ShieldOff } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useToast } from '../../context/ToastContext';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
 
 const TABS = [
     { id: 'overview', label: 'General' },
@@ -10,12 +11,11 @@ const TABS = [
 ];
 
 export default function CustomerProfileCard({ isOpen, onClose, customer, onNavigateTraining, onOpenPayments }) {
-    const { updateCustomer } = useGym();
+    const { updateCustomer, refreshMobileLinks } = useGym();
     const toast = useToast();
     const [payments, setPayments] = useState([]);
     const [mesocycles, setMesocycles] = useState([]);
     const [membershipHistory, setMembershipHistory] = useState([]);
-    const [weightLogs, setWeightLogs] = useState([]);
     const [mobileStatus, setMobileStatus] = useState(null);
     const [loadingMobile, setLoadingMobile] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -26,7 +26,11 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
     const [editing, setEditing] = useState(false);
     const [editData, setEditData] = useState({});
     const [saving, setSaving] = useState(false);
-    const [inviting, setInviting] = useState(false);
+    // Mobile-app action state (single in-flight indicator, distinguished by action)
+    const [mobileAction, setMobileAction] = useState(null); // 'invite' | 'reset' | 'revoke' | null
+    // Confirmation modal state — used by mobile-app actions instead of window.confirm
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: null, onConfirm: null, type: 'info', confirmText: 'Confirmar' });
+    const closeConfirm = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
     useEffect(() => {
         if (!isOpen || !customer) return;
@@ -53,41 +57,32 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
         return () => { cancelled = true; };
     }, [isOpen, customer]);
 
-    // Fetch mobile app data (weight logs + registration status) when "App Movil" tab opens
-    useEffect(() => {
-        if (!isOpen || !customer || activeTab !== 'app') return;
-        let cancelled = false;
+    // Fetch mobile-app registration status when "App Movil" tab opens.
+    // Weight tracking removed — that lives in its own tab/feature now.
+    const refreshMobileStatus = React.useCallback(async () => {
+        if (!customer) return;
         setLoadingMobile(true);
-
-        Promise.all([
-            window.api.license.getData(),
-        ]).then(async ([licData]) => {
+        try {
+            const licData = await window.api.license.getData();
             const gymId = licData?.gym_id;
             if (!gymId) {
-                if (!cancelled) {
-                    setMobileStatus({ success: false, error: 'No se pudo obtener el gym_id' });
-                    setLoadingMobile(false);
-                }
+                setMobileStatus({ success: false, error: 'No se pudo obtener el gym_id' });
                 return;
             }
-            const [statusRes, weightRes] = await Promise.all([
-                window.api.cloud.getCustomerMobileStatus(gymId, customer.id),
-                window.api.cloud.getCustomerWeightLogs(gymId, customer.id),
-            ]);
-            if (cancelled) return;
-            // IPC wraps as { success, data: innerResult }
+            const statusRes = await window.api.cloud.getCustomerMobileStatus(gymId, customer.id);
             const status = statusRes?.success ? statusRes.data : { success: false, error: statusRes?.error };
             setMobileStatus(status);
-            const weights = weightRes?.success ? (weightRes.data?.data || []) : [];
-            setWeightLogs(weights);
-        }).catch(err => {
-            if (!cancelled) setMobileStatus({ success: false, error: err.message });
-        }).finally(() => {
-            if (!cancelled) setLoadingMobile(false);
-        });
+        } catch (err) {
+            setMobileStatus({ success: false, error: err.message });
+        } finally {
+            setLoadingMobile(false);
+        }
+    }, [customer]);
 
-        return () => { cancelled = true; };
-    }, [isOpen, customer, activeTab]);
+    useEffect(() => {
+        if (!isOpen || !customer || activeTab !== 'app') return;
+        refreshMobileStatus();
+    }, [isOpen, customer, activeTab, refreshMobileStatus]);
 
     const initEditData = (c) => {
         let medInfo = c.medical_info;
@@ -145,7 +140,7 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
             toast.error('El cliente necesita un email para recibir la invitación');
             return;
         }
-        setInviting(true);
+        setMobileAction('invite');
         try {
             const gymId = (await window.api.license.getData())?.gym_id;
             if (!gymId) throw new Error('No se pudo obtener el ID del gimnasio');
@@ -153,14 +148,83 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
             const res = await window.api.cloud.inviteToMobile(gymId, c.id, c.email, customerName);
             if (res.success && res.data?.success) {
                 toast.success(res.data.message || 'Invitación enviada');
+                await refreshMobileStatus();
+                // Refresh the shared mobile-link map so the icon in the
+                // customer list updates immediately (no Ctrl+R needed).
+                await refreshMobileLinks?.();
             } else {
                 toast.error(res.data?.message || res.error || 'Error al enviar invitación');
             }
         } catch (err) {
             toast.error(err.message || 'Error al enviar invitación');
         } finally {
-            setInviting(false);
+            setMobileAction(null);
         }
+    };
+
+    const handleResetPassword = async () => {
+        setMobileAction('reset');
+        try {
+            const gymId = (await window.api.license.getData())?.gym_id;
+            if (!gymId) throw new Error('No se pudo obtener el ID del gimnasio');
+            const res = await window.api.cloud.resetMobilePassword(gymId, c.id);
+            const inner = res?.data ?? res;
+            if (inner?.success) {
+                toast.success(inner.message || 'Email de recuperación enviado');
+                // No status change but keep the list fresh anyway in case
+                // an external admin invited/revoked since we last refreshed.
+                await refreshMobileLinks?.();
+            } else {
+                toast.error(inner?.error || 'Error al enviar email de recuperación');
+            }
+        } catch (err) {
+            toast.error(err.message || 'Error al enviar email de recuperación');
+        } finally {
+            setMobileAction(null);
+        }
+    };
+
+    const performRevokeAccess = async () => {
+        setMobileAction('revoke');
+        try {
+            const gymId = (await window.api.license.getData())?.gym_id;
+            if (!gymId) throw new Error('No se pudo obtener el ID del gimnasio');
+            const res = await window.api.cloud.revokeMobileAccess(gymId, c.id);
+            const inner = res?.data ?? res;
+            if (inner?.success) {
+                toast.success(inner.message || 'Acceso revocado');
+                await refreshMobileStatus();
+                await refreshMobileLinks?.();
+            } else {
+                toast.error(inner?.error || 'Error al revocar acceso');
+            }
+        } catch (err) {
+            toast.error(err.message || 'Error al revocar acceso');
+        } finally {
+            setMobileAction(null);
+        }
+    };
+
+    const handleRevokeAccess = () => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Quitar acceso a la app móvil',
+            type: 'danger',
+            confirmText: 'Quitar acceso',
+            message: (
+                <div className="space-y-2">
+                    <p>
+                        ¿Quitar el acceso a la app móvil de{' '}
+                        <strong className="text-white">{c.first_name} {c.last_name}</strong>?
+                    </p>
+                    <p className="text-sm text-slate-400">
+                        El cliente dejará de ver este gimnasio en la app. Si tiene acceso a otros gimnasios,
+                        esos no se verán afectados — su cuenta sigue intacta.
+                    </p>
+                </div>
+            ),
+            onConfirm: performRevokeAccess,
+        });
     };
 
     const updateMedical = (field, value) => {
@@ -266,10 +330,11 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                         <MobileAppTab
                             customer={c}
                             mobileStatus={mobileStatus}
-                            weightLogs={weightLogs}
                             loading={loadingMobile}
                             onInvite={handleInviteToMobile}
-                            inviting={inviting}
+                            onResetPassword={handleResetPassword}
+                            onRevokeAccess={handleRevokeAccess}
+                            mobileAction={mobileAction}
                         />
                     )}
                 </div>
@@ -312,15 +377,6 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                         )}
                         {activeTab === 'overview' && (
                             <>
-                                <button
-                                    onClick={handleInviteToMobile}
-                                    disabled={inviting || !c.email}
-                                    title={!c.email ? 'El cliente necesita un email' : 'Invitar a la app móvil'}
-                                    className="bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    <Smartphone size={14} />
-                                    {inviting ? 'Enviando...' : 'App Móvil'}
-                                </button>
                                 {onOpenPayments && (
                                     <button
                                         onClick={() => { onClose(); onOpenPayments(customer); }}
@@ -344,6 +400,20 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                     </div>
                 </div>
             </div>
+
+            <ConfirmationModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText}
+                onClose={closeConfirm}
+                onConfirm={() => {
+                    closeConfirm();
+                    confirmModal.onConfirm?.();
+                }}
+            >
+                {confirmModal.message}
+            </ConfirmationModal>
         </div>
     );
 }
@@ -586,7 +656,7 @@ function FichaTab({ customer, medInfo, editing, editData, setEditData, updateMed
     );
 }
 
-function MobileAppTab({ customer, mobileStatus, weightLogs, loading, onInvite, inviting }) {
+function MobileAppTab({ customer, mobileStatus, loading, onInvite, onResetPassword, onRevokeAccess, mobileAction }) {
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12">
@@ -600,18 +670,11 @@ function MobileAppTab({ customer, mobileStatus, weightLogs, loading, onInvite, i
     const isInvited = status.invited === true && !isRegistered;
     const linkedDate = status.linked_at ? new Date(status.linked_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
     const invitedDate = status.invited_at ? new Date(status.invited_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
-
-    // Weight analysis
-    const sortedWeights = [...(weightLogs || [])].sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
-    const latest = sortedWeights[0];
-    const previous = sortedWeights[1];
-    const change = (latest && previous) ? +(latest.weight_kg - previous.weight_kg).toFixed(2) : null;
-    const minWeight = sortedWeights.length > 0 ? Math.min(...sortedWeights.map(w => w.weight_kg)) : null;
-    const maxWeight = sortedWeights.length > 0 ? Math.max(...sortedWeights.map(w => w.weight_kg)) : null;
+    const busy = mobileAction !== null;
 
     return (
         <div className="space-y-6">
-            {/* Registration Status */}
+            {/* Registration Status card */}
             <div className={`rounded-xl p-5 border ${isRegistered
                 ? 'bg-emerald-500/5 border-emerald-500/20'
                 : isInvited
@@ -634,16 +697,16 @@ function MobileAppTab({ customer, mobileStatus, weightLogs, loading, onInvite, i
                     <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                             <Smartphone size={16} className="text-slate-400" />
-                            <h3 className="text-base font-bold text-white">Estado en la App Movil</h3>
+                            <h3 className="text-base font-bold text-white">Estado en la App Móvil</h3>
                         </div>
                         {isRegistered && (
                             <>
                                 <p className="text-sm text-emerald-300 font-medium">Registrado y activo</p>
-                                <p className="text-xs text-slate-400 mt-1">
-                                    {status.auth_email && (
-                                        <>Cuenta: <span className="text-emerald-300">{status.auth_email}</span></>
-                                    )}
-                                </p>
+                                {status.auth_email && (
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        Cuenta: <span className="text-emerald-300">{status.auth_email}</span>
+                                    </p>
+                                )}
                                 {linkedDate && (
                                     <p className="text-xs text-slate-500 mt-1">Vinculado el {linkedDate}</p>
                                 )}
@@ -651,8 +714,8 @@ function MobileAppTab({ customer, mobileStatus, weightLogs, loading, onInvite, i
                         )}
                         {isInvited && (
                             <>
-                                <p className="text-sm text-amber-300 font-medium">Invitacion pendiente</p>
-                                <p className="text-xs text-slate-400 mt-1">El cliente ha sido invitado pero aun no ha completado el registro.</p>
+                                <p className="text-sm text-amber-300 font-medium">Invitación pendiente</p>
+                                <p className="text-xs text-slate-400 mt-1">El cliente ha sido invitado pero aún no ha completado el registro.</p>
                                 {invitedDate && (
                                     <p className="text-xs text-slate-500 mt-1">Invitado el {invitedDate}</p>
                                 )}
@@ -661,16 +724,7 @@ function MobileAppTab({ customer, mobileStatus, weightLogs, loading, onInvite, i
                         {!isRegistered && !isInvited && (
                             <>
                                 <p className="text-sm text-slate-300 font-medium">No registrado</p>
-                                <p className="text-xs text-slate-400 mt-1">Este cliente todavia no tiene acceso a la app movil.</p>
-                                <button
-                                    onClick={onInvite}
-                                    disabled={inviting || !customer.email}
-                                    title={!customer.email ? 'El cliente necesita un email' : 'Enviar invitacion'}
-                                    className="mt-3 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    <Send size={12} />
-                                    {inviting ? 'Enviando...' : 'Enviar invitacion'}
-                                </button>
+                                <p className="text-xs text-slate-400 mt-1">Este cliente todavía no tiene acceso a la app móvil.</p>
                             </>
                         )}
                         {status.error && (
@@ -680,80 +734,95 @@ function MobileAppTab({ customer, mobileStatus, weightLogs, loading, onInvite, i
                 </div>
             </div>
 
-            {/* Weight Logs from Mobile App */}
-            <div>
-                <h3 className="text-xs uppercase font-bold text-slate-400 tracking-widest flex items-center gap-2 mb-3">
-                    <Weight size={14} />
-                    Pesajes desde la App ({weightLogs.length})
+            {/* Actions card */}
+            <div className="bg-slate-800/30 rounded-xl border border-white/5 p-5">
+                <h3 className="text-xs uppercase font-bold text-slate-400 tracking-widest mb-4 flex items-center gap-2">
+                    <Smartphone size={14} />
+                    Acciones
                 </h3>
 
-                {sortedWeights.length === 0 ? (
-                    <div className="bg-slate-800/30 rounded-xl p-8 border border-white/5 text-center">
-                        <Weight size={32} className="mx-auto text-slate-600 mb-2" />
-                        <p className="text-sm text-slate-500">El cliente aun no ha registrado pesajes desde la app.</p>
+                {!customer.email && (
+                    <div className="mb-4 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+                        <p className="text-xs text-amber-300">
+                            El cliente no tiene email registrado. Añádelo en la pestaña General para poder enviarle invitaciones o emails de recuperación.
+                        </p>
                     </div>
-                ) : (
-                    <>
-                        {/* Summary Stats */}
-                        <div className="grid grid-cols-4 gap-3 mb-4">
-                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
-                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Actual</p>
-                                <p className="text-lg font-black text-white">{latest?.weight_kg} <span className="text-xs text-slate-500">kg</span></p>
-                            </div>
-                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
-                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Cambio</p>
-                                {change === null ? (
-                                    <p className="text-sm text-slate-500">—</p>
-                                ) : (
-                                    <p className={`text-lg font-black flex items-center justify-center gap-1 ${change > 0 ? 'text-amber-400' : change < 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
-                                        {change > 0 ? <TrendingUp size={14} /> : change < 0 ? <TrendingDown size={14} /> : <Minus size={14} />}
-                                        {change > 0 ? '+' : ''}{change} <span className="text-xs text-slate-500">kg</span>
-                                    </p>
-                                )}
-                            </div>
-                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
-                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Min</p>
-                                <p className="text-lg font-black text-white">{minWeight} <span className="text-xs text-slate-500">kg</span></p>
-                            </div>
-                            <div className="bg-slate-800/50 rounded-xl p-3 border border-white/5 text-center">
-                                <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Max</p>
-                                <p className="text-lg font-black text-white">{maxWeight} <span className="text-xs text-slate-500">kg</span></p>
-                            </div>
-                        </div>
-
-                        {/* History list */}
-                        <div className="bg-slate-800/30 rounded-xl border border-white/5 overflow-hidden">
-                            <div className="max-h-72 overflow-y-auto">
-                                {sortedWeights.map((w, i) => {
-                                    const prev = sortedWeights[i + 1];
-                                    const diff = prev ? +(w.weight_kg - prev.weight_kg).toFixed(2) : null;
-                                    return (
-                                        <div key={w.id} className="px-4 py-3 border-b border-white/5 last:border-b-0 flex items-center gap-3">
-                                            <div className="p-2 bg-blue-500/10 rounded-lg">
-                                                <Weight size={14} className="text-blue-400" />
-                                            </div>
-                                            <div className="flex-1">
-                                                <p className="text-sm font-bold text-white">{w.weight_kg} kg</p>
-                                                <p className="text-[11px] text-slate-500">
-                                                    {new Date(w.measured_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                </p>
-                                                {w.notes && (
-                                                    <p className="text-[11px] text-slate-400 italic mt-1">{w.notes}</p>
-                                                )}
-                                            </div>
-                                            {diff !== null && (
-                                                <span className={`text-xs font-bold ${diff > 0 ? 'text-amber-400' : diff < 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                                                    {diff > 0 ? '+' : ''}{diff} kg
-                                                </span>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </>
                 )}
+
+                <div className="space-y-2">
+                    {/* INVITE — visible when there's no link at all */}
+                    {!isRegistered && !isInvited && (
+                        <ActionButton
+                            icon={Send}
+                            label={mobileAction === 'invite' ? 'Enviando…' : 'Enviar invitación'}
+                            description="Crea la cuenta del cliente y le envía un email para que establezca su contraseña."
+                            onClick={onInvite}
+                            disabled={busy || !customer.email}
+                            color="violet"
+                        />
+                    )}
+
+                    {/* RE-INVITE — visible when invited but not yet registered (resend) */}
+                    {isInvited && (
+                        <ActionButton
+                            icon={Send}
+                            label={mobileAction === 'invite' ? 'Reenviando…' : 'Reenviar invitación'}
+                            description="Vuelve a enviar el email de invitación al cliente."
+                            onClick={onInvite}
+                            disabled={busy || !customer.email}
+                            color="violet"
+                        />
+                    )}
+
+                    {/* RESET PASSWORD — visible only when registered */}
+                    {isRegistered && (
+                        <ActionButton
+                            icon={KeyRound}
+                            label={mobileAction === 'reset' ? 'Enviando…' : 'Restablecer contraseña'}
+                            description="Envía al cliente un email para crear una nueva contraseña."
+                            onClick={onResetPassword}
+                            disabled={busy}
+                            color="blue"
+                        />
+                    )}
+
+                    {/* REVOKE ACCESS — visible whenever there's any link (invited or registered) */}
+                    {(isRegistered || isInvited) && (
+                        <ActionButton
+                            icon={ShieldOff}
+                            label={mobileAction === 'revoke' ? 'Quitando acceso…' : 'Quitar acceso'}
+                            description="Elimina el vínculo con este gimnasio. El cliente dejará de verlo en la app, pero conservará su cuenta para otros gimnasios."
+                            onClick={onRevokeAccess}
+                            disabled={busy}
+                            color="red"
+                        />
+                    )}
+                </div>
             </div>
+        </div>
+    );
+}
+
+function ActionButton({ icon: Icon, label, description, onClick, disabled, color }) {
+    const palette = {
+        violet: 'bg-violet-600 hover:bg-violet-500 text-white',
+        blue: 'bg-blue-600 hover:bg-blue-500 text-white',
+        red: 'bg-red-600/90 hover:bg-red-500 text-white',
+    }[color] || 'bg-slate-700 hover:bg-slate-600 text-white';
+    return (
+        <div className="flex items-center justify-between gap-4 bg-slate-900/40 border border-white/5 rounded-lg p-3">
+            <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-white">{label.replace(/…/g, '')}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{description}</p>
+            </div>
+            <button
+                onClick={onClick}
+                disabled={disabled}
+                className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${palette}`}
+            >
+                <Icon size={14} />
+                <span className="hidden sm:inline">{label}</span>
+            </button>
         </div>
     );
 }

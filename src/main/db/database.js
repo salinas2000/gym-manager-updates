@@ -612,7 +612,8 @@ class DBManager {
                 'customers', 'payments', 'memberships', 'tariffs',
                 'exercises', 'exercise_categories', 'exercise_subcategories',
                 'mesocycles', 'routines', 'routine_items',
-                'gym_classes', 'gym_class_schedules'
+                'gym_classes', 'gym_class_schedules',
+                'exercise_field_config',
             ];
 
             tablesToMirror.forEach(table => {
@@ -749,6 +750,130 @@ class DBManager {
         this.safeAddColumn('routine_items', 'custom_fields', 'TEXT'); // JSON storage
         this.safeAddColumn('routine_items', 'intensity', 'TEXT'); // Intensity level
 
+        // 20b4. Multi-gym migration for exercise_field_config.
+        // MUST run BEFORE the catalog seed (21a) so the ON CONFLICT clause
+        // sees the new composite (gym_id, field_key) UNIQUE constraint.
+        // Original schema had `field_key TEXT UNIQUE` — a GLOBAL unique
+        // constraint that forced one row per key across every gym in the
+        // same SQLite. We rebuild here so each gym gets its own row and
+        // re-tag legacy 'LOCAL_DEV' rows to the currently licensed gym.
+        try {
+            const tableSql = this.db
+                .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='exercise_field_config'")
+                .get();
+            const needsRebuild = tableSql && /\bfield_key\s+TEXT\s+UNIQUE\b/i.test(tableSql.sql);
+            if (needsRebuild) {
+                console.log('[DB] Migrating exercise_field_config → composite UNIQUE(gym_id, field_key)…');
+                let activeGymId = 'LOCAL_DEV';
+                try {
+                    const licenseService = require('../services/local/license.service');
+                    const data = licenseService.getLicenseData?.();
+                    if (data?.gym_id) activeGymId = data.gym_id;
+                } catch (_) { /* keep LOCAL_DEV fallback */ }
+
+                this.db.exec('BEGIN');
+                try {
+                    this.db.exec(`
+                        CREATE TABLE exercise_field_config_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            gym_id TEXT NOT NULL,
+                            field_key TEXT NOT NULL,
+                            label TEXT NOT NULL,
+                            type TEXT DEFAULT 'text',
+                            is_active INTEGER DEFAULT 1,
+                            is_mandatory_in_template INTEGER DEFAULT 0,
+                            is_loggable INTEGER DEFAULT 0,
+                            is_prescribable INTEGER DEFAULT 1,
+                            options TEXT,
+                            is_deleted INTEGER DEFAULT 0,
+                            synced INTEGER DEFAULT 0,
+                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE(gym_id, field_key)
+                        )
+                    `);
+                    const copyStmt = this.db.prepare(`
+                        INSERT INTO exercise_field_config_new
+                            (id, gym_id, field_key, label, type, is_active, is_mandatory_in_template,
+                             is_loggable, is_prescribable, options, is_deleted, synced, updated_at, created_at)
+                        SELECT id,
+                               CASE WHEN gym_id IS NULL OR gym_id = 'LOCAL_DEV' THEN ? ELSE gym_id END,
+                               field_key, label, type,
+                               COALESCE(is_active, 1), COALESCE(is_mandatory_in_template, 0),
+                               COALESCE(is_loggable, 0), COALESCE(is_prescribable, 1),
+                               options, COALESCE(is_deleted, 0), COALESCE(synced, 0),
+                               COALESCE(updated_at, datetime('now')), created_at
+                        FROM exercise_field_config
+                    `);
+                    copyStmt.run(activeGymId);
+                    this.db.exec('DROP TABLE exercise_field_config');
+                    this.db.exec('ALTER TABLE exercise_field_config_new RENAME TO exercise_field_config');
+                    this.db.exec('COMMIT');
+                    console.log(`[DB] ✅ exercise_field_config rebuilt with composite UNIQUE (active gym ${activeGymId})`);
+                } catch (err) {
+                    this.db.exec('ROLLBACK');
+                    throw err;
+                }
+            }
+        } catch (e) {
+            console.error('[DB] Multi-gym migration of exercise_field_config FAILED:', e.message);
+        }
+
+        // 21a. Catálogo canónico de campos — espejo de
+        //   coreBuild/src/main/constants/field-catalog.js
+        //   gym-client-app/src/lib/field-catalog.ts
+        // El catálogo es el universo de campos posibles. Cada uno tiene su
+        // is_loggable canonical (no togglable por el usuario) y se inserta
+        // como activo por defecto. Los registros custom legacy que NO estén
+        // en el catálogo se marcan is_deleted=1 para que dejen de aparecer.
+        try {
+            const { FIELD_CATALOG } = require('../constants/field-catalog');
+            // Resolve the gym to seed for — falls back to LOCAL_DEV only when
+            // the desktop hasn't been activated yet.
+            let seedGymId = 'LOCAL_DEV';
+            try {
+                const licenseService = require('../services/local/license.service');
+                const data = licenseService.getLicenseData?.();
+                if (data?.gym_id) seedGymId = data.gym_id;
+            } catch (_) { /* keep fallback */ }
+
+            // Composite (gym_id, field_key) conflict target — matches the UNIQUE
+            // constraint applied by the 20b4 migration.
+            const insertOrUpdate = this.db.prepare(`
+                INSERT INTO exercise_field_config
+                    (gym_id, field_key, label, type, is_active, is_mandatory_in_template, is_loggable, is_prescribable, is_deleted)
+                VALUES (?, ?, ?, ?, 1, 0, ?, ?, 0)
+                ON CONFLICT(gym_id, field_key) DO UPDATE SET
+                    label = excluded.label,
+                    type = excluded.type,
+                    is_loggable = excluded.is_loggable,
+                    is_prescribable = excluded.is_prescribable,
+                    is_deleted = 0,
+                    is_active = COALESCE(exercise_field_config.is_active, 1)
+            `);
+            for (const f of FIELD_CATALOG) {
+                insertOrUpdate.run(
+                    seedGymId, f.key, f.label, f.type,
+                    f.loggable ? 1 : 0,
+                    f.prescribable ? 1 : 0,
+                );
+            }
+            // Soft-delete any non-catalog field FOR THIS GYM ONLY. Using a
+            // parameterized IN list keeps the SQL safe even if catalog keys
+            // ever become user-influenced.
+            const catalogKeys = FIELD_CATALOG.map(f => f.key);
+            const placeholders = catalogKeys.map(() => '?').join(',');
+            const archiveStmt = this.db.prepare(
+                `UPDATE exercise_field_config
+                 SET is_deleted = 1, is_active = 0
+                 WHERE gym_id = ? AND field_key NOT IN (${placeholders})`
+            );
+            archiveStmt.run(seedGymId, ...catalogKeys);
+            console.log(`[DB] Catalog synced for gym ${seedGymId} (${FIELD_CATALOG.length} canonical, legacy archived)`);
+        } catch (e) {
+            console.warn('[DB] Failed seeding catalog fields:', e.message);
+        }
+
         // 22a. Trainers (entities) + their per-day schedules
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS trainers (
@@ -805,6 +930,83 @@ class DBManager {
 
         // 20b. Ensure exercise_field_config has is_deleted column (for DBs created before this column existed)
         this.safeAddColumn('exercise_field_config', 'is_deleted', 'INTEGER DEFAULT 0');
+
+        // 20b2. is_loggable controls whether the field acts as a fillable input
+        // in the mobile app (one input per set) vs an info-only chip rendered
+        // alongside the exercise prescription. Defaults to 0 (info-only) so
+        // legacy fields keep their current visual treatment.
+        this.safeAddColumn('exercise_field_config', 'is_loggable', 'INTEGER DEFAULT 0');
+
+        // 20b3. is_prescribable controls whether the trainer can prescribe a
+        // target value in the routine builder. Defaults to 1 (assume yes) for
+        // backwards compatibility with legacy custom fields.
+        this.safeAddColumn('exercise_field_config', 'is_prescribable', 'INTEGER DEFAULT 1');
+        // Ensure the canonical loggable fields (RPE / RIR) are marked as such
+        // for existing installs — the mobile already has dedicated handling.
+        try {
+            this.db.prepare(
+                `UPDATE exercise_field_config SET is_loggable = 1
+                 WHERE LOWER(field_key) IN ('rpe', 'rir')
+                   AND (is_loggable IS NULL OR is_loggable = 0)`
+            ).run();
+        } catch (_) { /* column may not exist yet on extremely old DBs */ }
+
+        // 20c. ONE-TIME ROUTINE DEDUPE — cleans up the duplicate-routine bug
+        // that lived in saveMesocycle before v2.2.0 (DELETE+INSERT cycle leaked
+        // orphan routines into the cloud). For each (mesocycle_id, name) group
+        // with more than one row, keep the row with the HIGHEST id (the most
+        // recently inserted, which has the latest item set) and delete the rest.
+        // Logs each deletion to sync_deleted_log so the cloud purges them too.
+        try {
+            const dupGroups = this.db.prepare(`
+                SELECT mesocycle_id, name, COUNT(*) AS cnt
+                FROM routines
+                GROUP BY mesocycle_id, name
+                HAVING cnt > 1
+            `).all();
+
+            if (dupGroups.length > 0) {
+                const findOlder = this.db.prepare(`
+                    SELECT id, gym_id FROM routines
+                    WHERE mesocycle_id = ? AND name = ?
+                    ORDER BY id DESC
+                    LIMIT -1 OFFSET 1
+                `);
+                const findItems = this.db.prepare('SELECT id FROM routine_items WHERE routine_id = ?');
+                const deleteRoutine = this.db.prepare('DELETE FROM routines WHERE id = ?');
+                const logDeletion = this.db.prepare(
+                    'INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)'
+                );
+
+                let purgedRoutines = 0;
+                let purgedItems = 0;
+
+                const dedupeTx = this.db.transaction(() => {
+                    for (const g of dupGroups) {
+                        const older = findOlder.all(g.mesocycle_id, g.name);
+                        for (const row of older) {
+                            const itemIds = findItems.all(row.id).map(i => i.id);
+                            for (const iid of itemIds) {
+                                logDeletion.run(row.gym_id || 'LOCAL_DEV', 'routine_items', iid);
+                                purgedItems++;
+                            }
+                            // routine_items get CASCADE-deleted by the FK
+                            deleteRoutine.run(row.id);
+                            logDeletion.run(row.gym_id || 'LOCAL_DEV', 'routines', row.id);
+                            purgedRoutines++;
+                        }
+                    }
+                });
+                dedupeTx();
+
+                console.log(
+                    `[MIGRATION] 🧹 Routine dedupe: removed ${purgedRoutines} duplicate routine(s) ` +
+                    `and ${purgedItems} orphan item(s) across ${dupGroups.length} group(s).`
+                );
+            }
+        } catch (err) {
+            console.error('[MIGRATION] Routine dedupe failed:', err.message);
+        }
 
         // 22. Customer Medical/Personal Profile Fields
         this.safeAddColumn('customers', 'dni', 'TEXT');

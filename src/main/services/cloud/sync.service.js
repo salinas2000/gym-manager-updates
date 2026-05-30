@@ -228,6 +228,25 @@ class SyncService extends BaseService {
                     synced_at: new Date().toISOString(),
                 }),
             },
+            // ── Exercise field configuration (prescribable & loggable flags) ──
+            {
+                local: 'exercise_field_config',
+                cloud: 'cloud_exercise_field_config',
+                map: (r) => ({
+                    gym_id: r.gym_id,
+                    local_id: r.id,
+                    field_key: r.field_key,
+                    label: r.label,
+                    type: r.type || 'text',
+                    is_active: r.is_active ?? 1,
+                    is_mandatory_in_template: r.is_mandatory_in_template ?? 0,
+                    is_loggable: r.is_loggable ?? 0,
+                    is_prescribable: r.is_prescribable ?? 1,
+                    options: r.options ? JSON.parse(r.options) : null,
+                    is_deleted: r.is_deleted ?? 0,
+                    synced_at: new Date().toISOString(),
+                }),
+            },
             // ── Classes Module ──
             {
                 local: 'gym_classes',
@@ -303,7 +322,7 @@ class SyncService extends BaseService {
 
         if (!rows.length) return 0;
 
-        const supabase = this._getSupabase();
+        const ownerSync = require('./owner-sync.client');
         let syncedCount = 0;
 
         // Process in batches
@@ -321,23 +340,33 @@ class SyncService extends BaseService {
 
             if (!mapped.length) continue;
 
-            const { error } = await supabase
-                .from(cloudTable)
-                .upsert(mapped, { onConflict: 'gym_id,local_id' });
-
-            if (error) {
-                console.error(`[SYNC] ❌ ${localTable} → ${cloudTable} batch error:`, error.message);
+            // Route through the owner-sync Edge Function. The Edge Function
+            // pins gym_id server-side (defends against cross-tenant writes)
+            // and uses service_role internally — never returned to us.
+            const result = await ownerSync.upsert(cloudTable, mapped, 'gym_id,local_id', gymId);
+            if (!result?.success) {
+                console.error(`[SYNC] ❌ ${localTable} → ${cloudTable} batch error:`, result?.error);
                 continue; // Skip this batch, try next
             }
 
-            // Mark synced in local DB
-            const ids = batch.map((r) => r.id);
-            const placeholders = ids.map(() => '?').join(',');
-            db.prepare(
-                `UPDATE ${localTable} SET synced = 1 WHERE id IN (${placeholders})`
-            ).run(...ids);
-
-            syncedCount += ids.length;
+            // RACE SAFETY: mark synced=1 ONLY if updated_at hasn't moved since
+            // we read the row. If saveMesocycle (or any other writer) bumped
+            // updated_at between our SELECT and now, the row got new edits
+            // that we never pushed — leaving it synced=0 means the next sync
+            // cycle picks them up. The blunt `UPDATE WHERE id IN (...)` we
+            // used before silently clobbered those edits.
+            const markStmt = db.prepare(
+                `UPDATE ${localTable} SET synced = 1 WHERE id = ? AND updated_at = ?`
+            );
+            const markTx = db.transaction((items) => {
+                let marked = 0;
+                for (const r of items) {
+                    const info = markStmt.run(r.id, r.updated_at);
+                    marked += info.changes;
+                }
+                return marked;
+            });
+            syncedCount += markTx(batch);
         }
 
         if (syncedCount > 0) {
@@ -351,7 +380,7 @@ class SyncService extends BaseService {
      */
     async _syncDeletions(gymId) {
         const db = dbManager.getInstance();
-        const supabase = this._getSupabase();
+        const ownerSync = require('./owner-sync.client');
 
         const deletions = db.prepare(
             'SELECT * FROM sync_deleted_log WHERE gym_id = ?'
@@ -374,17 +403,17 @@ class SyncService extends BaseService {
             const cloudTable = `cloud_${del.table_name}`;
 
             try {
-                const { error } = await supabase
-                    .from(cloudTable)
-                    .delete()
-                    .match({ gym_id: del.gym_id, local_id: del.local_id });
-
-                if (error) {
-                    // If table doesn't exist or row doesn't exist, still consider it processed
-                    if (error.code === '42P01' || error.code === 'PGRST116') {
+                const result = await ownerSync.deleteMatch(
+                    cloudTable,
+                    { local_id: del.local_id },
+                    del.gym_id
+                );
+                if (!result?.success) {
+                    // Treat unknown-table errors as already processed (idempotent)
+                    if (result?.code === '42P01' || result?.code === 'PGRST116') {
                         console.warn(`[SYNC] ⚠️ Delete skip (table/row not found): ${cloudTable} id=${del.local_id}`);
                     } else {
-                        console.error(`[SYNC] ❌ Delete failed: ${cloudTable} id=${del.local_id}:`, error.message);
+                        console.error(`[SYNC] ❌ Delete failed: ${cloudTable} id=${del.local_id}:`, result?.error);
                         continue; // Don't mark as processed
                     }
                 }
@@ -408,6 +437,99 @@ class SyncService extends BaseService {
         return deletedCount;
     }
 
+    /**
+     * Compare cloud_routines + cloud_routine_items against the local SQLite
+     * for this gym, and DELETE anything in cloud that has no matching local
+     * row. This catches "ghost" rows left behind by earlier buggy versions of
+     * saveMesocycle (the old DELETE+INSERT loop that never tracked deletions).
+     *
+     * Strategy:
+     *   - Pull all routine local_ids the LOCAL believes exist (set L).
+     *   - Pull all routine local_ids CLOUD has for this gym (set C).
+     *   - Delete (C - L) from cloud_routines (CASCADE drops their items).
+     *   - Then do the same for routine_items, in case items were left behind
+     *     pointing to routines that DO exist locally.
+     *
+     * Returns the total number of cloud rows removed.
+     */
+    async _reconcileGhostRoutines(gymId) {
+        const ownerSync = require('./owner-sync.client');
+        const db = dbManager.getInstance();
+        let removed = 0;
+
+        // ── Routines ──
+        const localRoutineIds = new Set(
+            db.prepare('SELECT id FROM routines WHERE gym_id = ?').all(gymId).map(r => r.id)
+        );
+
+        // SAFETY GATE — if the local has NO routines at all, we are either on
+        // a fresh install / restored DB / second device that hasn't pulled yet.
+        // Bail out and let a real save populate the local first.
+        if (localRoutineIds.size === 0) {
+            console.log('[SYNC] 👻 Skipping ghost reconcile — local has 0 routines (fresh DB / pre-pull).');
+            return 0;
+        }
+
+        const routinesRes = await ownerSync.select('cloud_routines', 'local_id', gymId);
+        if (!routinesRes?.success) {
+            console.error('[SYNC] ❌ Ghost-reconcile (routines fetch):', routinesRes?.error);
+            return 0;
+        }
+        const orphanRoutineIds = (routinesRes.data || [])
+            .map(r => Number(r.local_id))
+            .filter(id => !localRoutineIds.has(id));
+        if (orphanRoutineIds.length > 0) {
+            console.log(`[SYNC] 👻 Found ${orphanRoutineIds.length} orphan routine(s) in cloud`);
+            const CHUNK = 100;
+            for (let i = 0; i < orphanRoutineIds.length; i += CHUNK) {
+                const chunk = orphanRoutineIds.slice(i, i + CHUNK);
+                // Drop their items first (no FK CASCADE in cloud)
+                const itemsRes = await ownerSync.deleteIn('cloud_routine_items', 'routine_id', chunk, gymId);
+                if (!itemsRes?.success) {
+                    console.error('[SYNC] ❌ Ghost-reconcile (orphan items chunk):', itemsRes?.error);
+                }
+                const routinesDelRes = await ownerSync.deleteIn('cloud_routines', 'local_id', chunk, gymId);
+                if (!routinesDelRes?.success) {
+                    console.error('[SYNC] ❌ Ghost-reconcile (orphan routines chunk):', routinesDelRes?.error);
+                } else {
+                    removed += chunk.length;
+                }
+            }
+        }
+
+        // ── Routine items ──
+        const localItemIds = new Set(
+            db.prepare('SELECT id FROM routine_items WHERE gym_id = ?').all(gymId).map(r => r.id)
+        );
+        if (localItemIds.size === 0) {
+            console.log('[SYNC] 👻 Skipping item ghost reconcile — local has 0 items.');
+            return removed;
+        }
+        const itemsRes = await ownerSync.select('cloud_routine_items', 'local_id', gymId);
+        if (!itemsRes?.success) {
+            console.error('[SYNC] ❌ Ghost-reconcile (items fetch):', itemsRes?.error);
+            return removed;
+        }
+        const orphanItemIds = (itemsRes.data || [])
+            .map(i => Number(i.local_id))
+            .filter(id => !localItemIds.has(id));
+        if (orphanItemIds.length > 0) {
+            console.log(`[SYNC] 👻 Found ${orphanItemIds.length} orphan item(s) in cloud:`, orphanItemIds);
+            const CHUNK = 100;
+            for (let i = 0; i < orphanItemIds.length; i += CHUNK) {
+                const chunk = orphanItemIds.slice(i, i + CHUNK);
+                const delRes = await ownerSync.deleteIn('cloud_routine_items', 'local_id', chunk, gymId);
+                if (!delRes?.success) {
+                    console.error('[SYNC] ❌ Ghost-reconcile (delete orphan items chunk):', delRes?.error);
+                } else {
+                    removed += chunk.length;
+                }
+            }
+        }
+
+        return removed;
+    }
+
     // ─── PUBLIC API ─────────────────────────────────────────────────────────────
 
     /**
@@ -416,8 +538,16 @@ class SyncService extends BaseService {
      */
     async runFullSync() {
         if (this._running) {
-            console.log('[SYNC] ⏳ Sync already in progress, skipping...');
-            return;
+            // Stuck-sync safety net: if _running has been set for over twice
+            // the wall-timeout, the previous sync silently leaked. Forcibly
+            // clear so the app recovers without a restart.
+            if (this._runningSince && Date.now() - this._runningSince > 5 * 60 * 1000) {
+                console.warn('[SYNC] ⚠️ Detected leaked _running flag (>5min). Forcing reset.');
+                this._running = false;
+            } else {
+                console.log('[SYNC] ⏳ Sync already in progress, skipping...');
+                return;
+            }
         }
 
         const supabase = this._getSupabase();
@@ -433,14 +563,30 @@ class SyncService extends BaseService {
         }
 
         this._running = true;
+        this._runningSince = Date.now();
         this._notifyRenderer('syncing');
 
         const startTime = Date.now();
         let totalSynced = 0;
         let totalDeleted = 0;
         let hasErrors = false;
+        let timeoutId = null;
 
-        try {
+        // WALL-CLOCK TIMEOUT — Supabase JS doesn't expose AbortSignal on
+        // every call, so a hung TCP connection can block the await forever.
+        // Race the entire sync against a hard 2-minute deadline; on timeout
+        // the catch fires, _running clears, and the next scheduled sync runs
+        // cleanly. (The hung in-flight promise still leaks until the OS
+        // socket times out, but the app stays responsive.)
+        const WALL_TIMEOUT_MS = 120_000;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(
+                () => reject(new Error(`Sync wall-timeout after ${WALL_TIMEOUT_MS / 1000}s`)),
+                WALL_TIMEOUT_MS
+            );
+        });
+
+        const syncWork = (async () => {
             // 1. Sync tables in dependency order
             const mappings = this._getTableMappings();
             for (const { local, cloud, map } of mappings) {
@@ -462,6 +608,22 @@ class SyncService extends BaseService {
                 hasErrors = true;
             }
 
+            // 3. Cloud-side reconciliation for routines/items.
+            //    Past bugs left "ghost" routines in cloud that local never knew
+            //    about (so sync_deleted_log can't reach them). After every sync,
+            //    we hard-compare cloud↔local for routines/items in the same gym
+            //    and drop anything in cloud that local doesn't have.
+            try {
+                const ghosts = await this._reconcileGhostRoutines(gymId);
+                if (ghosts > 0) {
+                    totalDeleted += ghosts;
+                    console.log(`[SYNC] 👻 Reconciled ${ghosts} ghost routine/item record(s) in cloud`);
+                }
+            } catch (err) {
+                console.error('[SYNC] ❌ Ghost reconciliation failed:', err.message);
+                hasErrors = true;
+            }
+
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
             this._lastSyncAt = new Date();
 
@@ -475,12 +637,17 @@ class SyncService extends BaseService {
                 elapsed,
                 lastSync: this._lastSyncAt.toISOString(),
             });
+        })();
 
+        try {
+            await Promise.race([syncWork, timeoutPromise]);
         } catch (err) {
             console.error('[SYNC] ❌ Full sync failed:', err.message);
             this._notifyRenderer('error', { message: err.message });
         } finally {
+            if (timeoutId) clearTimeout(timeoutId);
             this._running = false;
+            this._runningSince = null;
         }
     }
 

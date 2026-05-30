@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const customerService = require('../services/local/customer.service');
 const paymentService = require('../services/local/payment.service');
 const tariffService = require('../services/local/tariff.service');
-const templateService = require('../services/local/template.service');
+// templateService removed in v2.2.0 — templates / Excel / Google Drive integration deprecated
 
 let handlersRegistered = false;
 
@@ -372,7 +372,7 @@ function registerHandlers() {
     const trainingService = require('../services/local/training.service');
     const excelService = require('../services/io/excel.service');
     const cloudService = require('../services/cloud/cloud.service');
-    const googleService = require('../services/cloud/google.service');
+    // googleService removed in v2.2.0 — Drive integration deprecated
 
     handle('training:getExercises', () => trainingService.getExercises());
     handle('training:createExercise', (data) => trainingService.createExercise(data));
@@ -429,146 +429,46 @@ function registerHandlers() {
 
     handle('training:getFieldConfigs', () => trainingService.getExerciseFieldConfigs());
     handle('training:getAllFieldConfigs', () => trainingService.getAllExerciseFieldConfigs());
+    // Expose the canonical catalog so the renderer doesn't keep a hand-synced
+    // copy. Single source of truth lives in src/main/constants/field-catalog.js.
+    handle('training:getCatalog', () => {
+        const { FIELD_CATALOG } = require('../constants/field-catalog');
+        return FIELD_CATALOG;
+    });
     handle('training:updateFieldConfig', (key, data) => trainingService.updateExerciseFieldConfig(key, data));
     handle('training:addFieldConfig', (label, type, options) => trainingService.addFieldConfig(label, type, options));
     handle('training:deleteFieldConfig', (key) => trainingService.deleteFieldConfig(key));
 
     // Orchestrator: Save -> Excel -> Upload -> Link
     // Orchestrator: Save -> Export Excel (Local)
+    // Drive integration removed in v2.2.0 — clients see routines in mobile app.
+    // We keep a simple Excel export for owners who want a printable copy.
     handle('training:exportRoutine', async (fullData) => {
         try {
             const { dialog } = require('electron');
-
-            // 1. Save to Local DB (Transaction) - Ensure it's saved first
             trainingService.saveMesocycle(fullData);
 
-            // 2. Fetch Customer Name BEFORE Excel generation
+            // Fetch customer name for the Excel
             if (fullData.customerId || fullData.customer_id) {
                 const db = require('../db/database').getInstance();
                 const c = db.prepare('SELECT first_name, last_name FROM customers WHERE id = ?').get(fullData.customerId || fullData.customer_id);
-                if (c) {
-                    fullData.customer_name = `${c.first_name} ${c.last_name}`;
-                }
+                if (c) fullData.customer_name = `${c.first_name} ${c.last_name}`;
             }
 
-            // 3. Ask user for path
-            const safeName = fullData.name.replace(/[^a-z0-9]/gi, '_');
-            const defaultName = `Rutina_${safeName}.xlsx`;
-
+            const safeName = (fullData.name || 'rutina').replace(/[^a-z0-9]/gi, '_');
             const { canceled, filePath } = await dialog.showSaveDialog({
                 title: 'Guardar Rutina Excel',
-                defaultPath: defaultName,
-                filters: [{ name: 'Excel Files', extensions: ['xlsx'] }]
+                defaultPath: `Rutina_${safeName}.xlsx`,
+                filters: [{ name: 'Excel Files', extensions: ['xlsx'] }],
             });
-
             if (canceled || !filePath) return { success: false, cancelled: true };
 
-            // 4. Generate Excel at path
             await excelService.generateRoutineExcel(fullData, filePath);
-
-            // 4. Auto-Upload to Drive (Supabase)
-            let publicUrl = null;
-            try {
-                const fs = require('fs');
-                const path = require('path');
-                const buffer = fs.readFileSync(filePath);
-                const fileName = path.basename(filePath);
-
-                // Use customerId from data, gymId from default
-                publicUrl = await cloudService.uploadTrainingFile(null, fullData.customerId || fullData.customer_id, buffer, fileName);
-                console.log('Subida automática exitosa:', publicUrl);
-
-                // Save history
-                if (publicUrl && fullData.customerId) {
-                    trainingService.saveFileHistory(fullData.customerId, fileName, publicUrl);
-                }
-
-            } catch (uploadErr) {
-                console.error('Error en subida automática:', uploadErr);
-                // We don't block the success of local save
-            }
-
-            return { success: true, filePath, publicUrl };
-
+            return { success: true, filePath };
         } catch (err) {
             console.error('Export Error:', err);
             return { success: false, error: err.message };
         }
-    });
-
-    handle('training:uploadToDrive', async (mesoId) => {
-        console.log('━━━ IPC: UPLOAD TO DRIVE REQUEST ━━━');
-        console.log('📋 Mesocycle ID:', mesoId);
-
-        try {
-            const fullMeso = trainingService.getMesocycle(mesoId);
-            if (!fullMeso) throw new Error('Mesociclo no encontrado');
-
-            const { app } = require('electron');
-            const path = require('path');
-            const fs = require('fs');
-
-            // Fetch Customer Details (Name & Email) BEFORE Excel generation
-            let customerName = 'Cliente';
-            let customerEmail = null;
-
-            if (fullMeso.customer_id) {
-                const db = require('../db/database').getInstance();
-                const c = db.prepare('SELECT first_name, last_name, email FROM customers WHERE id = ?').get(fullMeso.customer_id);
-                if (c) {
-                    customerName = `${c.first_name} ${c.last_name}`;
-                    customerEmail = c.email;
-                    console.log('👤 Customer:', customerName, '|', customerEmail);
-                }
-            }
-
-            // Add customer name to mesocycle for Excel generation
-            fullMeso.customer_name = customerName;
-
-            // Generate Temp Excel
-            const tempDir = app.getPath('temp');
-            const safeName = fullMeso.name.replace(/[^a-z0-9]/gi, '_');
-            const fileName = `Rutina_${safeName}_${Date.now()}.xlsx`;
-            const tempPath = path.join(tempDir, fileName);
-
-            console.log('📊 Generating Excel at:', tempPath);
-            await excelService.generateRoutineExcel(fullMeso, tempPath);
-
-            const buffer = fs.readFileSync(tempPath);
-            console.log('✅ Excel generated, size:', buffer.length, 'bytes');
-
-            console.log('☁️ Calling Google Service uploadFile...');
-            const publicUrl = await googleService.uploadFile(buffer, fileName, customerName, customerEmail, fullMeso.name);
-            console.log('✅ Upload successful! URL:', publicUrl);
-
-            // History & Persistence
-            if (publicUrl) {
-                trainingService.saveFileHistory(fullMeso.customer_id, fileName, publicUrl);
-                trainingService.updateMesocycleLink(mesoId, publicUrl);
-            }
-
-            // Cleanup
-            try { fs.unlinkSync(tempPath); } catch (e) { }
-
-            console.log('━━━ IPC: UPLOAD COMPLETE ━━━');
-            return publicUrl;
-        } catch (error) {
-            console.error('━━━ IPC: UPLOAD ERROR ━━━');
-            console.error('❌ Error in uploadToDrive handler:', error);
-            console.error('❌ Error stack:', error.stack);
-            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            throw error;
-        }
-    });
-
-    handle('training:validateDriveLink', async (mesoId, url) => {
-        const isValid = await googleService.checkFileExistsFromUrl(url);
-        // Only remove if explicitly false (Confirmed 404/Trash)
-        // If null (Disconnected/Network Error) or true (Exists), keep it.
-        if (isValid === false) {
-            trainingService.updateMesocycleLink(mesoId, null);
-        }
-        return isValid;
     });
 
     // Memberships (History Editing)
@@ -667,25 +567,8 @@ function registerHandlers() {
     });
 
     // Google Integration
-    handle('google:startAuth', async () => {
-        try {
-            const userInfo = await googleService.authenticate();
-            return { success: true, user: userInfo };
-        } catch (error) {
-            console.error('Google Auth Failed:', error);
-            return { success: false, error: error.message };
-        }
-    });
-
-    handle('google:getStatus', () => {
-        const isConnected = googleService.isAuthenticated();
-        const user = googleService.getStoredUser();
-        return { connected: isConnected, user };
-    });
-
-    handle('google:signOut', () => {
-        return googleService.signOut();
-    });
+    // Google Drive handlers removed in v2.2.0 — deprecated
+    // Reason: routine tables now live in the mobile app, no more Excel/Drive sharing
 
     // Admin Panel (Master Only)
     const adminService = require('../services/local/admin.service');
@@ -765,6 +648,12 @@ function registerHandlers() {
     handle('cloud:getMobileLinkedCustomers', ({ gymId }) =>
         require('../services/cloud/cloud.service').getMobileLinkedCustomers(gymId)
     );
+    handle('cloud:resetMobilePassword', ({ gymId, customerId }) =>
+        require('../services/cloud/cloud.service').resetMobilePassword(gymId, customerId)
+    );
+    handle('cloud:revokeMobileAccess', ({ gymId, customerId }) =>
+        require('../services/cloud/cloud.service').revokeMobileAccess(gymId, customerId)
+    );
 
     handle('cloud:getPublishableConfig', () =>
         require('../services/cloud/cloud.service').getPublishableConfig()
@@ -790,52 +679,7 @@ function registerHandlers() {
     });
     handle('credentials:save', (credentials) => credentialManager.saveToStore(credentials));
 
-    // Template Designer
-    handle('templates:generate', (config) => templateService.generateTemplate(config));
-    handle('templates:getInfo', () => templateService.getInfo());
-    handle('templates:loadConfig', (filename) => templateService.loadConfig(filename));
-    handle('templates:delete', (filename) => templateService.deleteConfig(filename));
-    handle('templates:activate', (filename) => templateService.activateConfig(filename));
-    handle('templates:getFieldConfigs', () => trainingService.getExerciseFieldConfigs());
-    handle('templates:selectLogo', async () => {
-        const { dialog } = require('electron');
-        const fs = require('fs');
-        const path = require('path');
-
-        const { canceled, filePaths } = await dialog.showOpenDialog({
-            title: 'Seleccionar Logo para Excel',
-            properties: ['openFile'],
-            filters: [{ name: 'Imágenes', extensions: ['jpg', 'png', 'jpeg'] }]
-        });
-
-        if (canceled || filePaths.length === 0) {
-            console.log('[templates:selectLogo] User cancelled');
-            return null;
-        }
-
-        const filePath = filePaths[0];
-        console.log('[templates:selectLogo] Selected file:', filePath);
-
-        try {
-            // Verificar que el archivo existe
-            if (!fs.existsSync(filePath)) {
-                throw new Error('El archivo no existe');
-            }
-
-            const ext = path.extname(filePath).toLowerCase().replace('.', '');
-            const mime = ext === 'png' ? 'image/png' : (ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream');
-
-            const buffer = fs.readFileSync(filePath);
-            const data = buffer.toString('base64');
-            const base64 = `data:${mime};base64,${data}`;
-
-            console.log('[templates:selectLogo] Logo loaded successfully, size:', buffer.length, 'bytes');
-            return { path: filePath, base64: base64 };
-        } catch (e) {
-            console.error('[templates:selectLogo] Error reading logo:', e);
-            throw e;
-        }
-    });
+    // Template Designer removed in v2.2.0 — routine tables now live in the mobile app
     // --- CLASSES MODULE (Gym classes & weekly schedules) ---
     const classService = require('../services/local/class.service');
     const trainerService = require('../services/local/trainer.service');

@@ -136,27 +136,7 @@ export function NotificationProvider({ children }) {
                     }
                 }
 
-                // Google Drive Status
-                if (window.api?.google?.getStatus) {
-                    const googleRes = await window.api.google.getStatus();
-                    if (googleRes.success && googleRes.data?.connected) {
-                        const userEmail = googleRes.data.user?.email || 'Conectado';
-                        addNotification({
-                            id: 'google-status',
-                            type: 'status',
-                            title: 'Google Drive Conectado',
-                            message: `Sincronizando con ${userEmail}`,
-                            userEmail: googleRes.data.user?.email, // Extra metadata
-                            priority: 'low',
-                            persistent: true,
-                            action: {
-                                label: 'Configurar',
-                                view: 'settings',
-                                data: 'integrations' // Pass integrations tab
-                            }
-                        });
-                    }
-                }
+                // Google Drive integration removed in v2.2.0
             } catch (err) {
                 console.error('Error checking initial notification status:', err);
             }
