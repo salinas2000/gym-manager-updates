@@ -51,12 +51,14 @@ class SyncService extends BaseService {
     }
 
     /**
-     * Get the shared Supabase client from CloudService.
-     * Lazy-loaded to avoid circular dependency issues at startup.
+     * Returns true if sync should run — equivalent to "credentials are loaded
+     * AND we have an owner_token to authenticate Edge Function calls".
+     * (Post-Option C, sync no longer needs a Supabase client directly.)
      */
-    _getSupabase() {
-        const cloudService = require('./cloud.service');
-        return cloudService.supabase;
+    _canSync() {
+        const credentialManager = require('../../config/credentials');
+        const licenseService = require('../local/license.service');
+        return credentialManager.isLoaded() && !!licenseService.getOwnerToken();
     }
 
     /**
@@ -550,9 +552,8 @@ class SyncService extends BaseService {
             }
         }
 
-        const supabase = this._getSupabase();
-        if (!supabase) {
-            // Supabase not configured — silently skip
+        if (!this._canSync()) {
+            // Credentials missing or owner_token not yet provisioned — skip
             return;
         }
 
