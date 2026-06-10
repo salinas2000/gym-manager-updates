@@ -29,7 +29,7 @@ const FIELD_CATALOG = [
     { key: 'ritmo',        label: 'Ritmo objetivo (min/km)', type: 'text', prescribable: true, loggable: false, description: 'Ritmo objetivo min/km (ej. "6:00" o "6,5"). Se calcula solo con tiempo y distancia.', modalities: ['cardio_distance'] },
     { key: 'rpe',          label: 'RPE',          type: 'number', prescribable: true,  loggable: true,  description: 'Esfuerzo percibido (0-10) por serie.', defaultActive: false },
     { key: 'rir',          label: 'RIR',          type: 'number', prescribable: true,  loggable: true,  description: 'Repeticiones en reserva por serie.', modalities: ['strength', 'reps_only'], defaultActive: false },
-    { key: 'tempo',        label: 'Tempo',        type: 'text',   prescribable: true,  loggable: false, description: 'Cadencia (excéntrica-pausa-concéntrica-pausa, ej. "3-0-1-0").', modalities: ['strength'] },
+    { key: 'tempo',        label: 'Tempo',        type: 'text',   prescribable: true,  loggable: false, description: 'Cadencia (excéntrica-pausa-concéntrica-pausa, ej. "3-0-1-0").', modalities: ['strength'], defaultActive: false },
     { key: 'descanso',     label: 'Descanso',     type: 'text',   prescribable: true,  loggable: false, description: 'Descanso entre series, ej. "90s".' },
     { key: 'intensidad',   label: 'Intensidad',   type: 'text',   prescribable: true,  loggable: false, description: 'Intensidad relativa (por ejemplo "% de 1RM").', modalities: ['strength'] },
     { key: 'notas',        label: 'Notas',        type: 'text',   prescribable: false, loggable: true,  description: 'Comentario del cliente por serie.' },

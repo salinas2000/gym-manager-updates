@@ -885,8 +885,19 @@ class DBManager {
                     ).run();
                     console.log('[DB] RPE/RIR set inactive by default (one-time, v2 with sync)');
                 }
+                // Tempo: advanced cadence field, off by default (opt-in).
+                const tempoFlag = this.db.prepare("SELECT value FROM settings WHERE key = 'tempo_default_inactive_v1'").get();
+                if (!tempoFlag) {
+                    this.db.prepare(
+                        "UPDATE exercise_field_config SET is_active = 0, synced = 0, updated_at = datetime('now') WHERE gym_id = ? AND field_key = 'tempo'"
+                    ).run(seedGymId);
+                    this.db.prepare(
+                        "INSERT INTO settings (key, value) VALUES ('tempo_default_inactive_v1', 'done') ON CONFLICT(key) DO NOTHING"
+                    ).run();
+                    console.log('[DB] Tempo set inactive by default (one-time)');
+                }
             } catch (e) {
-                console.warn('[DB] RPE/RIR default-inactive migration skipped:', e.message);
+                console.warn('[DB] default-inactive migration skipped:', e.message);
             }
             // Soft-delete any non-catalog field FOR THIS GYM ONLY. Using a
             // parameterized IN list keeps the SQL safe even if catalog keys
