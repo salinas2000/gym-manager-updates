@@ -19,7 +19,10 @@ const exerciseSchema = z.object({
     default_reps: z.any().optional(),
     is_failure: z.any().optional(),
     default_intensity: z.any().optional(),
-    custom_fields: z.record(z.any()).optional()
+    custom_fields: z.record(z.any()).optional(),
+    // How this exercise is measured/logged in the mobile app.
+    trackingType: z.string().optional(),
+    tracking_type: z.string().optional(),
 });
 
 const categorySchema = z.object({
@@ -158,18 +161,21 @@ class TrainingService extends BaseService {
             throw new Error('Categoría no encontrada en este gimnasio');
         }
 
+        const trackingType = data.tracking_type ?? data.trackingType ?? 'strength';
+
         const stmt = this.db.prepare(`
-            INSERT INTO exercises (gym_id, name, category_id, video_url, custom_fields)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO exercises (gym_id, name, category_id, video_url, custom_fields, tracking_type)
+            VALUES (?, ?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
             gymId,
             data.name,
             categoryId,
             videoUrl,
-            data.custom_fields ? JSON.stringify(data.custom_fields) : null
+            data.custom_fields ? JSON.stringify(data.custom_fields) : null,
+            trackingType
         );
-        return { id: info.lastInsertRowid, ...data, categoryId, video_url: videoUrl };
+        return { id: info.lastInsertRowid, ...data, categoryId, video_url: videoUrl, tracking_type: trackingType };
     }
 
     updateExercise(id, data) {
@@ -179,10 +185,17 @@ class TrainingService extends BaseService {
         }
         const validatedData = validation.data;
 
+        // Preserve the existing tracking_type if the caller didn't send one.
+        const existing = this.db.prepare('SELECT tracking_type FROM exercises WHERE id = ?').get(id);
+        const trackingType = validatedData.tracking_type
+            ?? validatedData.trackingType
+            ?? existing?.tracking_type
+            ?? 'strength';
+
         const stmt = this.db.prepare(`
             UPDATE exercises
             SET name = @name, category_id = @categoryId, video_url = @video_url,
-                custom_fields = @custom_fields,
+                custom_fields = @custom_fields, tracking_type = @tracking_type,
                 synced = 0, updated_at = datetime('now')
             WHERE id = @id
         `);
@@ -191,9 +204,10 @@ class TrainingService extends BaseService {
             categoryId: validatedData.categoryId ?? null,
             video_url: validatedData.video_url ?? validatedData.videoUrl ?? null,
             custom_fields: validatedData.custom_fields ? JSON.stringify(validatedData.custom_fields) : null,
+            tracking_type: trackingType,
             id
         });
-        return { id, ...data };
+        return { id, ...data, tracking_type: trackingType };
     }
 
     deleteExercise(id) {

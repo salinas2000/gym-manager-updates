@@ -1,8 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Video, FileText, Dumbbell, ChevronDown } from 'lucide-react';
+import { X, Save, Video, FileText, Dumbbell, ChevronDown, Activity } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../context/ToastContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+
+// Mirror of constants/field-catalog.js::TRACKING_TYPES (renderer can't require
+// a main-process module). Keep in sync.
+const TRACKING_TYPES = [
+    { key: 'strength',        label: '🏋 Fuerza (peso · reps)' },
+    { key: 'cardio_distance', label: '🏃 Cardio distancia (tiempo · km)' },
+    { key: 'cardio_time',     label: '⏱ Cardio tiempo (solo tiempo)' },
+    { key: 'time_only',       label: '🧘 Isométrico (solo tiempo)' },
+    { key: 'reps_only',       label: '💪 Peso corporal (solo reps)' },
+    { key: 'custom',          label: '⚙ Personalizado (todos los campos)' },
+];
 
 export default function ExerciseModal({
     isOpen,
@@ -15,6 +26,7 @@ export default function ExerciseModal({
     const queryClient = useQueryClient();
     const [name, setName] = useState('');
     const [categoryId, setCategoryId] = useState(initialCategory || '');
+    const [trackingType, setTrackingType] = useState('strength');
     const [videoUrl, setVideoUrl] = useState('');
     const [notes, setNotes] = useState('');
     const [customFields, setCustomFields] = useState({});
@@ -84,6 +96,7 @@ export default function ExerciseModal({
         const payload = {
             name,
             categoryId: parseInt(categoryId),
+            tracking_type: trackingType,
             videoUrl,
             notes,
             custom_fields: customFields
@@ -99,6 +112,7 @@ export default function ExerciseModal({
     const onCloseModal = () => {
         // Reset form
         setName('');
+        setTrackingType('strength');
         setVideoUrl('');
         setNotes('');
         setCustomFields({});
@@ -111,12 +125,14 @@ export default function ExerciseModal({
             if (exerciseToEdit) {
                 setName(exerciseToEdit.name);
                 setCategoryId(exerciseToEdit.category_id || '');
+                setTrackingType(exerciseToEdit.tracking_type || 'strength');
                 setVideoUrl(exerciseToEdit.video_url || '');
                 setNotes(exerciseToEdit.notes || '');
                 setCustomFields(exerciseToEdit.custom_fields || {});
             } else {
                 setName('');
                 setCategoryId(initialCategory || '');
+                setTrackingType('strength');
                 setVideoUrl('');
                 setNotes('');
                 setCustomFields({});
@@ -180,6 +196,28 @@ export default function ExerciseModal({
                                 No hay categorías. Crea una desde "Categorías" antes de añadir ejercicios.
                             </p>
                         )}
+                    </div>
+
+                    {/* Tracking type (exercise modality) */}
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 tracking-wider flex items-center gap-2">
+                            <Activity size={14} className="text-emerald-400" /> Tipo de registro
+                        </label>
+                        <div className="relative">
+                            <select
+                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-blue-500 outline-none appearance-none transition-all pr-10"
+                                value={trackingType}
+                                onChange={e => setTrackingType(e.target.value)}
+                            >
+                                {TRACKING_TYPES.map(t => (
+                                    <option key={t.key} value={t.key}>{t.label}</option>
+                                ))}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1.5">
+                            Define qué datos registra el cliente en la app móvil (kilos, tiempo, distancia...).
+                        </p>
                     </div>
 
                     {/* DYNAMIC FIELDS */}

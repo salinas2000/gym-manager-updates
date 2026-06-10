@@ -130,6 +130,7 @@ class SyncService extends BaseService {
                     custom_fields: r.custom_fields ? JSON.parse(r.custom_fields) : null,
                     category: emptyToNull(r.category),
                     equipment: emptyToNull(r.equipment),
+                    tracking_type: r.tracking_type || 'strength',
                     synced_at: new Date().toISOString(),
                 }),
             },

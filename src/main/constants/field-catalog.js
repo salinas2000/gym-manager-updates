@@ -29,6 +29,28 @@ const FIELD_CATALOG = [
     { key: 'notas',        label: 'Notas',        type: 'text',   prescribable: false, loggable: true,  description: 'Comentario del cliente por serie.' },
 ];
 
+/**
+ * Tracking types (exercise modalities). Each exercise declares one; it drives
+ * which metric inputs the trainer prescribes and the customer logs. Plain
+ * strings (no DB CHECK) so new types are a JS-only change.
+ *
+ * `metrics` lists the first-class log columns shown for that type:
+ *   weight | reps | rpe | duration | distance
+ * `custom` means "don't filter — show all active gym fields" (legacy behavior).
+ *
+ * Mirror at: gym-client-app/src/lib/field-catalog.ts — keep in sync.
+ */
+const TRACKING_TYPES = [
+    { key: 'strength',        label: 'Fuerza (peso · reps)',        icon: '🏋', metrics: ['weight', 'reps', 'rpe'] },
+    { key: 'cardio_distance', label: 'Cardio distancia (tiempo · km)', icon: '🏃', metrics: ['duration', 'distance'] },
+    { key: 'cardio_time',     label: 'Cardio tiempo (solo tiempo)',  icon: '⏱', metrics: ['duration'] },
+    { key: 'time_only',       label: 'Isométrico (solo tiempo)',     icon: '🧘', metrics: ['duration'] },
+    { key: 'reps_only',       label: 'Peso corporal (solo reps)',    icon: '💪', metrics: ['reps', 'rpe'] },
+    { key: 'custom',          label: 'Personalizado (todos los campos)', icon: '⚙', metrics: ['weight', 'reps', 'rpe', 'duration', 'distance'] },
+];
+
+const TRACKING_TYPE_BY_KEY = Object.fromEntries(TRACKING_TYPES.map(t => [t.key, t]));
+
 const CATALOG_BY_KEY = Object.fromEntries(FIELD_CATALOG.map(f => [f.key, f]));
 
 function isCatalogField(key) {
@@ -41,4 +63,4 @@ function getCatalogField(key) {
     return CATALOG_BY_KEY[key.toLowerCase().trim()] || null;
 }
 
-module.exports = { FIELD_CATALOG, CATALOG_BY_KEY, isCatalogField, getCatalogField };
+module.exports = { FIELD_CATALOG, CATALOG_BY_KEY, isCatalogField, getCatalogField, TRACKING_TYPES, TRACKING_TYPE_BY_KEY };

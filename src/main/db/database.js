@@ -343,6 +343,10 @@ class DBManager {
         // 11. Training Module Updates (Gym Pro)
         this.safeAddColumn('exercises', 'category', 'TEXT DEFAULT "gym"');
         this.safeAddColumn('exercises', 'equipment', 'TEXT');
+        // tracking_type: how this exercise is measured/logged. Plain TEXT (no
+        // CHECK) so new modalities can be added in JS without a migration.
+        // Values: strength | cardio_distance | cardio_time | time_only | reps_only | custom
+        this.safeAddColumn('exercises', 'tracking_type', 'TEXT DEFAULT "strength"');
         this.safeAddColumn('mesocycles', 'is_template', 'INTEGER DEFAULT 0'); // For reusing plans
 
         // 12. Fix Template Schema: Allow NULL customer_id
