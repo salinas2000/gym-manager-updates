@@ -846,21 +846,44 @@ class DBManager {
             const insertOrUpdate = this.db.prepare(`
                 INSERT INTO exercise_field_config
                     (gym_id, field_key, label, type, is_active, is_mandatory_in_template, is_loggable, is_prescribable, is_deleted)
-                VALUES (?, ?, ?, ?, 1, 0, ?, ?, 0)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0)
                 ON CONFLICT(gym_id, field_key) DO UPDATE SET
                     label = excluded.label,
                     type = excluded.type,
                     is_loggable = excluded.is_loggable,
                     is_prescribable = excluded.is_prescribable,
                     is_deleted = 0,
-                    is_active = COALESCE(exercise_field_config.is_active, 1)
+                    is_active = COALESCE(exercise_field_config.is_active, excluded.is_active)
             `);
             for (const f of FIELD_CATALOG) {
+                // defaultActive=false → field is seeded inactive (the owner can
+                // enable it in the field-config UI). Existing rows keep their
+                // current is_active via the COALESCE above.
+                const defaultActive = f.defaultActive === false ? 0 : 1;
                 insertOrUpdate.run(
                     seedGymId, f.key, f.label, f.type,
+                    defaultActive,
                     f.loggable ? 1 : 0,
                     f.prescribable ? 1 : 0,
                 );
+            }
+
+            // One-time: flip RPE/RIR to inactive on existing installs that were
+            // seeded before they defaulted off. Guarded by a settings flag so a
+            // later manual re-activation by the owner is never undone on boot.
+            try {
+                const flagRow = this.db.prepare("SELECT value FROM settings WHERE key = 'rpe_rir_default_inactive_v1'").get();
+                if (!flagRow) {
+                    this.db.prepare(
+                        "UPDATE exercise_field_config SET is_active = 0 WHERE gym_id = ? AND field_key IN ('rpe','rir')"
+                    ).run(seedGymId);
+                    this.db.prepare(
+                        "INSERT INTO settings (key, value) VALUES ('rpe_rir_default_inactive_v1', 'done') ON CONFLICT(key) DO NOTHING"
+                    ).run();
+                    console.log('[DB] RPE/RIR set inactive by default (one-time)');
+                }
+            } catch (e) {
+                console.warn('[DB] RPE/RIR default-inactive migration skipped:', e.message);
             }
             // Soft-delete any non-catalog field FOR THIS GYM ONLY. Using a
             // parameterized IN list keeps the SQL safe even if catalog keys
