@@ -47,7 +47,7 @@ const FIELD_CATALOG = [
  */
 const TRACKING_TYPES = [
     { key: 'strength',        label: 'Fuerza (peso · reps)',        icon: '🏋', metrics: ['weight', 'reps', 'rpe'] },
-    { key: 'cardio_distance', label: 'Cardio distancia (tiempo · km)', icon: '🏃', metrics: ['duration', 'distance'] },
+    { key: 'cardio_distance', label: 'Cardio distancia (tiempo · km · ritmo)', icon: '🏃', metrics: ['duration', 'distance', 'pace'] },
     { key: 'cardio_time',     label: 'Cardio tiempo (solo tiempo)',  icon: '⏱', metrics: ['duration'] },
     { key: 'time_only',       label: 'Isométrico (solo tiempo)',     icon: '🧘', metrics: ['duration'] },
     { key: 'reps_only',       label: 'Peso corporal (solo reps)',    icon: '💪', metrics: ['reps', 'rpe'] },
