@@ -7,7 +7,7 @@ import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, Ch
 
 // ── Cardio target auto-calc (tiempo · distancia · ritmo) — time is the anchor ──
 function parseHmsToSeconds(str) {
-    const s = String(str || '').trim();
+    const s = String(str || '').trim().replace(/[.,]/g, ':');
     if (!s) return null;
     if (s.includes(':')) {
         const [m, sec] = s.split(':');
@@ -25,19 +25,21 @@ function secondsToMs(secs) {
     const s = Math.round(secs % 60);
     return `${m}:${String(s).padStart(2, '0')}`;
 }
+// Distancia in METERS, ritmo min/km, tiempo is the anchor.
 function recalcCardio(changedKey, fields) {
     const tSec = parseHmsToSeconds(fields.tiempo);
-    const distKm = fields.distancia != null && String(fields.distancia).trim() !== '' ? parseFloat(fields.distancia) : null;
+    const distM = fields.distancia != null && String(fields.distancia).trim() !== ''
+        ? parseFloat(String(fields.distancia).replace(',', '.')) : null;
     const paceSec = parseHmsToSeconds(fields.ritmo);
     const patch = {};
     if (!tSec) return patch;
     if (changedKey === 'ritmo' && paceSec && paceSec > 0) {
-        patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
-    } else if (changedKey === 'distancia' && distKm && distKm > 0) {
-        patch.ritmo = secondsToMs(tSec / distKm);
+        patch.distancia = String(Math.round(tSec / paceSec * 1000));
+    } else if (changedKey === 'distancia' && distM && distM > 0) {
+        patch.ritmo = secondsToMs(tSec / (distM / 1000));
     } else if (changedKey === 'tiempo') {
-        if (distKm && distKm > 0) patch.ritmo = secondsToMs(tSec / distKm);
-        else if (paceSec && paceSec > 0) patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
+        if (distM && distM > 0) patch.ritmo = secondsToMs(tSec / (distM / 1000));
+        else if (paceSec && paceSec > 0) patch.distancia = String(Math.round(tSec / paceSec * 1000));
     }
     return patch;
 }

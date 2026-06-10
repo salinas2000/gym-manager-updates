@@ -40,8 +40,10 @@ function fieldAppliesToType(fieldKey, trackingType) {
 // ── Cardio target auto-calc (tiempo · distancia · ritmo) ─────────────────────
 // Time is the anchor. Given tiempo + one of {distancia, ritmo}, compute the
 // other:  ritmo(s/km) = tiempo(s) / distancia(km);  distancia = tiempo / ritmo.
+// Accepts "m:ss", "m.ss" or "m,ss" (comma/period treated as the min:sec
+// separator) and plain seconds.
 function parseHmsToSeconds(str) {
-    const s = String(str || '').trim();
+    const s = String(str || '').trim().replace(/[.,]/g, ':');
     if (!s) return null;
     if (s.includes(':')) {
         const [m, sec] = s.split(':');
@@ -61,26 +63,27 @@ function secondsToMs(secs) {
 }
 /**
  * Recompute the cardio trio when one of tiempo/distancia/ritmo changes.
- * Returns a patch object of fields to set. Time is the anchor.
+ * Distancia is in METERS. ritmo is min/km. Time is the anchor.
+ * Returns a patch object of fields to set.
  */
 function recalcCardio(changedKey, fields) {
     const tSec = parseHmsToSeconds(fields.tiempo);
-    const distKm = fields.distancia != null && String(fields.distancia).trim() !== '' ? parseFloat(fields.distancia) : null;
-    const paceSec = parseHmsToSeconds(fields.ritmo);
+    const distM = fields.distancia != null && String(fields.distancia).trim() !== ''
+        ? parseFloat(String(fields.distancia).replace(',', '.')) : null;
+    const paceSec = parseHmsToSeconds(fields.ritmo); // sec per km
     const patch = {};
 
     if (!tSec) return patch; // no anchor yet — can't derive anything
 
     if (changedKey === 'ritmo' && paceSec && paceSec > 0) {
-        // distancia = tiempo / ritmo
-        patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
-    } else if (changedKey === 'distancia' && distKm && distKm > 0) {
-        // ritmo = tiempo / distancia
-        patch.ritmo = secondsToMs(tSec / distKm);
+        // distancia(m) = tiempo / ritmo(s/km) * 1000
+        patch.distancia = String(Math.round(tSec / paceSec * 1000));
+    } else if (changedKey === 'distancia' && distM && distM > 0) {
+        // ritmo(s/km) = tiempo / (distancia/1000)
+        patch.ritmo = secondsToMs(tSec / (distM / 1000));
     } else if (changedKey === 'tiempo') {
-        // Re-derive whichever pair is consistent: prefer keeping distancia, recompute ritmo
-        if (distKm && distKm > 0) patch.ritmo = secondsToMs(tSec / distKm);
-        else if (paceSec && paceSec > 0) patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
+        if (distM && distM > 0) patch.ritmo = secondsToMs(tSec / (distM / 1000));
+        else if (paceSec && paceSec > 0) patch.distancia = String(Math.round(tSec / paceSec * 1000));
     }
     return patch;
 }
