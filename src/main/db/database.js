@@ -872,15 +872,18 @@ class DBManager {
             // seeded before they defaulted off. Guarded by a settings flag so a
             // later manual re-activation by the owner is never undone on boot.
             try {
-                const flagRow = this.db.prepare("SELECT value FROM settings WHERE key = 'rpe_rir_default_inactive_v1'").get();
+                // v2: also set synced=0 so the is_active change propagates to
+                // cloud_exercise_field_config (v1 forgot this, so the mobile
+                // never saw RPE/RIR turn off).
+                const flagRow = this.db.prepare("SELECT value FROM settings WHERE key = 'rpe_rir_default_inactive_v2'").get();
                 if (!flagRow) {
                     this.db.prepare(
-                        "UPDATE exercise_field_config SET is_active = 0 WHERE gym_id = ? AND field_key IN ('rpe','rir')"
+                        "UPDATE exercise_field_config SET is_active = 0, synced = 0, updated_at = datetime('now') WHERE gym_id = ? AND field_key IN ('rpe','rir')"
                     ).run(seedGymId);
                     this.db.prepare(
-                        "INSERT INTO settings (key, value) VALUES ('rpe_rir_default_inactive_v1', 'done') ON CONFLICT(key) DO NOTHING"
+                        "INSERT INTO settings (key, value) VALUES ('rpe_rir_default_inactive_v2', 'done') ON CONFLICT(key) DO NOTHING"
                     ).run();
-                    console.log('[DB] RPE/RIR set inactive by default (one-time)');
+                    console.log('[DB] RPE/RIR set inactive by default (one-time, v2 with sync)');
                 }
             } catch (e) {
                 console.warn('[DB] RPE/RIR default-inactive migration skipped:', e.message);
