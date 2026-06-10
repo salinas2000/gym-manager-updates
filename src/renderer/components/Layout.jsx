@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
@@ -192,6 +192,13 @@ export default function Layout({ children, currentView, onNavigate }) {
                             active={currentView === 'history'}
                             onClick={() => onNavigate('history')}
                             color="text-slate-400"
+                        />
+                        <SidebarItem
+                            icon={Trophy}
+                            label="RM pendientes"
+                            active={currentView === 'rm'}
+                            onClick={() => onNavigate('rm')}
+                            color="text-amber-400"
                         />
 
                         {/* Diseñador (templates) removed in v2.2.0 */}

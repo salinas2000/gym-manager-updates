@@ -937,6 +937,46 @@ class CloudService {
     }
 
     /**
+     * RM / records the clients submitted. Reads via owner-data and enriches
+     * each row with the local customer name for display.
+     */
+    async getRmRecords(gymId, status = 'pending') {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.select('customer_rm_records', {
+            gymId: resolvedGymId,
+            filters: status ? { status } : undefined,
+            order: 'submitted_at',
+            ascending: false,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        const rows = res.data || res.rows || [];
+        // Enrich with customer name from the local DB.
+        let nameById = new Map();
+        try {
+            const db = dbManager.getInstance();
+            const customers = db.prepare('SELECT id, first_name, last_name FROM customers WHERE gym_id = ?').all(resolvedGymId);
+            nameById = new Map(customers.map(c => [c.id, `${c.first_name} ${c.last_name}`.trim()]));
+        } catch (_) { /* ignore */ }
+        const data = rows.map(r => ({ ...r, customer_name: nameById.get(r.customer_local_id) || `Cliente #${r.customer_local_id}` }));
+        return { success: true, data };
+    }
+
+    /** Accept or reject an RM record (status: 'accepted' | 'rejected'). */
+    async reviewRmRecord(id, status) {
+        if (!id || !['accepted', 'rejected'].includes(status)) {
+            return { success: false, error: 'Parámetros inválidos' };
+        }
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.update('customer_rm_records',
+            { status, reviewed_at: new Date().toISOString() },
+            { gymId: this._resolveGymId(), filters: { id } });
+        if (!res?.success) return { success: false, error: res?.error || 'Error' };
+        return { success: true };
+    }
+
+    /**
      * Check whether a customer has registered in the mobile app.
      * Returns { registered: boolean, invited: boolean, linked_at, invited_at, email }.
      * - registered: TRUE if mobile_client_links has auth_user_id (user signed in)

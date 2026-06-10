@@ -91,6 +91,8 @@ contextBridge.exposeInMainWorld('api', {
         getPublishableConfig: () => ipcRenderer.invoke('cloud:getPublishableConfig'),
         // Mobile app data
         getCustomerWeightLogs: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerWeightLogs', { gymId, customerId }),
+        getRmRecords: (gymId, status) => ipcRenderer.invoke('cloud:getRmRecords', { gymId, status }),
+        reviewRmRecord: (id, status) => ipcRenderer.invoke('cloud:reviewRmRecord', { id, status }),
         getCustomerMobileStatus: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerMobileStatus', { gymId, customerId }),
         getMobileLinkedCustomers: (gymId) => ipcRenderer.invoke('cloud:getMobileLinkedCustomers', { gymId }),
         resetMobilePassword: (gymId, customerId) => ipcRenderer.invoke('cloud:resetMobilePassword', { gymId, customerId }),

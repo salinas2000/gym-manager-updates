@@ -642,6 +642,13 @@ function registerHandlers() {
     handle('cloud:getCustomerWeightLogs', ({ gymId, customerId }) =>
         require('../services/cloud/cloud.service').getCustomerWeightLogs(gymId, customerId)
     );
+    // RM records (client-submitted, trainer-approved)
+    handle('cloud:getRmRecords', ({ gymId, status }) =>
+        require('../services/cloud/cloud.service').getRmRecords(gymId, status)
+    );
+    handle('cloud:reviewRmRecord', ({ id, status }) =>
+        require('../services/cloud/cloud.service').reviewRmRecord(id, status)
+    );
     handle('cloud:getCustomerMobileStatus', ({ gymId, customerId }) =>
         require('../services/cloud/cloud.service').getCustomerMobileStatus(gymId, customerId)
     );

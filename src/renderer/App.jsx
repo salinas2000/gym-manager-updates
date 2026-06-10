@@ -25,6 +25,7 @@ import InventoryPage from './features/inventory/InventoryPage';
 import ClassManager from './features/classes/ClassManager';
 import TrainerManager from './features/trainers/TrainerManager';
 import HelpPage from './features/help/HelpPage';
+import RmReviewPage from './features/rm/RmReviewPage';
 
 function Dashboard() {
     const [currentView, setCurrentView] = useState('customers');
@@ -68,6 +69,8 @@ function Dashboard() {
                 return <LibraryPage />;
             case 'help':
                 return <HelpPage />;
+            case 'rm':
+                return <RmReviewPage />;
             case 'customers':
             default:
                 return (
