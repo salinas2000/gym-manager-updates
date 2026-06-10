@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Settings2, FileSpreadsheet, Smartphone, Info, Pencil } from 'lucide-react';
+import { X, Settings2, FileSpreadsheet, Info } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../context/ToastContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -11,6 +11,27 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
  * Mantener UNA SOLA copia en desktop (esta carga vía IPC, no duplicación).
  * El móvil sí tiene una copia espejo porque es otro binario.
  */
+
+// Mirror of constants/field-catalog.js::TRACKING_TYPES (renderer can't require a
+// main-process module). `metrics` = the values the client logs per set in the
+// app for that type; this is what actually drives which inputs appear.
+const TRACKING_TYPES = [
+    { key: 'strength',        label: 'Fuerza',                icon: '🏋', sub: 'peso · reps', metrics: ['weight', 'reps', 'rpe'] },
+    { key: 'cardio_distance', label: 'Cardio distancia',      icon: '🏃', sub: 'tiempo · distancia · ritmo', metrics: ['duration', 'distance', 'pace'] },
+    { key: 'cardio_time',     label: 'Cardio tiempo',         icon: '⏱', sub: 'solo tiempo', metrics: ['duration'] },
+    { key: 'time_only',       label: 'Isométrico',            icon: '🧘', sub: 'solo tiempo', metrics: ['duration'] },
+    { key: 'reps_only',       label: 'Peso corporal',         icon: '💪', sub: 'solo reps', metrics: ['reps', 'rpe'] },
+];
+
+// Which catalog field each tracking-type metric corresponds to. Used to show
+// "Lo rellena el cliente" accurately: e.g. cardio logs tiempo/distancia/ritmo
+// even though those fields are catalog loggable:false (they're logged via the
+// exercise type, not as a generic per-set field).
+const METRIC_FIELD = { weight: 'peso', reps: 'repeticiones', rpe: 'rpe', duration: 'tiempo', distance: 'distancia', pace: 'ritmo' };
+
+// Does this field apply to a given tracking type? (universal = no modalities)
+const fieldInType = (field, typeKey) =>
+    !field.modalities || field.modalities.length === 0 || field.modalities.includes(typeKey);
 
 export default function FieldConfigModal({ isOpen, onClose }) {
     const toast = useToast();
@@ -39,6 +60,7 @@ export default function FieldConfigModal({ isOpen, onClose }) {
                 type: f.type,
                 prescribable: !!f.prescribable,
                 loggable: !!f.loggable,
+                modalities: Array.isArray(f.modalities) ? f.modalities : null,
                 desc: f.description || '',
             }));
         },
@@ -82,6 +104,73 @@ export default function FieldConfigModal({ isOpen, onClose }) {
         });
     };
 
+    // Render one field row inside a type group. `typeKey` null = "comunes".
+    const renderFieldRow = (entry, typeKey) => {
+        const cfg = configByKey.get(entry.key);
+        const isActive = cfg?.is_active ?? 1;
+        const isMandatory = cfg?.is_mandatory_in_template ?? 0;
+        // The client fills this field in the app if it's a logged metric of the
+        // type (e.g. cardio logs tiempo/distancia/ritmo) or a generic per-set field.
+        const metricFields = typeKey
+            ? new Set((TRACKING_TYPES.find(t => t.key === typeKey)?.metrics || []).map(m => METRIC_FIELD[m]).filter(Boolean))
+            : new Set();
+        const clientFills = metricFields.has(entry.key) || entry.loggable;
+
+        return (
+            <div
+                key={`${typeKey || 'common'}-${entry.key}`}
+                className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all ${
+                    isActive ? 'bg-slate-950/50 border-white/5' : 'bg-slate-950/30 border-white/5 opacity-60'
+                }`}
+            >
+                <div className="min-w-0 flex-1">
+                    <p className="font-bold text-white text-sm leading-tight">{entry.label}</p>
+                    <p className="text-[10px] text-slate-500 leading-snug">{entry.desc}</p>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                    {entry.prescribable && (
+                        <span title="El entrenador pone un objetivo en el mesociclo" className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 cursor-default">
+                            Objetivo
+                        </span>
+                    )}
+                    {clientFills && (
+                        <span title="El cliente lo registra en la app móvil" className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-default">
+                            Rellenable
+                        </span>
+                    )}
+                </div>
+
+                <button
+                    onClick={() => persistFlags(entry, { is_active: isActive ? 0 : 1 })}
+                    title={isActive ? 'Activo en tu gimnasio — pulsa para ocultarlo' : 'Inactivo — pulsa para activarlo'}
+                    className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                        isActive
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : 'bg-slate-800 text-slate-500 border border-transparent'
+                    }`}
+                >
+                    {isActive ? 'Activo' : 'Inactivo'}
+                </button>
+
+                <button
+                    onClick={() => persistFlags(entry, { is_mandatory_in_template: isMandatory ? 0 : 1 })}
+                    disabled={!isActive}
+                    title={isMandatory ? 'Se exporta a Excel' : 'No se exporta a Excel'}
+                    className={`shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all ${
+                        !isActive
+                            ? 'opacity-30 cursor-not-allowed text-slate-600'
+                            : isMandatory
+                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                : 'bg-slate-800 text-slate-500'
+                    }`}
+                >
+                    <FileSpreadsheet size={12} />
+                </button>
+            </div>
+        );
+    };
+
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <div className="bg-slate-900 w-full max-w-4xl rounded-2xl border border-white/10 shadow-2xl flex flex-col animate-in fade-in zoom-in duration-200">
@@ -94,8 +183,8 @@ export default function FieldConfigModal({ isOpen, onClose }) {
                             Catálogo de campos del ejercicio
                         </h2>
                         <p className="text-xs text-slate-400 mt-1">
-                            Catálogo fijo. Eliges qué campos están activos en tu gimnasio y cuáles van al Excel.
-                            <span className="text-slate-500"> El rol "Prescribir" y "Rellenable" viene definido por el campo.</span>
+                            Campos agrupados por tipo de ejercicio: ves qué campos tiene cada tipo.
+                            <span className="text-slate-500"> <span className="text-blue-400 font-semibold">Objetivo</span> = lo pone el entrenador · <span className="text-emerald-400 font-semibold">Rellenable</span> = lo registra el cliente en la app.</span>
                         </p>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white">
@@ -108,114 +197,51 @@ export default function FieldConfigModal({ isOpen, onClose }) {
                     {showSpinner ? (
                         <div className="py-12 flex justify-center"><LoadingSpinner /></div>
                     ) : (
-                        <div className="space-y-2">
-                            <div className="grid grid-cols-12 gap-3 px-4 py-2 border-b border-white/5 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                                <div className="col-span-5 text-left">Campo</div>
-                                <div className="col-span-2 text-center">Activo</div>
-                                <div className="col-span-2 text-center flex items-center justify-center gap-1">
-                                    <Pencil size={11} /> Prescribir
-                                </div>
-                                <div className="col-span-2 text-center flex items-center justify-center gap-1">
-                                    <Smartphone size={11} /> Rellenable
-                                </div>
-                                <div className="col-span-1 text-center">
-                                    <FileSpreadsheet size={11} className="inline" />
-                                </div>
-                            </div>
-
-                            {CATALOG.map((entry) => {
-                                const cfg = configByKey.get(entry.key);
-                                const isActive = cfg?.is_active ?? 1;
-                                const isMandatory = cfg?.is_mandatory_in_template ?? 0;
-
+                        <div className="space-y-5">
+                            {/* Comunes — universal fields (no modalities) shown once */}
+                            {(() => {
+                                const commons = CATALOG.filter((f) => !f.modalities || f.modalities.length === 0);
+                                if (commons.length === 0) return null;
                                 return (
-                                    <div
-                                        key={entry.key}
-                                        className={`p-3 rounded-xl border transition-all ${
-                                            isActive
-                                                ? 'bg-slate-950/50 border-white/5 hover:border-indigo-500/30'
-                                                : 'bg-slate-950/30 border-white/5 opacity-70'
-                                        }`}
-                                    >
-                                        <div className="grid grid-cols-12 gap-3 items-center">
-                                            <div className="col-span-5 min-w-0">
-                                                <p className="font-bold text-white text-sm">{entry.label}</p>
-                                                <p className="text-[10px] text-slate-500">{entry.desc}</p>
-                                            </div>
-
-                                            {/* Active */}
-                                            <div className="col-span-2 flex justify-center">
-                                                <button
-                                                    onClick={() => persistFlags(entry, { is_active: isActive ? 0 : 1 })}
-                                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
-                                                        isActive
-                                                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                                            : 'bg-slate-800 text-slate-500 border border-transparent'
-                                                    }`}
-                                                >
-                                                    {isActive ? 'Activo' : 'Inactivo'}
-                                                </button>
-                                            </div>
-
-                                            {/* Prescribable (locked) */}
-                                            <div className="col-span-2 flex justify-center">
-                                                <span
-                                                    title={entry.prescribable
-                                                        ? 'El entrenador lo prescribe en el editor de mesociclos'
-                                                        : 'No se prescribe — es puramente del cliente'}
-                                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-bold cursor-default ${
-                                                        entry.prescribable
-                                                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                                                            : 'bg-slate-800 text-slate-500 border border-white/5'
-                                                    }`}
-                                                >
-                                                    {entry.prescribable ? 'Sí' : 'No'}
-                                                </span>
-                                            </div>
-
-                                            {/* Loggable (locked) */}
-                                            <div className="col-span-2 flex justify-center">
-                                                <span
-                                                    title={entry.loggable
-                                                        ? 'El cliente lo rellena una vez por serie en la app móvil'
-                                                        : 'Sólo informativo en la app móvil'}
-                                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-bold cursor-default ${
-                                                        entry.loggable
-                                                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                                            : 'bg-slate-800 text-slate-500 border border-white/5'
-                                                    }`}
-                                                >
-                                                    {entry.loggable ? 'Sí' : 'No'}
-                                                </span>
-                                            </div>
-
-                                            {/* Excel toggle */}
-                                            <div className="col-span-1 flex justify-center">
-                                                <button
-                                                    onClick={() => persistFlags(entry, { is_mandatory_in_template: isMandatory ? 0 : 1 })}
-                                                    disabled={!isActive}
-                                                    title={isMandatory ? 'Se exporta a Excel' : 'No se exporta'}
-                                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
-                                                        !isActive
-                                                            ? 'opacity-30 cursor-not-allowed'
-                                                            : isMandatory
-                                                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                                                                : 'bg-slate-800 text-slate-500 border border-transparent'
-                                                    }`}
-                                                >
-                                                    {isMandatory ? 'Sí' : 'No'}
-                                                </button>
-                                            </div>
+                                    <section>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className="text-base">📋</span>
+                                            <h3 className="text-sm font-black text-white">
+                                                Comunes <span className="text-slate-500 font-medium">· todos los tipos</span>
+                                            </h3>
                                         </div>
-                                    </div>
+                                        <div className="space-y-1.5">
+                                            {commons.map((f) => renderFieldRow(f, null))}
+                                        </div>
+                                    </section>
+                                );
+                            })()}
+
+                            {/* One group per tracking type */}
+                            {TRACKING_TYPES.map((t) => {
+                                const fields = CATALOG.filter((f) => f.modalities && f.modalities.length > 0 && f.modalities.includes(t.key));
+                                if (fields.length === 0) return null;
+                                return (
+                                    <section key={t.key}>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className="text-base">{t.icon}</span>
+                                            <h3 className="text-sm font-black text-white">
+                                                {t.label} <span className="text-slate-500 font-medium">· {t.sub}</span>
+                                            </h3>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            {fields.map((f) => renderFieldRow(f, t.key))}
+                                        </div>
+                                    </section>
                                 );
                             })}
 
-                            <div className="mt-4 p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg flex items-start gap-2">
+                            <div className="mt-2 p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg flex items-start gap-2">
                                 <Info size={14} className="text-indigo-400 shrink-0 mt-0.5" />
                                 <p className="text-[11px] text-indigo-200/70 leading-relaxed">
-                                    Algunos campos como Repeticiones, RPE, RIR o Peso se prescriben Y se rellenan: el entrenador
-                                    pone un objetivo (ej. <strong>10-12</strong>) y el cliente registra el real (ej. <strong>11</strong>) en cada serie.
+                                    Un mismo campo puede estar en varios tipos (ej. <strong>Tiempo</strong> en los de cardio):
+                                    activarlo o desactivarlo afecta a todos. El icono <FileSpreadsheet size={11} className="inline mb-0.5" /> exporta
+                                    el campo al Excel. Los campos comunes (Series, RPE, Descanso, Notas) aplican a cualquier tipo.
                                 </p>
                             </div>
                         </div>
