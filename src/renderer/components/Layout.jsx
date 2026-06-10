@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
@@ -220,6 +220,13 @@ export default function Layout({ children, currentView, onNavigate }) {
                             active={currentView === 'settings'}
                             onClick={() => onNavigate('settings')}
                             color="text-slate-400"
+                        />
+                        <SidebarItem
+                            icon={HelpCircle}
+                            label="Ayuda"
+                            active={currentView === 'help'}
+                            onClick={() => onNavigate('help')}
+                            color="text-blue-400"
                         />
                     </nav>
 

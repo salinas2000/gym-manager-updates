@@ -24,6 +24,7 @@ import AdminDashboard from './features/admin/AdminDashboard';
 import InventoryPage from './features/inventory/InventoryPage';
 import ClassManager from './features/classes/ClassManager';
 import TrainerManager from './features/trainers/TrainerManager';
+import HelpPage from './features/help/HelpPage';
 
 function Dashboard() {
     const [currentView, setCurrentView] = useState('customers');
@@ -65,6 +66,8 @@ function Dashboard() {
                 return <TrainingHistoryPage initialCustomer={selectedCustomer} onNavigate={handleNavigate} />;
             case 'library':
                 return <LibraryPage />;
+            case 'help':
+                return <HelpPage />;
             case 'customers':
             default:
                 return (
