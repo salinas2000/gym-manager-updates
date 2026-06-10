@@ -16,20 +16,30 @@ export default function ClassFormModal({ editData, onSave, onClose }) {
     const [form, setForm] = useState({
         name: '',
         description: '',
-        instructor: '',
+        trainer_id: '',
         color_theme: 'blue',
         max_capacity: 20,
         duration_minutes: 60,
     });
+    const [trainers, setTrainers] = useState([]);
     const [error, setError] = useState(null);
     const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await window.api.trainers.getAll('active');
+                if (res?.success && Array.isArray(res.data)) setTrainers(res.data);
+            } catch { /* lista de entrenadores opcional */ }
+        })();
+    }, []);
 
     useEffect(() => {
         if (editData) {
             setForm({
                 name: editData.name || '',
                 description: editData.description || '',
-                instructor: editData.instructor || '',
+                trainer_id: editData.trainer_id ? String(editData.trainer_id) : '',
                 color_theme: editData.color_theme || 'blue',
                 max_capacity: editData.max_capacity || 20,
                 duration_minutes: editData.duration_minutes || 60,
@@ -50,6 +60,7 @@ export default function ClassFormModal({ editData, onSave, onClose }) {
         try {
             const payload = {
                 ...form,
+                trainer_id: form.trainer_id ? Number(form.trainer_id) : null,
                 max_capacity: Number(form.max_capacity),
                 duration_minutes: Number(form.duration_minutes),
             };
@@ -117,18 +128,26 @@ export default function ClassFormModal({ editData, onSave, onClose }) {
                         />
                     </div>
 
-                    {/* Instructor */}
+                    {/* Entrenador */}
                     <div>
                         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                            Instructor
+                            Entrenador
                         </label>
-                        <input
-                            type="text"
-                            value={form.instructor}
-                            onChange={(e) => handleChange('instructor', e.target.value)}
-                            placeholder="Nombre del instructor"
-                            className="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-medium placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30"
-                        />
+                        <select
+                            value={form.trainer_id}
+                            onChange={(e) => handleChange('trainer_id', e.target.value)}
+                            className="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-medium focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30"
+                        >
+                            <option value="">Sin asignar (por turno)</option>
+                            {trainers.map((t) => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                        </select>
+                        {trainers.length === 0 && (
+                            <p className="mt-1.5 text-[11px] text-slate-500">
+                                No hay entrenadores. Crea entrenadores en la sección «Entrenadores».
+                            </p>
+                        )}
                     </div>
 
                     {/* Capacity & Duration */}

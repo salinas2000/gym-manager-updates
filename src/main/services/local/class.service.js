@@ -15,6 +15,7 @@ const classSchema = z.object({
     name: z.string().min(1, 'El nombre es obligatorio'),
     description: z.string().optional().nullable(),
     instructor: z.string().optional().nullable(),
+    trainer_id: z.number().int().positive().optional().nullable(),
     color_theme: z.string().optional().default('blue'),
     max_capacity: z.number().int().min(1, 'Capacidad minima: 1').max(200, 'Capacidad maxima: 200'),
     duration_minutes: z.number().int().min(15, 'Duracion minima: 15 min').max(480, 'Duracion maxima: 480 min'),
@@ -46,8 +47,10 @@ class ClassService extends BaseService {
 
         const classes = db.prepare(`
             SELECT c.*,
+                   t.name AS trainer_name,
                    (SELECT COUNT(*) FROM gym_class_schedules s WHERE s.class_id = c.id) AS schedule_count
             FROM gym_classes c
+            LEFT JOIN trainers t ON t.id = c.trainer_id AND t.gym_id = c.gym_id
             ${whereClause}
             ORDER BY c.active DESC, c.name ASC
         `).all(gymId);
@@ -62,9 +65,12 @@ class ClassService extends BaseService {
         const db = dbManager.getInstance();
         const gymId = this.getGymId();
 
-        const cls = db.prepare(
-            'SELECT * FROM gym_classes WHERE id = ? AND gym_id = ?'
-        ).get(id, gymId);
+        const cls = db.prepare(`
+            SELECT c.*, t.name AS trainer_name
+            FROM gym_classes c
+            LEFT JOIN trainers t ON t.id = c.trainer_id AND t.gym_id = c.gym_id
+            WHERE c.id = ? AND c.gym_id = ?
+        `).get(id, gymId);
 
         if (!cls) throw new Error('Clase no encontrada');
 
@@ -89,9 +95,9 @@ class ClassService extends BaseService {
         const d = validation.data;
 
         const result = db.prepare(`
-            INSERT INTO gym_classes (gym_id, name, description, instructor, color_theme, max_capacity, duration_minutes, synced, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
-        `).run(gymId, d.name, d.description || null, d.instructor || null, d.color_theme, d.max_capacity, d.duration_minutes);
+            INSERT INTO gym_classes (gym_id, name, description, instructor, trainer_id, color_theme, max_capacity, duration_minutes, synced, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
+        `).run(gymId, d.name, d.description || null, d.instructor || null, d.trainer_id ?? null, d.color_theme, d.max_capacity, d.duration_minutes);
 
         return { id: result.lastInsertRowid, gym_id: gymId, ...d };
     }
@@ -111,10 +117,10 @@ class ClassService extends BaseService {
 
         const result = db.prepare(`
             UPDATE gym_classes
-            SET name = ?, description = ?, instructor = ?, color_theme = ?, max_capacity = ?, duration_minutes = ?,
+            SET name = ?, description = ?, instructor = ?, trainer_id = ?, color_theme = ?, max_capacity = ?, duration_minutes = ?,
                 synced = 0, updated_at = datetime('now')
             WHERE id = ? AND gym_id = ?
-        `).run(d.name, d.description || null, d.instructor || null, d.color_theme, d.max_capacity, d.duration_minutes, id, gymId);
+        `).run(d.name, d.description || null, d.instructor || null, d.trainer_id ?? null, d.color_theme, d.max_capacity, d.duration_minutes, id, gymId);
 
         if (result.changes === 0) throw new Error('Clase no encontrada');
         return true;
@@ -287,12 +293,15 @@ class ClassService extends BaseService {
                 c.id AS class_id,
                 c.name AS class_name,
                 c.instructor,
+                c.trainer_id,
+                t.name AS trainer_name,
                 c.color_theme,
                 c.max_capacity,
                 c.duration_minutes,
                 c.active
             FROM gym_class_schedules s
             JOIN gym_classes c ON c.id = s.class_id AND c.gym_id = s.gym_id
+            LEFT JOIN trainers t ON t.id = c.trainer_id AND t.gym_id = c.gym_id
             WHERE s.gym_id = ? AND c.active = 1
             ORDER BY s.day_of_week, s.start_time
         `).all(gymId);

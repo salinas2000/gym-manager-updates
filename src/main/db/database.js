@@ -203,6 +203,9 @@ class DBManager {
         // mobile_show_schedule: 1=el cliente ve el horario/clases en la app (default),
         // 0=oculto (cliente que solo quiere sus rutinas, no va al gimnasio).
         this.safeAddColumn('customers', 'mobile_show_schedule', 'INTEGER DEFAULT 1');
+        // trainer_id: entrenador asignado a la clase (FK a trainers). NULL = sin asignar
+        // (en el gimnasio se muestran los de turno; en clases, el asignado).
+        this.safeAddColumn('gym_classes', 'trainer_id', 'INTEGER REFERENCES trainers(id)');
         this.safeAddColumn('tariffs', 'color_theme', 'TEXT DEFAULT "emerald"');
         // billing_months: 1=mensual (default), 3=trimestral, 6=semestral, 12=anual
         this.safeAddColumn('tariffs', 'billing_months', 'INTEGER DEFAULT 1');

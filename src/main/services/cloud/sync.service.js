@@ -261,6 +261,7 @@ class SyncService extends BaseService {
                     name: r.name,
                     description: r.description,
                     instructor: r.instructor,
+                    trainer_id: r.trainer_id,
                     color_theme: r.color_theme,
                     max_capacity: r.max_capacity,
                     duration_minutes: r.duration_minutes,

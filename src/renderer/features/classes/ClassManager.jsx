@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CalendarDays, Plus, Users, Clock, Trash2, Edit2, Eye, EyeOff, UserCheck, ChevronLeft, ChevronRight, X, RefreshCw, Phone, Mail, Dumbbell, GripVertical, Settings } from 'lucide-react';
+import { CalendarDays, Plus, Users, Clock, Trash2, Edit2, Eye, EyeOff, UserCheck, ChevronLeft, ChevronRight, X, RefreshCw, Phone, Mail, Dumbbell, GripVertical, Settings, CalendarCheck, TrendingUp } from 'lucide-react';
 import ClassFormModal from './ClassFormModal';
 import ScheduleEditor from './ScheduleEditor';
 import GymHoursModal from './GymHoursModal';
@@ -59,6 +59,9 @@ export default function ClassManager() {
 
     // Attendees drawer
     const [selectedSlot, setSelectedSlot] = useState(null);
+
+    // "Hoy en detalle" modal (gym tab)
+    const [isTodayOpen, setIsTodayOpen] = useState(false);
 
     // Modals
     const [isFormOpen, setIsFormOpen] = useState(false);
@@ -234,6 +237,7 @@ export default function ClassManager() {
                     schedule={gymSchedule} timeSlots={gymTimeSlots} bookingsBySlotDate={bookingsBySlotDate}
                     bookingsLoading={bookingsLoading} onRefresh={loadWeekBookings} onSlotClick={openAttendees}
                     onOpenGymHours={() => setIsGymHoursOpen(true)}
+                    onOpenToday={() => setIsTodayOpen(true)}
                 />
             )}
             {activeTab === 'classes' && (
@@ -257,6 +261,11 @@ export default function ClassManager() {
             {selectedSlot && (
                 <AttendeesDrawer slot={selectedSlot.slot} date={selectedSlot.date}
                     attendees={selectedSlot.attendees} onClose={() => setSelectedSlot(null)} />
+            )}
+
+            {/* Today-in-detail modal (gym tab) */}
+            {isTodayOpen && (
+                <TodayDetailModal schedule={gymSchedule} onClose={() => setIsTodayOpen(false)} />
             )}
 
             {/* Modals */}
@@ -339,20 +348,30 @@ function DayHeaders({ weekDates }) {
 // GYM TIMETABLE — Simplified: just hour slots with people count
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function GymTimetable({ weekDates, weekLabel, weekOffset, setWeekOffset, schedule, timeSlots, bookingsBySlotDate, bookingsLoading, onRefresh, onSlotClick, onOpenGymHours }) {
+function GymTimetable({ weekDates, weekLabel, weekOffset, setWeekOffset, schedule, timeSlots, bookingsBySlotDate, bookingsLoading, onRefresh, onSlotClick, onOpenGymHours, onOpenToday }) {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
                 <WeekNav weekLabel={weekLabel} weekOffset={weekOffset} setWeekOffset={setWeekOffset}
                     bookingsLoading={bookingsLoading} onRefresh={onRefresh} />
-                <button
-                    onClick={onOpenGymHours}
-                    className="shrink-0 inline-flex items-center gap-2 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 px-4 py-2 rounded-xl text-sm font-bold transition-all"
-                    title="Configurar horario de apertura del gimnasio"
-                >
-                    <Settings size={14} />
-                    Configurar horario
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                    <button
+                        onClick={onOpenToday}
+                        className="inline-flex items-center gap-2 bg-emerald-600/15 hover:bg-emerald-600/25 border border-emerald-500/30 text-emerald-300 px-4 py-2 rounded-xl text-sm font-bold transition-all"
+                        title="Ver el detalle de hoy: franjas, ocupación y apuntados"
+                    >
+                        <CalendarCheck size={14} />
+                        Hoy en detalle
+                    </button>
+                    <button
+                        onClick={onOpenGymHours}
+                        className="inline-flex items-center gap-2 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 px-4 py-2 rounded-xl text-sm font-bold transition-all"
+                        title="Configurar horario de apertura del gimnasio"
+                    >
+                        <Settings size={14} />
+                        Configurar horario
+                    </button>
+                </div>
             </div>
 
             <div className="bg-slate-900/30 rounded-2xl border border-white/5 overflow-hidden">
@@ -551,7 +570,7 @@ function ClassesTimetable({ weekDates, weekLabel, weekOffset, setWeekOffset, sch
                                                             <div className={`w-2 h-2 rounded-full ${c.dot} flex-shrink-0`} />
                                                             <span className={`text-xs font-black ${c.text} truncate flex-1`}>{slot.class_name}</span>
                                                         </div>
-                                                        {slot.instructor && <div className="text-[10px] text-slate-500 truncate pl-5 mb-1">{slot.instructor}</div>}
+                                                        {(slot.trainer_name || slot.instructor) && <div className="text-[10px] text-slate-500 truncate pl-5 mb-1">{slot.trainer_name || slot.instructor}</div>}
                                                         <div className="flex items-center gap-1 pl-5">
                                                             <UserCheck size={10} className={isFull ? 'text-red-400' : 'text-slate-500'} />
                                                             <span className={`text-[10px] font-bold ${isFull ? 'text-red-400' : 'text-slate-500'}`}>{count}/{slot.max_capacity}</span>
@@ -617,7 +636,7 @@ function AttendeesDrawer({ slot, date, attendees, onClose }) {
                         <span className="capitalize">{dateLabel}</span>
                         <span className="font-bold">{slot.start_time} - {slot.end_time}</span>
                     </div>
-                    {!isGym && slot.instructor && <div className="text-sm text-slate-500 mt-1">Instructor: {slot.instructor}</div>}
+                    {!isGym && (slot.trainer_name || slot.instructor) && <div className="text-sm text-slate-500 mt-1">Entrenador: {slot.trainer_name || slot.instructor}</div>}
                     <div className="mt-4 flex items-center gap-3">
                         <div className={`text-2xl font-black ${isGym ? 'text-emerald-400' : c.text}`}>{attendees.length}</div>
                         <div className="text-slate-400 text-sm">de {slot.max_capacity} plazas</div>
@@ -660,6 +679,178 @@ function AttendeesDrawer({ slot, date, attendees, onClose }) {
                                     <div className="text-xs font-bold text-slate-600">#{i + 1}</div>
                                 </div>
                             ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TODAY DETAIL MODAL — Gym tab: today's sessions with occupancy + attendees
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function TodayDetailModal({ schedule, onClose }) {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const todayDow = today.getDay() === 0 ? 6 : today.getDay() - 1; // 0=Lunes..6=Domingo
+    const dateLabel = today.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+    const nowHM = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
+
+    const [bookings, setBookings] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    // Today's gym sessions, sorted by start time
+    const sessions = useMemo(
+        () => schedule.filter(s => s.day_of_week === todayDow).sort((a, b) => a.start_time.localeCompare(b.start_time)),
+        [schedule, todayDow]
+    );
+
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            setLoading(true);
+            try {
+                const res = await window.api.classes.getBookingsForDate(todayStr);
+                if (alive && res.success) setBookings(res.data || []);
+            } catch (err) { console.error('Error loading today bookings:', err); }
+            finally { if (alive) setLoading(false); }
+        })();
+        return () => { alive = false; };
+    }, [todayStr]);
+
+    // Group bookings by schedule_id
+    const bySchedule = useMemo(() => {
+        const m = {};
+        bookings.forEach(b => { (m[b.schedule_id] = m[b.schedule_id] || []).push(b); });
+        return m;
+    }, [bookings]);
+
+    // Summary stats
+    const totalPeople = bookings.length;
+    const totalCapacity = sessions.reduce((sum, s) => sum + (s.max_capacity || 0), 0);
+    const peak = useMemo(() => {
+        let best = null;
+        sessions.forEach(s => {
+            const n = (bySchedule[s.schedule_id] || []).length;
+            if (!best || n > best.count) best = { time: s.start_time, count: n };
+        });
+        return best;
+    }, [sessions, bySchedule]);
+
+    return (
+        <div className="fixed inset-0 z-50 flex justify-center items-start pt-10 pb-10 overflow-y-auto" onClick={onClose}>
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <div className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 mx-4"
+                onClick={e => e.stopPropagation()}>
+
+                {/* Header */}
+                <div className="bg-emerald-500/10 border-b border-emerald-500/20 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <CalendarCheck size={22} className="text-emerald-400" />
+                            <h2 className="text-xl font-black text-white">Hoy en el gimnasio</h2>
+                        </div>
+                        <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg">
+                            <X size={20} className="text-slate-400" />
+                        </button>
+                    </div>
+                    <p className="text-slate-400 text-sm capitalize mb-4">{dateLabel}</p>
+
+                    {/* Summary stats */}
+                    <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white/5 rounded-xl p-3 text-center">
+                            <div className="text-2xl font-black text-emerald-400">{sessions.length}</div>
+                            <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">Franjas</div>
+                        </div>
+                        <div className="bg-white/5 rounded-xl p-3 text-center">
+                            <div className="text-2xl font-black text-white">{totalPeople}</div>
+                            <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">Apuntados</div>
+                        </div>
+                        <div className="bg-white/5 rounded-xl p-3 text-center">
+                            <div className="text-2xl font-black text-orange-400 flex items-center justify-center gap-1">
+                                <TrendingUp size={16} /> {peak && peak.count > 0 ? peak.time : '—'}
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">Hora punta</div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Sessions list */}
+                <div className="p-4 max-h-[55vh] overflow-y-auto">
+                    {loading ? (
+                        <div className="text-center py-12 text-slate-500">Cargando reservas de hoy...</div>
+                    ) : sessions.length === 0 ? (
+                        <div className="text-center py-12">
+                            <Dumbbell className="mx-auto text-slate-600 mb-3" size={40} />
+                            <p className="text-slate-400 font-medium">El gimnasio no abre hoy</p>
+                            <p className="text-slate-500 text-sm mt-1">No hay franjas configuradas para {DAY_NAMES[todayDow].toLowerCase()}.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {sessions.map(s => {
+                                const attendees = bySchedule[s.schedule_id] || [];
+                                const count = attendees.length;
+                                const capacity = s.max_capacity || 0;
+                                const pct = capacity > 0 ? Math.min((count / capacity) * 100, 100) : 0;
+                                const barColor = count >= capacity && capacity > 0 ? '#ef4444' : pct > 75 ? '#f97316' : pct > 40 ? '#eab308' : '#10b981';
+                                const isNow = nowHM >= s.start_time && nowHM < s.end_time;
+                                const isPast = nowHM >= s.end_time;
+
+                                return (
+                                    <div key={s.schedule_id}
+                                        className={`rounded-xl border p-4 transition-all ${
+                                            isNow ? 'bg-emerald-500/10 border-emerald-500/40 ring-1 ring-emerald-500/30'
+                                            : isPast ? 'bg-slate-800/30 border-white/5 opacity-60'
+                                            : 'bg-slate-800/40 border-white/5'
+                                        }`}>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex items-center gap-1.5">
+                                                    <Clock size={14} className={isNow ? 'text-emerald-400' : 'text-slate-500'} />
+                                                    <span className={`font-black text-sm ${isNow ? 'text-emerald-400' : 'text-white'}`}>
+                                                        {s.start_time} - {s.end_time}
+                                                    </span>
+                                                </div>
+                                                {isNow && <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full uppercase tracking-wide">Ahora</span>}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <UserCheck size={14} className={count >= capacity && capacity > 0 ? 'text-red-400' : 'text-slate-400'} />
+                                                <span className={`text-sm font-black ${count >= capacity && capacity > 0 ? 'text-red-400' : 'text-white'}`}>
+                                                    {count}<span className="text-slate-500 font-bold">/{capacity}</span>
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Occupancy bar */}
+                                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden mb-3">
+                                            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                                        </div>
+
+                                        {/* Attendees */}
+                                        {count === 0 ? (
+                                            <p className="text-xs text-slate-600 italic">Nadie apuntado en esta franja</p>
+                                        ) : (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {attendees.map((a, i) => (
+                                                    <div key={a.id || i}
+                                                        className="flex items-center gap-1.5 bg-white/5 border border-white/5 rounded-lg pl-1.5 pr-2.5 py-1"
+                                                        title={[a.customer_email, a.customer_phone].filter(Boolean).join(' · ')}>
+                                                        <div className="w-5 h-5 rounded-md bg-blue-500/20 flex items-center justify-center">
+                                                            <span className="text-[9px] font-black text-blue-400">
+                                                                {a.customer_name?.split(' ').map(n => n[0]).join('').slice(0, 2) || '?'}
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-xs font-bold text-slate-200">{a.customer_name || 'Desconocido'}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -740,7 +931,7 @@ function ClassesManageView({ classes, weeklySchedule, loading, filter, setFilter
                                     </div>
                                     {cls.description && <p className="text-slate-400 text-xs mb-3 line-clamp-2">{cls.description}</p>}
                                     <div className="flex items-center gap-4 text-xs text-slate-400 mb-4">
-                                        {cls.instructor && <span className="flex items-center gap-1"><Users size={12} /> {cls.instructor}</span>}
+                                        {(cls.trainer_name || cls.instructor) && <span className="flex items-center gap-1"><Users size={12} /> {cls.trainer_name || cls.instructor}</span>}
                                         <span className="flex items-center gap-1"><Users size={12} /> {cls.max_capacity} plazas</span>
                                         <span className="flex items-center gap-1"><Clock size={12} /> {cls.duration_minutes} min</span>
                                     </div>
@@ -779,7 +970,7 @@ function ClassesManageView({ classes, weeklySchedule, loading, filter, setFilter
                                                 <div className={`w-2 h-2 rounded-full ${sc.dot}`} />
                                                 <span className={`font-bold text-sm ${sc.text}`}>{slot.class_name}</span>
                                                 <span className="text-slate-400 text-xs">{slot.start_time} - {slot.end_time}</span>
-                                                {slot.instructor && <span className="text-slate-500 text-xs">| {slot.instructor}</span>}
+                                                {(slot.trainer_name || slot.instructor) && <span className="text-slate-500 text-xs">| {slot.trainer_name || slot.instructor}</span>}
                                                 <span className="text-slate-500 text-xs ml-auto">{slot.max_capacity} plazas</span>
                                             </div>
                                         );
