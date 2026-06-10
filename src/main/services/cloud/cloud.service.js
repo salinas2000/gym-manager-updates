@@ -527,6 +527,69 @@ class CloudService {
         }
     }
 
+    /**
+     * Pull client-submitted profile data (medical + personal) from
+     * customer_profile_submissions, apply each to the local customer record
+     * (which re-syncs to cloud_customers), and stamp applied_at. Auto-apply:
+     * no owner action needed. The owner can still edit afterwards in the desktop.
+     */
+    async applyProfileSubmissions(gymId) {
+        if (!gymId) return;
+        try {
+            const ownerData = require('./owner-data.client');
+            const res = await ownerData.select('customer_profile_submissions', {
+                gymId,
+                filters: { applied_at: { op: 'is', value: null } },
+            });
+            if (!res?.success) return;
+            const pending = res.rows || res.data || [];
+            if (!pending.length) return;
+
+            const customerService = require('../local/customer.service');
+            for (const sub of pending) {
+                try {
+                    const update = {};
+                    if (sub.phone != null) update.phone = String(sub.phone);
+                    if (sub.dni != null) update.dni = String(sub.dni);
+                    if (sub.address != null) update.address = String(sub.address);
+                    if (sub.height_cm != null) update.height_cm = Number(sub.height_cm);
+                    if (sub.weight_kg != null) update.weight_kg = Number(sub.weight_kg);
+                    if (sub.birth_date != null) update.birth_date = String(sub.birth_date);
+                    if (sub.medical_info != null && typeof sub.medical_info === 'object') {
+                        // Normalize to the {diseases,injuries,allergies,surgeries} shape
+                        update.medical_info = {
+                            diseases: sub.medical_info.diseases || '',
+                            injuries: sub.medical_info.injuries || '',
+                            allergies: sub.medical_info.allergies || '',
+                            surgeries: sub.medical_info.surgeries || '',
+                        };
+                    }
+
+                    if (Object.keys(update).length > 0) {
+                        customerService.update(sub.customer_local_id, update);
+                    }
+
+                    // Mark this submission as applied so we don't re-apply it.
+                    await ownerData.update('customer_profile_submissions',
+                        { applied_at: new Date().toISOString() },
+                        { gymId, filters: { id: sub.id } });
+
+                    // Tell the renderer to refresh the customer if it's open.
+                    if (this.mainWindow) {
+                        this.mainWindow.webContents.send('customer:profile-updated', {
+                            customer_local_id: sub.customer_local_id,
+                        });
+                    }
+                    console.log(`[PROFILE] ✅ Applied client submission for customer #${sub.customer_local_id}`);
+                } catch (e) {
+                    console.error(`[PROFILE] Failed applying submission ${sub.id}:`, e.message);
+                }
+            }
+        } catch (e) {
+            console.error('[PROFILE] applyProfileSubmissions error:', e.message);
+        }
+    }
+
     async applyRemoteLoad(gymId, loadId = null) {
         if (!gymId) throw new Error('Cargador no inicializado.');
 

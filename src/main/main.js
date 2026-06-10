@@ -274,11 +274,16 @@ app.whenReady().then(() => {
             const lic = licenseService.getLicenseData();
             if (lic) cloudService.checkRemoteLoad(lic.gym_id);
         };
+        const runProfileSubmissionsCheck = () => {
+            const lic = licenseService.getLicenseData();
+            if (lic) cloudService.applyProfileSubmissions(lic.gym_id);
+        };
 
         setTimeout(() => {
             runUpdateCheck();
             initRealtime();       // One-time Realtime setup (self-retries on failure)
             runRemoteLoadCheck();  // First poll
+            runProfileSubmissionsCheck(); // Pull client profile edits
         }, 5000);
 
         // 7. Lease Renewal (Offline Protection)
@@ -333,6 +338,7 @@ app.whenReady().then(() => {
         // Background intervals
         setInterval(runUpdateCheck, 30 * 60 * 1000);
         setInterval(runRemoteLoadCheck, 30 * 1000); // Poll every 30s (lightweight HTTP, no Realtime re-setup)
+        setInterval(runProfileSubmissionsCheck, 60 * 1000); // Pull client profile edits every 60s
         setInterval(runLeaseRenewal, 60 * 60 * 1000); // Check every hour
         setInterval(runCloudSync, 2 * 60 * 1000); // Sync to cloud every 2 minutes
         setInterval(pollBookings, 30 * 1000); // Poll bookings every 30 seconds
