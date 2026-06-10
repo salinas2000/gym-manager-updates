@@ -24,7 +24,9 @@ const FIELD_MODALITIES = {
     repeticiones: ['strength', 'reps_only'],
     rir:          ['strength', 'reps_only'],
     tempo:        ['strength'],
-    intensidad:   ['strength', 'cardio_distance', 'cardio_time'],
+    intensidad:   ['strength'],
+    tiempo:       ['cardio_distance', 'cardio_time', 'time_only'],
+    distancia:    ['cardio_distance'],
 };
 
 function fieldAppliesToType(fieldKey, trackingType) {
