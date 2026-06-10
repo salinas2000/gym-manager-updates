@@ -15,6 +15,25 @@ const TRACKING_TYPES = [
     { key: 'custom',          label: '⚙ Personalizado (todos los campos)' },
 ];
 
+// Which prescription fields apply to each tracking type. Keys not listed are
+// universal (shown for every type). tracking_type 'custom' shows everything.
+// Mirror of field-catalog.js modalities.
+const FIELD_MODALITIES = {
+    peso:         ['strength'],
+    reps:         ['strength', 'reps_only'],
+    repeticiones: ['strength', 'reps_only'],
+    rir:          ['strength', 'reps_only'],
+    tempo:        ['strength'],
+    intensidad:   ['strength', 'cardio_distance', 'cardio_time'],
+};
+
+function fieldAppliesToType(fieldKey, trackingType) {
+    if (trackingType === 'custom') return true;
+    const mods = FIELD_MODALITIES[(fieldKey || '').toLowerCase().trim()];
+    if (!mods) return true; // universal field (series, rpe, descanso, notas, custom gym fields)
+    return mods.includes(trackingType);
+}
+
 export default function ExerciseModal({
     isOpen,
     onClose,
@@ -41,10 +60,12 @@ export default function ExerciseModal({
         enabled: isOpen
     });
 
-    // The exercise base lets the trainer set DEFAULT prescriptions. Show
-    // every prescribable catalog field (most of them, except Notas which is
-    // pure customer side).
-    const activeFields = fieldConfigs.filter(f => f.is_active && f.is_prescribable !== 0);
+    // The exercise base lets the trainer set DEFAULT prescriptions. Show only
+    // the prescribable fields that apply to the selected tracking_type — e.g.
+    // a running exercise hides peso / reps / tempo and keeps series / descanso.
+    const activeFields = fieldConfigs.filter(
+        f => f.is_active && f.is_prescribable !== 0 && fieldAppliesToType(f.field_key, trackingType)
+    );
 
     // Fetch Categories
     const categories = queryClient.getQueryData(['categories']) || [];
@@ -93,13 +114,20 @@ export default function ExerciseModal({
             return;
         }
 
+        // Drop any prescription values for fields that don't apply to the
+        // chosen tracking_type (e.g. a stale "peso" after switching to cardio).
+        const cleanedFields = {};
+        for (const [k, v] of Object.entries(customFields)) {
+            if (fieldAppliesToType(k, trackingType)) cleanedFields[k] = v;
+        }
+
         const payload = {
             name,
             categoryId: parseInt(categoryId),
             tracking_type: trackingType,
             videoUrl,
             notes,
-            custom_fields: customFields
+            custom_fields: cleanedFields
         };
 
         if (exerciseToEdit) {
