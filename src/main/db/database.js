@@ -200,6 +200,9 @@ class DBManager {
 
         // 8. Schema Updates (Migrations)
         this.safeAddColumn('customers', 'tariff_id', 'INTEGER REFERENCES tariffs(id)');
+        // mobile_show_schedule: 1=el cliente ve el horario/clases en la app (default),
+        // 0=oculto (cliente que solo quiere sus rutinas, no va al gimnasio).
+        this.safeAddColumn('customers', 'mobile_show_schedule', 'INTEGER DEFAULT 1');
         this.safeAddColumn('tariffs', 'color_theme', 'TEXT DEFAULT "emerald"');
         // billing_months: 1=mensual (default), 3=trimestral, 6=semestral, 12=anual
         this.safeAddColumn('tariffs', 'billing_months', 'INTEGER DEFAULT 1');

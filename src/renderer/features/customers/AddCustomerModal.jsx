@@ -21,7 +21,8 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
         height_cm: '',
         weight_kg: '',
         birth_date: '',
-        medical_info: { diseases: '', injuries: '', allergies: '', surgeries: '' }
+        medical_info: { diseases: '', injuries: '', allergies: '', surgeries: '' },
+        mobile_show_schedule: 1,
     };
 
     const [formData, setFormData] = useState(initialForm);
@@ -49,7 +50,8 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                     height_cm: customerToEdit.height_cm || '',
                     weight_kg: customerToEdit.weight_kg || '',
                     birth_date: customerToEdit.birth_date || '',
-                    medical_info: medInfo || { diseases: '', injuries: '', allergies: '', surgeries: '' }
+                    medical_info: medInfo || { diseases: '', injuries: '', allergies: '', surgeries: '' },
+                    mobile_show_schedule: customerToEdit.mobile_show_schedule != null ? customerToEdit.mobile_show_schedule : 1,
                 });
                 setShowProfile(false);
                 setShowMedical(false);
@@ -321,6 +323,22 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                                 </div>
                             </div>
                         )}
+
+                        {/* App móvil — feature toggles */}
+                        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/40 border border-white/5">
+                            <div className="min-w-0">
+                                <p className="text-sm font-semibold text-white">Horario y clases en la app</p>
+                                <p className="text-[11px] text-slate-500">Desactívalo para clientes que solo quieren sus rutinas (no acuden al gimnasio).</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setFormData({ ...formData, mobile_show_schedule: formData.mobile_show_schedule ? 0 : 1 })}
+                                className={`shrink-0 relative w-12 h-7 rounded-full transition-all ${formData.mobile_show_schedule ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                                title={formData.mobile_show_schedule ? 'Visible para el cliente' : 'Oculto para el cliente'}
+                            >
+                                <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${formData.mobile_show_schedule ? 'translate-x-5' : ''}`} />
+                            </button>
+                        </div>
 
                         {error && (
                             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">

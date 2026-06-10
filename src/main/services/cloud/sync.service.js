@@ -152,6 +152,7 @@ class SyncService extends BaseService {
                     weight_kg: emptyToNull(r.weight_kg),
                     birth_date: emptyToNull(r.birth_date),
                     medical_info: r.medical_info ? JSON.parse(r.medical_info) : null,
+                    mobile_show_schedule: r.mobile_show_schedule != null ? r.mobile_show_schedule : 1,
                     synced_at: new Date().toISOString(),
                 }),
             },

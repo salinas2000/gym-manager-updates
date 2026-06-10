@@ -25,6 +25,8 @@ const createCustomerSchema = z.object({
         allergies: z.string().optional().default(''),
         surgeries: z.string().optional().default(''),
     }).optional().nullable(),
+    // 1 = client sees the schedule/classes section in the mobile app, 0 = hidden
+    mobile_show_schedule: z.union([z.boolean(), z.number()]).optional(),
 });
 
 // Update: email puede venir vacío para BORRARLO. '' / null → null persistido.
@@ -140,6 +142,7 @@ class CustomerService extends BaseService {
         if (validatedData.weight_kg !== undefined) { fields.push('weight_kg = ?'); values.push(validatedData.weight_kg); }
         if (validatedData.birth_date !== undefined) { fields.push('birth_date = ?'); values.push(validatedData.birth_date); }
         if (validatedData.medical_info !== undefined) { fields.push('medical_info = ?'); values.push(validatedData.medical_info ? JSON.stringify(validatedData.medical_info) : null); }
+        if (validatedData.mobile_show_schedule !== undefined) { fields.push('mobile_show_schedule = ?'); values.push(validatedData.mobile_show_schedule ? 1 : 0); }
 
         // Always reset sync status on update
         fields.push('synced = 0');
