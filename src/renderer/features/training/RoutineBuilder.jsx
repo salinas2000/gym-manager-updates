@@ -5,6 +5,43 @@ import ExerciseModal from './ExerciseModal';
 import CategoryManager, { ICON_MAP } from './CategoryManager';
 import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, ChevronDown, GripVertical } from 'lucide-react';
 
+// ── Cardio target auto-calc (tiempo · distancia · ritmo) — time is the anchor ──
+function parseHmsToSeconds(str) {
+    const s = String(str || '').trim();
+    if (!s) return null;
+    if (s.includes(':')) {
+        const [m, sec] = s.split(':');
+        const mm = parseInt(m || '0', 10);
+        const ss = parseInt(sec || '0', 10);
+        if (isNaN(mm) && isNaN(ss)) return null;
+        return (isNaN(mm) ? 0 : mm) * 60 + (isNaN(ss) ? 0 : ss);
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+}
+function secondsToMs(secs) {
+    if (secs == null || isNaN(secs)) return '';
+    const m = Math.floor(secs / 60);
+    const s = Math.round(secs % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+function recalcCardio(changedKey, fields) {
+    const tSec = parseHmsToSeconds(fields.tiempo);
+    const distKm = fields.distancia != null && String(fields.distancia).trim() !== '' ? parseFloat(fields.distancia) : null;
+    const paceSec = parseHmsToSeconds(fields.ritmo);
+    const patch = {};
+    if (!tSec) return patch;
+    if (changedKey === 'ritmo' && paceSec && paceSec > 0) {
+        patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
+    } else if (changedKey === 'distancia' && distKm && distKm > 0) {
+        patch.ritmo = secondsToMs(tSec / distKm);
+    } else if (changedKey === 'tiempo') {
+        if (distKm && distKm > 0) patch.ritmo = secondsToMs(tSec / distKm);
+        else if (paceSec && paceSec > 0) patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
+    }
+    return patch;
+}
+
 export default function RoutineBuilder({ days, setDays, currentDayId }) {
     const [activeCategory, setActiveCategory] = useState(null); // categoryId
     const [activeSubcategory, setActiveSubcategory] = useState(null); // subcategoryId
@@ -115,10 +152,16 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                 if (field === 'notes') {
                     item.notes = value;
                 } else {
-                    item.custom_fields = {
+                    const nextFields = {
                         ...(item.custom_fields || {}),
                         [field]: value
                     };
+                    // Auto-fill the cardio trio (tiempo/distancia/ritmo).
+                    const k = String(field).toLowerCase().trim();
+                    if (k === 'tiempo' || k === 'distancia' || k === 'ritmo') {
+                        Object.assign(nextFields, recalcCardio(k, nextFields));
+                    }
+                    item.custom_fields = nextFields;
                 }
 
                 newItems[itemIndex] = item;

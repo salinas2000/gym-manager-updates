@@ -26,6 +26,7 @@ const FIELD_CATALOG = [
     { key: 'repeticiones', label: 'Repeticiones', type: 'text',   prescribable: true,  loggable: true,  description: 'Repeticiones objetivo (puede ser un rango como "8-10").', modalities: ['strength', 'reps_only'] },
     { key: 'tiempo',       label: 'Tiempo objetivo',    type: 'text', prescribable: true, loggable: false, description: 'Duración objetivo (ej. "30:00"). El cliente lo registra con el cronómetro.', modalities: ['cardio_distance', 'cardio_time', 'time_only'] },
     { key: 'distancia',    label: 'Distancia objetivo', type: 'text', prescribable: true, loggable: false, description: 'Distancia objetivo en km (ej. "5"). El cliente registra la real.', modalities: ['cardio_distance'] },
+    { key: 'ritmo',        label: 'Ritmo objetivo',     type: 'text', prescribable: true, loggable: false, description: 'Ritmo objetivo min/km (ej. "6:00"). Se calcula solo con tiempo y distancia.', modalities: ['cardio_distance'] },
     { key: 'rpe',          label: 'RPE',          type: 'number', prescribable: true,  loggable: true,  description: 'Esfuerzo percibido (0-10) por serie.', defaultActive: false },
     { key: 'rir',          label: 'RIR',          type: 'number', prescribable: true,  loggable: true,  description: 'Repeticiones en reserva por serie.', modalities: ['strength', 'reps_only'], defaultActive: false },
     { key: 'tempo',        label: 'Tempo',        type: 'text',   prescribable: true,  loggable: false, description: 'Cadencia (excéntrica-pausa-concéntrica-pausa, ej. "3-0-1-0").', modalities: ['strength'] },

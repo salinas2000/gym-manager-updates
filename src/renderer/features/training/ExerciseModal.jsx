@@ -27,6 +27,7 @@ const FIELD_MODALITIES = {
     intensidad:   ['strength'],
     tiempo:       ['cardio_distance', 'cardio_time', 'time_only'],
     distancia:    ['cardio_distance'],
+    ritmo:        ['cardio_distance'],
 };
 
 function fieldAppliesToType(fieldKey, trackingType) {
@@ -34,6 +35,54 @@ function fieldAppliesToType(fieldKey, trackingType) {
     const mods = FIELD_MODALITIES[(fieldKey || '').toLowerCase().trim()];
     if (!mods) return true; // universal field (series, rpe, descanso, notas, custom gym fields)
     return mods.includes(trackingType);
+}
+
+// ── Cardio target auto-calc (tiempo · distancia · ritmo) ─────────────────────
+// Time is the anchor. Given tiempo + one of {distancia, ritmo}, compute the
+// other:  ritmo(s/km) = tiempo(s) / distancia(km);  distancia = tiempo / ritmo.
+function parseHmsToSeconds(str) {
+    const s = String(str || '').trim();
+    if (!s) return null;
+    if (s.includes(':')) {
+        const [m, sec] = s.split(':');
+        const mm = parseInt(m || '0', 10);
+        const ss = parseInt(sec || '0', 10);
+        if (isNaN(mm) && isNaN(ss)) return null;
+        return (isNaN(mm) ? 0 : mm) * 60 + (isNaN(ss) ? 0 : ss);
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n; // plain number = seconds
+}
+function secondsToMs(secs) {
+    if (secs == null || isNaN(secs)) return '';
+    const m = Math.floor(secs / 60);
+    const s = Math.round(secs % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+/**
+ * Recompute the cardio trio when one of tiempo/distancia/ritmo changes.
+ * Returns a patch object of fields to set. Time is the anchor.
+ */
+function recalcCardio(changedKey, fields) {
+    const tSec = parseHmsToSeconds(fields.tiempo);
+    const distKm = fields.distancia != null && String(fields.distancia).trim() !== '' ? parseFloat(fields.distancia) : null;
+    const paceSec = parseHmsToSeconds(fields.ritmo);
+    const patch = {};
+
+    if (!tSec) return patch; // no anchor yet — can't derive anything
+
+    if (changedKey === 'ritmo' && paceSec && paceSec > 0) {
+        // distancia = tiempo / ritmo
+        patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
+    } else if (changedKey === 'distancia' && distKm && distKm > 0) {
+        // ritmo = tiempo / distancia
+        patch.ritmo = secondsToMs(tSec / distKm);
+    } else if (changedKey === 'tiempo') {
+        // Re-derive whichever pair is consistent: prefer keeping distancia, recompute ritmo
+        if (distKm && distKm > 0) patch.ritmo = secondsToMs(tSec / distKm);
+        else if (paceSec && paceSec > 0) patch.distancia = (tSec / paceSec).toFixed(2).replace(/\.00$/, '');
+    }
+    return patch;
 }
 
 export default function ExerciseModal({
@@ -137,6 +186,19 @@ export default function ExerciseModal({
         } else {
             createExercise.mutate(payload);
         }
+    };
+
+    // Field change handler. For the cardio trio (tiempo/distancia/ritmo) it
+    // also auto-fills the derived value (time is the anchor).
+    const handleFieldChange = (key, value) => {
+        setCustomFields(prev => {
+            const next = { ...prev, [key]: value };
+            const k = key.toLowerCase().trim();
+            if (k === 'tiempo' || k === 'distancia' || k === 'ritmo') {
+                Object.assign(next, recalcCardio(k, next));
+            }
+            return next;
+        });
     };
 
     const onCloseModal = () => {
@@ -264,7 +326,7 @@ export default function ExerciseModal({
                                             <select
                                                 className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm appearance-none transition-all pr-10"
                                                 value={customFields[field.field_key] || ''}
-                                                onChange={e => setCustomFields({ ...customFields, [field.field_key]: e.target.value })}
+                                                onChange={e => handleFieldChange(field.field_key, e.target.value)}
                                             >
                                                 <option value="">Seleccionar...</option>
                                                 {field.options?.map(opt => (
@@ -279,7 +341,7 @@ export default function ExerciseModal({
                                             className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm transition-all"
                                             placeholder={`${field.label}...`}
                                             value={customFields[field.field_key] || ''}
-                                            onChange={e => setCustomFields({ ...customFields, [field.field_key]: e.target.value })}
+                                            onChange={e => handleFieldChange(field.field_key, e.target.value)}
                                         />
                                     )}
                                 </div>
