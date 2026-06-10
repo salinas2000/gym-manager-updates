@@ -6,6 +6,14 @@ const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
 
+// Electron's main process (Node) has no global WebSocket, so realtime-js
+// silently fails to open the socket and every channel TIMES_OUT. Inject the
+// `ws` implementation explicitly as the realtime transport. (In the renderer
+// this would be automatic via the browser's native WebSocket.)
+let WebSocketImpl = null;
+try { WebSocketImpl = require('ws'); }
+catch (e) { console.error('[CLOUD_SYNC] ⚠️ ws module unavailable — realtime will not work:', e.message); }
+
 const DEFAULT_GYM_ID = 'GYM-PRO-MAIN';
 
 class CloudService {
@@ -21,6 +29,28 @@ class CloudService {
 
     setMainWindow(win) {
         this.mainWindow = win;
+    }
+
+    /**
+     * Inspect a Supabase key and return the role it carries.
+     *   - legacy JWT: base64-decode the payload, return `role` claim
+     *   - sb_publishable_*: returns 'publishable'
+     *   - sb_secret_*: returns 'secret' (a service_role analogue)
+     *   - anything else: null
+     */
+    _extractKeyRole(key) {
+        if (typeof key !== 'string' || !key) return null;
+        if (key.startsWith('sb_publishable_')) return 'publishable';
+        if (key.startsWith('sb_secret_')) return 'secret';
+        if (key.startsWith('eyJ') && key.split('.').length === 3) {
+            try {
+                const payload = key.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+                const padded = payload + '='.repeat((4 - payload.length % 4) % 4);
+                const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'));
+                return decoded?.role || null;
+            } catch { return null; }
+        }
+        return null;
     }
 
     init() {
@@ -46,20 +76,37 @@ class CloudService {
             // owner_token (see owner-sync.client.js, owner-storage.client.js,
             // owner-data.client.js, _callOwnerAdmin, license.service.js).
             //
-            // The SUPABASE_KEY env var MUST be a publishable / anon key
-            // (starts with `sb_publishable_`). With RLS policies in place on
-            // the two realtime tables, the publishable key is safe to embed.
-            // If the legacy service_role is detected, log a loud warning so
-            // it's obvious during the transition.
-            const looksLikeServiceRole = typeof supabase.key === 'string'
-                && supabase.key.startsWith('eyJ') // JWT prefix
-                && supabase.key.length > 200;
-            if (looksLikeServiceRole) {
-                console.warn('[CLOUD_SYNC] ⚠️ SECURITY: SUPABASE_KEY looks like a service_role JWT. Replace with a publishable key (sb_publishable_*). Realtime works with either, but service_role grants god-mode if extracted from the installer.');
+            // The SUPABASE_KEY env var MUST be a public-safe key — either the
+            // legacy anon JWT (role=anon) or the modern sb_publishable_* form.
+            // Both are safe to embed because RLS gates every realtime SELECT.
+            // What is NOT safe is a service_role JWT in the installer — that
+            // grants god-mode to anyone who unpacks the .exe. Detect by
+            // decoding the JWT payload and checking the `role` claim.
+            const detectedRole = this._extractKeyRole(supabase.key);
+            if (detectedRole === 'service_role') {
+                console.warn('[CLOUD_SYNC] ⚠️ SECURITY: SUPABASE_KEY is a service_role JWT. Replace with the anon JWT or sb_publishable_* key. Service_role grants god-mode if extracted from the installer.');
             } else {
-                console.log('[CLOUD_SYNC] ✅ Initializing realtime client with publishable key');
+                console.log(`[CLOUD_SYNC] ✅ Initializing realtime client with ${detectedRole || 'public'} key`);
             }
-            this.supabase = createClient(supabase.url, supabase.key);
+            this.supabase = createClient(supabase.url, supabase.key, {
+                realtime: {
+                    // The critical fix: provide a WebSocket implementation for
+                    // the Node/Electron-main environment. Without this every
+                    // channel TIMES_OUT because realtime-js can't open a socket.
+                    transport: WebSocketImpl,
+                    params: { apikey: supabase.key },
+                    // Heartbeat keeps the websocket alive through Windows
+                    // sleep/wake cycles; default is 30s.
+                    heartbeatIntervalMs: 25000,
+                },
+                auth: {
+                    // Desktop is a "non-browser" client — disable web-only
+                    // session detection that adds nothing useful here.
+                    persistSession: false,
+                    autoRefreshToken: false,
+                    detectSessionInUrl: false,
+                },
+            });
         } catch (error) {
             console.error('[CLOUD_SYNC] ❌ Failed to initialize:', error.message);
             return;
