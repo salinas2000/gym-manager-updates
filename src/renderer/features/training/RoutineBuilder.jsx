@@ -6,6 +6,26 @@ import CategoryManager, { ICON_MAP } from './CategoryManager';
 import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, ChevronDown, GripVertical } from 'lucide-react';
 
 // ── Cardio target auto-calc (tiempo · distancia · ritmo) — time is the anchor ──
+// Which prescription fields apply to each tracking type (mirror of
+// field-catalog.js modalities + ExerciseModal.FIELD_MODALITIES).
+const FIELD_MODALITIES = {
+    peso:         ['strength'],
+    reps:         ['strength', 'reps_only'],
+    repeticiones: ['strength', 'reps_only'],
+    rir:          ['strength', 'reps_only'],
+    tempo:        ['strength'],
+    intensidad:   ['strength'],
+    tiempo:       ['cardio_distance', 'cardio_time', 'time_only'],
+    distancia:    ['cardio_distance'],
+    ritmo:        ['cardio_distance'],
+};
+function fieldAppliesToType(fieldKey, trackingType) {
+    if (!trackingType || trackingType === 'custom') return true;
+    const mods = FIELD_MODALITIES[(fieldKey || '').toLowerCase().trim()];
+    if (!mods) return true; // universal (series, rpe, descanso, notas, custom)
+    return mods.includes(trackingType);
+}
+
 // Unit is MINUTES. "30" → 30 min; "6,5"/"6.5" → 6.5 min; "5:30" → 5 min 30 s.
 function parseHmsToSeconds(str) {
     const s = String(str || '').trim();
@@ -64,6 +84,14 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
             return res.success ? res.data : [];
         }
     });
+
+    // exercise id → tracking_type, so each routine row only shows the
+    // prescription fields that apply to that exercise's modality.
+    const trackingByExerciseId = React.useMemo(() => {
+        const m = new Map();
+        for (const ex of exercises) m.set(ex.id, ex.tracking_type || 'strength');
+        return m;
+    }, [exercises]);
 
     // Query Categories
     const { data: categories = [] } = useQuery({
@@ -433,7 +461,13 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                             const fc = fieldConfigs.find(f => f.field_key === k);
                                             return fc && !fc.is_deleted && fc.is_prescribable !== 0;
                                         });
-                                        const allKeys = Array.from(new Set([...configKeys, ...validItemKeys]));
+                                        // Only show the fields that apply to THIS exercise's tracking
+                                        // type (e.g. a running exercise shows tiempo/distancia/ritmo,
+                                        // not peso/reps). A field already filled keeps showing so old
+                                        // data isn't hidden.
+                                        const trackingType = trackingByExerciseId.get(item.exerciseId ?? item.exercise_id);
+                                        const allKeys = Array.from(new Set([...configKeys, ...validItemKeys]))
+                                            .filter(k => fieldAppliesToType(k, trackingType) || (itemFields[k] != null && itemFields[k] !== ''));
 
                                         return allKeys.map(key => {
                                             const field = fieldConfigs.find(f => f.field_key === key);
