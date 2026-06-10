@@ -16,7 +16,7 @@ in place.
 | Storage (signedUpload / signedDownload / publicUrl / remove / list) | `owner-storage` | `owner-storage.client.js` | ✅ Live (cloud.service.js call sites migrated) |
 | Generic DB (cloud_remote_loads / cloud_customers select/upsert/delete) | `owner-data` | `owner-data.client.js` | ✅ Live (cloud.service.js call sites migrated) |
 | Push notifications | `send-push` | mobile + SQL triggers | ✅ Live |
-| Realtime channels | anon-key + RLS | n/a (uses publishable key directly) | ✅ RLS policies applied (migration `realtime_rls_for_publishable_key`) |
+| Realtime channels | anon-key (legacy JWT) + RLS + `ws` transport | n/a | ✅ Verified SUBSCRIBED end-to-end |
 
 ### How the owner_token works
 
@@ -51,8 +51,9 @@ Two channels:
 - `remote_loads_${gymId}` listening for INSERTs on `cloud_remote_loads`
 - `bookings_${gymId}` listening for INSERTs on `gym_class_bookings`
 
-These now work with the **publishable / anon key** because of the
-migration `realtime_rls_for_publishable_key`:
+These work with the **anon key** (legacy JWT form — `sb_publishable_*`
+times out realtime websockets in supabase-js v2.91.1). Final RLS state
+after migration `realtime_reenable_rls_secure`:
 
 ```sql
 ALTER TABLE cloud_remote_loads ENABLE ROW LEVEL SECURITY;
@@ -61,7 +62,15 @@ CREATE POLICY "anon reads remote_loads" ON cloud_remote_loads
     FOR SELECT TO anon USING (true);
 CREATE POLICY "anon reads class bookings" ON gym_class_bookings
     FOR SELECT TO anon USING (true);
+-- anon must never write to these (the key ships in the installer):
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON cloud_remote_loads FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON gym_class_bookings FROM anon;
 ```
+
+> ⚠️ **Realtime needs a WebSocket transport.** Electron's main process
+> has no global `WebSocket`, so realtime-js silently TIMES_OUT. The fix
+> lives in `cloud.service.js`: `require('ws')` is passed as
+> `realtime.transport` to `createClient`. `ws` is a direct dependency.
 
 Open SELECT to `anon` is acceptable for both tables because:
 
@@ -70,7 +79,8 @@ Open SELECT to `anon` is acceptable for both tables because:
   No names, no emails. The mobile UX still goes through authenticated
   reads via `mobile_client_links`.
 
-**No INSERT/UPDATE/DELETE policy is granted to `anon`** — mutations all
+**No INSERT/UPDATE/DELETE policy is granted to `anon`** (and the table
+grants were REVOKEd too) — mutations all
 go through Edge Functions + owner_token.
 
 ## Final manual step (one-time) — switch the key in `.env.local`
