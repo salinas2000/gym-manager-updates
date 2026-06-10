@@ -29,10 +29,14 @@ export default function RmReviewPage() {
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await window.api.cloud.getRmRecords(null, 'pending');
-            setRecords(res?.success ? res.data : []);
+            // The IPC handle() wrapper returns { success, data: <serviceResult> },
+            // and the service itself returns { success, data: [...] } → unwrap twice.
+            const wrapped = await window.api.cloud.getRmRecords(null, 'pending');
+            const inner = wrapped?.data;
+            setRecords(inner?.success && Array.isArray(inner.data) ? inner.data : []);
         } catch (e) {
             console.error('getRmRecords', e);
+            setRecords([]);
         } finally {
             setLoading(false);
         }
@@ -43,12 +47,13 @@ export default function RmReviewPage() {
     const review = async (id, status) => {
         setBusyId(id);
         try {
-            const res = await window.api.cloud.reviewRmRecord(id, status);
-            if (res?.success) {
+            const wrapped = await window.api.cloud.reviewRmRecord(id, status);
+            const inner = wrapped?.data; // unwrap handle() + service envelopes
+            if (inner?.success) {
                 setRecords(prev => prev.filter(r => r.id !== id));
                 toast.success(status === 'accepted' ? 'Récord aceptado' : 'Récord rechazado');
             } else {
-                toast.error(res?.error || 'Error al revisar');
+                toast.error(inner?.error || wrapped?.error || 'Error al revisar');
             }
         } catch (e) {
             toast.error('Error de red');
