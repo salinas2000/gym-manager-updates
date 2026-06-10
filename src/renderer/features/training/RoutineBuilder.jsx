@@ -6,8 +6,9 @@ import CategoryManager, { ICON_MAP } from './CategoryManager';
 import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, ChevronDown, GripVertical } from 'lucide-react';
 
 // ── Cardio target auto-calc (tiempo · distancia · ritmo) — time is the anchor ──
+// Unit is MINUTES. "30" → 30 min; "6,5"/"6.5" → 6.5 min; "5:30" → 5 min 30 s.
 function parseHmsToSeconds(str) {
-    const s = String(str || '').trim().replace(/[.,]/g, ':');
+    const s = String(str || '').trim();
     if (!s) return null;
     if (s.includes(':')) {
         const [m, sec] = s.split(':');
@@ -16,8 +17,8 @@ function parseHmsToSeconds(str) {
         if (isNaN(mm) && isNaN(ss)) return null;
         return (isNaN(mm) ? 0 : mm) * 60 + (isNaN(ss) ? 0 : ss);
     }
-    const n = parseFloat(s);
-    return isNaN(n) ? null : n;
+    const mins = parseFloat(s.replace(',', '.'));
+    return isNaN(mins) ? null : mins * 60;
 }
 function secondsToMs(secs) {
     if (secs == null || isNaN(secs)) return '';

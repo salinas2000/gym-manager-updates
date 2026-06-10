@@ -40,10 +40,10 @@ function fieldAppliesToType(fieldKey, trackingType) {
 // ── Cardio target auto-calc (tiempo · distancia · ritmo) ─────────────────────
 // Time is the anchor. Given tiempo + one of {distancia, ritmo}, compute the
 // other:  ritmo(s/km) = tiempo(s) / distancia(km);  distancia = tiempo / ritmo.
-// Accepts "m:ss", "m.ss" or "m,ss" (comma/period treated as the min:sec
-// separator) and plain seconds.
+// Unit is MINUTES. "30" → 30 min; "6,5"/"6.5" → 6.5 min; "5:30" → 5 min 30 s.
+// Returns seconds. Used for both tiempo and ritmo (min/km).
 function parseHmsToSeconds(str) {
-    const s = String(str || '').trim().replace(/[.,]/g, ':');
+    const s = String(str || '').trim();
     if (!s) return null;
     if (s.includes(':')) {
         const [m, sec] = s.split(':');
@@ -52,8 +52,8 @@ function parseHmsToSeconds(str) {
         if (isNaN(mm) && isNaN(ss)) return null;
         return (isNaN(mm) ? 0 : mm) * 60 + (isNaN(ss) ? 0 : ss);
     }
-    const n = parseFloat(s);
-    return isNaN(n) ? null : n; // plain number = seconds
+    const mins = parseFloat(s.replace(',', '.'));
+    return isNaN(mins) ? null : mins * 60; // plain number = minutes
 }
 function secondsToMs(secs) {
     if (secs == null || isNaN(secs)) return '';
