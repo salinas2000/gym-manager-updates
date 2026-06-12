@@ -617,8 +617,8 @@ class TrainingService extends BaseService {
         );
 
         const insertItem = this.db.prepare(`
-            INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity, custom_fields)
-            VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity, @customFields)
+            INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity, custom_fields, superset_group)
+            VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity, @customFields, @supersetGroup)
         `);
 
         const updateItemStmt = this.db.prepare(`
@@ -631,6 +631,7 @@ class TrainingService extends BaseService {
                 order_index = @orderIndex,
                 intensity = @intensity,
                 custom_fields = @customFields,
+                superset_group = @supersetGroup,
                 synced = 0,
                 updated_at = datetime('now')
             WHERE id = @id
@@ -654,6 +655,10 @@ class TrainingService extends BaseService {
                 const customFields = (item.customFields || item.custom_fields)
                     ? JSON.stringify(item.customFields || item.custom_fields)
                     : null;
+                const rawGroup = item.supersetGroup ?? item.superset_group ?? null;
+                const supersetGroup = (rawGroup === null || rawGroup === '' || Number.isNaN(Number(rawGroup)))
+                    ? null
+                    : Number(rawGroup);
                 if (isExistingItem) {
                     updateItemStmt.run({
                         id: itemId,
@@ -665,6 +670,7 @@ class TrainingService extends BaseService {
                         orderIndex: order++,
                         intensity: item.intensity || '',
                         customFields,
+                        supersetGroup,
                     });
                     keptItemIds.add(itemId);
                 } else {
@@ -679,6 +685,7 @@ class TrainingService extends BaseService {
                         orderIndex: order++,
                         intensity: item.intensity || '',
                         customFields,
+                        supersetGroup,
                     });
                 }
             }

@@ -759,6 +759,9 @@ class DBManager {
         this.safeAddColumn('exercises', 'custom_fields', 'TEXT'); // JSON storage
         this.safeAddColumn('routine_items', 'custom_fields', 'TEXT'); // JSON storage
         this.safeAddColumn('routine_items', 'intensity', 'TEXT'); // Intensity level
+        // superset_group: ejercicios del mismo día con el mismo número forman una
+        // superserie (se hacen encadenados). NULL = ejercicio normal.
+        this.safeAddColumn('routine_items', 'superset_group', 'INTEGER');
 
         // 20b4. Multi-gym migration for exercise_field_config.
         // MUST run BEFORE the catalog seed (21a) so the ON CONFLICT clause

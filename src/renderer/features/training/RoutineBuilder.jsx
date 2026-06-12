@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import TemplateManager from './TemplateManager';
 import ExerciseModal from './ExerciseModal';
 import CategoryManager, { ICON_MAP } from './CategoryManager';
-import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, ChevronDown, GripVertical } from 'lucide-react';
+import { Search, Plus, X, Dumbbell, Activity, Trophy, Folder, Edit, Settings, ChevronDown, GripVertical, Link2, Unlink } from 'lucide-react';
 
 // ── Cardio target auto-calc (tiempo · distancia · ritmo) — time is the anchor ──
 // Which prescription fields apply to each tracking type (mirror of
@@ -24,6 +24,27 @@ function fieldAppliesToType(fieldKey, trackingType) {
     const mods = FIELD_MODALITIES[(fieldKey || '').toLowerCase().trim()];
     if (!mods) return true; // universal (series, rpe, descanso, notas, custom)
     return mods.includes(trackingType);
+}
+
+// Map each item index to its superset info ({ letter, pos }) or null. A superset
+// is a contiguous run of items sharing the same non-null superset_group (≥2
+// items). Letters A, B, C… are assigned by order of appearance in the day.
+function buildSupersetMap(items) {
+    const info = new Array(items.length).fill(null);
+    let letterIdx = 0;
+    let i = 0;
+    while (i < items.length) {
+        const g = items[i]?.superset_group;
+        if (g == null) { i++; continue; }
+        let j = i;
+        while (j < items.length && items[j]?.superset_group === g) j++;
+        if (j - i >= 2) {
+            const letter = String.fromCharCode(65 + letterIdx++);
+            for (let k = i; k < j; k++) info[k] = { letter, pos: k - i + 1 };
+        }
+        i = j;
+    }
+    return info;
 }
 
 // Unit is MINUTES. "30" → 30 min; "6,5"/"6.5" → 6.5 min; "5:30" → 5 min 30 s.
@@ -226,6 +247,34 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
         }));
     };
 
+    // Link item[idx] with the next one into the same superset. Reuses an
+    // existing group of either neighbour, or assigns a fresh number.
+    const groupWithNext = (dayId, idx) => {
+        setDays(days.map(day => {
+            if (day.id !== dayId) return day;
+            const items = [...day.items];
+            if (idx < 0 || idx + 1 >= items.length) return day;
+            const a = items[idx];
+            const b = items[idx + 1];
+            let group = a.superset_group ?? b.superset_group;
+            if (group == null) {
+                const maxG = items.reduce((m, it) => Math.max(m, it.superset_group ?? 0), 0);
+                group = maxG + 1;
+            }
+            items[idx] = { ...a, superset_group: group };
+            items[idx + 1] = { ...b, superset_group: group };
+            return { ...day, items };
+        }));
+    };
+
+    // Remove item[idx] from its superset (sets group to null).
+    const ungroupItem = (dayId, idx) => {
+        setDays(days.map(day => {
+            if (day.id !== dayId) return day;
+            return { ...day, items: day.items.map((it, i) => i === idx ? { ...it, superset_group: null } : it) };
+        }));
+    };
+
     const handleDragStart = (e, idx) => {
         setDragIndex(idx);
         e.dataTransfer.effectAllowed = 'move';
@@ -254,6 +303,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
     };
 
     const currentDay = days.find(d => d.id === currentDayId);
+    const supersetMap = currentDay ? buildSupersetMap(currentDay.items) : [];
 
     return (
         <div className="flex flex-1 h-full gap-4 overflow-hidden">
@@ -415,7 +465,9 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                             <p className="text-[10px] uppercase tracking-widest mt-1 opacity-50">Añade ejercicios de la biblioteca</p>
                         </div>
                     ) : (
-                        currentDay.items.map((item, idx) => (
+                        currentDay.items.map((item, idx) => {
+                            const ss = supersetMap[idx];
+                            return (
                             <div
                                 key={item.id || item._guiId || idx}
                                 draggable
@@ -423,7 +475,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                 onDragEnd={handleDragEnd}
                                 onDragOver={(e) => handleDragOver(e, idx)}
                                 onDrop={(e) => { e.preventDefault(); }}
-                                className={`bg-slate-800/80 rounded-xl p-3 border flex flex-col gap-3 shadow-sm transition-all ${dragOverIndex === idx && dragIndex !== idx
+                                className={`bg-slate-800/80 rounded-xl p-3 border flex flex-col gap-3 shadow-sm transition-all ${ss ? 'border-l-2 border-l-violet-500/70' : ''} ${dragOverIndex === idx && dragIndex !== idx
                                     ? 'border-blue-500/60 bg-blue-500/5 scale-[1.01]'
                                     : 'border-white/5 hover:border-white/10'
                                 }`}
@@ -432,20 +484,46 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                     <div className="flex items-center gap-3">
                                         <div className="flex items-center gap-1 cursor-grab active:cursor-grabbing select-none" title="Arrastrar para reordenar">
                                             <GripVertical size={14} className="text-slate-600 hover:text-slate-400 transition-colors flex-shrink-0" />
-                                            <span className="bg-slate-950 text-blue-500 text-[10px] font-black w-6 h-6 rounded-lg flex items-center justify-center border border-white/5">
-                                                {idx + 1}
+                                            <span className={`text-[10px] font-black w-6 h-6 rounded-lg flex items-center justify-center border ${ss ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' : 'bg-slate-950 text-blue-500 border-white/5'}`}>
+                                                {ss ? `${ss.letter}${ss.pos}` : idx + 1}
                                             </span>
                                         </div>
                                         <span className="font-bold text-slate-100 text-sm">
                                             {item.exercise_name}
                                         </span>
+                                        {ss && ss.pos === 1 && (
+                                            <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25">
+                                                Superserie {ss.letter}
+                                            </span>
+                                        )}
                                     </div>
-                                    <button
-                                        onClick={() => removeItem(currentDay.id, idx)}
-                                        className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
-                                    >
-                                        <X size={14} />
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                        {ss && (
+                                            <button
+                                                onClick={() => ungroupItem(currentDay.id, idx)}
+                                                title="Quitar de la superserie"
+                                                className="p-1.5 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 rounded-lg transition-all"
+                                            >
+                                                <Unlink size={14} />
+                                            </button>
+                                        )}
+                                        {idx < currentDay.items.length - 1 &&
+                                          (item.superset_group == null || currentDay.items[idx + 1]?.superset_group !== item.superset_group) && (
+                                            <button
+                                                onClick={() => groupWithNext(currentDay.id, idx)}
+                                                title="Unir con el siguiente en una superserie"
+                                                className="p-1.5 text-slate-500 hover:text-violet-300 hover:bg-violet-500/10 rounded-lg transition-all"
+                                            >
+                                                <Link2 size={14} />
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => removeItem(currentDay.id, idx)}
+                                            className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-4 gap-3">
@@ -529,7 +607,8 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                     </div>
                                 </div>
                             </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             </div>
