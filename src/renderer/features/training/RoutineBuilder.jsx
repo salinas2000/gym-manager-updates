@@ -40,7 +40,8 @@ function buildSupersetMap(items) {
         while (j < items.length && items[j]?.superset_group === g) j++;
         if (j - i >= 2) {
             const letter = String.fromCharCode(65 + letterIdx++);
-            for (let k = i; k < j; k++) info[k] = { letter, pos: k - i + 1 };
+            const rounds = items[i]?.superset_rounds ?? null;
+            for (let k = i; k < j; k++) info[k] = { letter, pos: k - i + 1, group: g, rounds, count: j - i };
         }
         i = j;
     }
@@ -96,6 +97,10 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
     const [expandedExerciseId, setExpandedExerciseId] = useState(null);
     const [dragIndex, setDragIndex] = useState(null);
     const [dragOverIndex, setDragOverIndex] = useState(null);
+    // Superset creation modal
+    const [showSupersetModal, setShowSupersetModal] = useState(false);
+    const [ssSelection, setSsSelection] = useState([]); // selected item indices
+    const [ssRounds, setSsRounds] = useState(4);
 
     // Query Exercises
     const { data: exercises = [], isLoading } = useQuery({
@@ -247,31 +252,40 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
         }));
     };
 
-    // Link item[idx] with the next one into the same superset. Reuses an
-    // existing group of either neighbour, or assigns a fresh number.
-    const groupWithNext = (dayId, idx) => {
+    // Create a superset from the selected item indices: tag them with a fresh
+    // group + rounds and pull them together (contiguous) at the first selected
+    // position, preserving their relative order.
+    const createSuperset = (dayId, indices, rounds) => {
+        const sel = [...new Set(indices)].sort((a, b) => a - b);
+        if (sel.length < 2) return;
         setDays(days.map(day => {
             if (day.id !== dayId) return day;
             const items = [...day.items];
-            if (idx < 0 || idx + 1 >= items.length) return day;
-            const a = items[idx];
-            const b = items[idx + 1];
-            let group = a.superset_group ?? b.superset_group;
-            if (group == null) {
-                const maxG = items.reduce((m, it) => Math.max(m, it.superset_group ?? 0), 0);
-                group = maxG + 1;
-            }
-            items[idx] = { ...a, superset_group: group };
-            items[idx + 1] = { ...b, superset_group: group };
-            return { ...day, items };
+            const maxG = items.reduce((m, it) => Math.max(m, it.superset_group ?? 0), 0);
+            const group = maxG + 1;
+            const picked = sel.map(i => ({ ...items[i], superset_group: group, superset_rounds: rounds }));
+            const firstPos = sel[0];
+            let insertAt = 0;
+            for (let i = 0; i < firstPos; i++) if (!sel.includes(i)) insertAt++;
+            const remaining = items.filter((_, i) => !sel.includes(i));
+            remaining.splice(insertAt, 0, ...picked);
+            return { ...day, items: remaining };
         }));
     };
 
-    // Remove item[idx] from its superset (sets group to null).
-    const ungroupItem = (dayId, idx) => {
+    // Dissolve a whole superset (clear group + rounds on all its items).
+    const dissolveSuperset = (dayId, group) => {
         setDays(days.map(day => {
             if (day.id !== dayId) return day;
-            return { ...day, items: day.items.map((it, i) => i === idx ? { ...it, superset_group: null } : it) };
+            return { ...day, items: day.items.map(it => it.superset_group === group ? { ...it, superset_group: null, superset_rounds: null } : it) };
+        }));
+    };
+
+    // Change the rounds ("nº de veces") of an existing superset.
+    const setSupersetRounds = (dayId, group, rounds) => {
+        setDays(days.map(day => {
+            if (day.id !== dayId) return day;
+            return { ...day, items: day.items.map(it => it.superset_group === group ? { ...it, superset_rounds: rounds } : it) };
         }));
     };
 
@@ -451,6 +465,16 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                         <Trophy size={16} className="text-amber-500" />
                         {currentDay ? `${currentDay.name} (${currentDay.items.length} ejercicios)` : 'Selecciona un día'}
                     </h3>
+                    {currentDay && currentDay.items.length >= 2 && (
+                        <button
+                            onClick={() => { setSsSelection([]); setSsRounds(4); setShowSupersetModal(true); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-violet-500/10 text-violet-300 border border-violet-500/25 hover:bg-violet-500/20 transition-all"
+                            title="Agrupar ejercicios en una superserie"
+                        >
+                            <Link2 size={13} />
+                            Crear superserie
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -492,38 +516,38 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                                             {item.exercise_name}
                                         </span>
                                         {ss && ss.pos === 1 && (
-                                            <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25">
-                                                Superserie {ss.letter}
-                                            </span>
+                                            <div className="flex items-center gap-1.5 ml-1">
+                                                <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25">
+                                                    Superserie {ss.letter}
+                                                </span>
+                                                <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                                                    <input
+                                                        type="number"
+                                                        min={1}
+                                                        max={20}
+                                                        value={ss.rounds ?? ''}
+                                                        onChange={(e) => setSupersetRounds(currentDay.id, ss.group, e.target.value === '' ? null : Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                                        className="w-10 bg-slate-950 border border-violet-500/20 rounded px-1 py-0.5 text-[10px] text-center text-white outline-none focus:border-violet-500"
+                                                        title="Número de veces (rondas)"
+                                                    />
+                                                    veces
+                                                </span>
+                                                <button
+                                                    onClick={() => dissolveSuperset(currentDay.id, ss.group)}
+                                                    title="Deshacer la superserie"
+                                                    className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
+                                                >
+                                                    <Unlink size={12} />
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        {ss && (
-                                            <button
-                                                onClick={() => ungroupItem(currentDay.id, idx)}
-                                                title="Quitar de la superserie"
-                                                className="p-1.5 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 rounded-lg transition-all"
-                                            >
-                                                <Unlink size={14} />
-                                            </button>
-                                        )}
-                                        {idx < currentDay.items.length - 1 &&
-                                          (item.superset_group == null || currentDay.items[idx + 1]?.superset_group !== item.superset_group) && (
-                                            <button
-                                                onClick={() => groupWithNext(currentDay.id, idx)}
-                                                title="Unir con el siguiente en una superserie"
-                                                className="p-1.5 text-slate-500 hover:text-violet-300 hover:bg-violet-500/10 rounded-lg transition-all"
-                                            >
-                                                <Link2 size={14} />
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={() => removeItem(currentDay.id, idx)}
-                                            className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    </div>
+                                    <button
+                                        onClick={() => removeItem(currentDay.id, idx)}
+                                        className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                    >
+                                        <X size={14} />
+                                    </button>
                                 </div>
 
                                 <div className="grid grid-cols-4 gap-3">
@@ -625,6 +649,81 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                 initialCategory={activeCategory}
                 initialSubcategory={activeSubcategory}
             />
+
+            {/* Crear superserie */}
+            {showSupersetModal && currentDay && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4" onClick={() => setShowSupersetModal(false)}>
+                    <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+                        <div className="p-5 border-b border-white/10 flex items-center justify-between">
+                            <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                <Link2 size={18} className="text-violet-400" /> Crear superserie
+                            </h2>
+                            <button onClick={() => setShowSupersetModal(false)} className="text-slate-400 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-5 space-y-3 overflow-y-auto">
+                            <p className="text-xs text-slate-400">
+                                Elige los ejercicios que se harán encadenados, sin descanso entre ellos.
+                            </p>
+                            <div className="space-y-1.5">
+                                {currentDay.items.map((it, i) => {
+                                    const inSs = supersetMap[i];
+                                    const checked = ssSelection.includes(i);
+                                    return (
+                                        <label
+                                            key={it.id || it._guiId || i}
+                                            className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all ${inSs
+                                                ? 'border-white/5 bg-slate-950/30 opacity-50 cursor-not-allowed'
+                                                : checked
+                                                    ? 'border-violet-500/50 bg-violet-500/10 cursor-pointer'
+                                                    : 'border-white/5 bg-slate-950/40 hover:border-white/10 cursor-pointer'}`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                disabled={!!inSs}
+                                                checked={checked}
+                                                onChange={(e) => setSsSelection(prev => e.target.checked ? [...prev, i] : prev.filter(x => x !== i))}
+                                                className="accent-violet-500 w-4 h-4"
+                                            />
+                                            <span className="flex-1 text-sm font-bold text-slate-100">{it.exercise_name}</span>
+                                            {inSs && <span className="text-[10px] font-black text-violet-300">Ya en Superserie {inSs.letter}</span>}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="p-5 border-t border-white/10 flex items-center justify-between gap-3">
+                            <label className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                                Nº de veces
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={20}
+                                    value={ssRounds}
+                                    onChange={(e) => setSsRounds(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                    className="w-16 bg-slate-950 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-center text-white outline-none focus:border-violet-500"
+                                />
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setShowSupersetModal(false)}
+                                    className="px-4 py-2 rounded-xl text-sm font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 transition-all"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    disabled={ssSelection.length < 2}
+                                    onClick={() => { createSuperset(currentDay.id, ssSelection, ssRounds); setShowSupersetModal(false); }}
+                                    className="px-4 py-2 rounded-xl text-sm font-bold bg-violet-600 text-white hover:bg-violet-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    Crear ({ssSelection.length})
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -762,6 +762,9 @@ class DBManager {
         // superset_group: ejercicios del mismo día con el mismo número forman una
         // superserie (se hacen encadenados). NULL = ejercicio normal.
         this.safeAddColumn('routine_items', 'superset_group', 'INTEGER');
+        // superset_rounds: nº de veces (rondas) que se repite la superserie.
+        // Igual para todos los ejercicios del mismo grupo. NULL = no aplica.
+        this.safeAddColumn('routine_items', 'superset_rounds', 'INTEGER');
 
         // 20b4. Multi-gym migration for exercise_field_config.
         // MUST run BEFORE the catalog seed (21a) so the ON CONFLICT clause

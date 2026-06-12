@@ -87,6 +87,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                     exercise_name: i.exercise_name,
                     notes: i.notes || '',
                     superset_group: i.superset_group ?? null,
+                    superset_rounds: i.superset_rounds ?? null,
                     custom_fields: i.custom_fields || {}
                 }))
             }));

@@ -229,6 +229,7 @@ class SyncService extends BaseService {
                     intensity: emptyToNull(r.intensity),
                     order_index: r.order_index ?? 0,
                     superset_group: r.superset_group ?? null,
+                    superset_rounds: r.superset_rounds ?? null,
                     custom_fields: r.custom_fields ? JSON.parse(r.custom_fields) : null,
                     synced_at: new Date().toISOString(),
                 }),
