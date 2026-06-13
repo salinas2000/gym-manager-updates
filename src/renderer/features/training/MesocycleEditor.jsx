@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Save, Calendar, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Save, Calendar, AlertTriangle, GripHorizontal, Users } from 'lucide-react';
 import RoutineBuilder from './RoutineBuilder';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -109,6 +109,20 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     const [currentDayId, setCurrentDayId] = useState(days[0].id);
     const [daysPerWeek, setDaysPerWeek] = useState(initialData?.days_per_week || days.length);
 
+    // Day reordering (drag the tabs left/right). Auto-numbered names ("Día N")
+    // are re-numbered by position; custom names (e.g. "Push") are kept.
+    const [dayDragIndex, setDayDragIndex] = useState(null);
+    const [dayDragOverIndex, setDayDragOverIndex] = useState(null);
+    const reorderDays = (from, to) => {
+        if (from == null || to == null || from === to) return;
+        setDays(prev => {
+            const arr = [...prev];
+            const [moved] = arr.splice(from, 1);
+            arr.splice(to, 0, moved);
+            return arr.map((d, i) => /^Día \d+$/.test(d.name) ? { ...d, name: `Día ${i + 1}` } : d);
+        });
+    };
+
     // Errors
     const [error, setError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -124,6 +138,34 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
             const res = await window.api.training.getTemplates ? await window.api.training.getTemplates(daysFilter) : { success: false };
             if (res.success) setTemplates(res.data);
         } catch (e) { console.error(e); }
+    };
+
+    // Copiar plan de otro cliente
+    const [otherClients, setOtherClients] = useState([]);
+    const [otherClientId, setOtherClientId] = useState('');
+    const [otherClientMesos, setOtherClientMesos] = useState([]);
+    const [loadingOtherMesos, setLoadingOtherMesos] = useState(false);
+
+    const loadOtherClients = async () => {
+        try {
+            const res = await window.api.customers.getAll();
+            const list = res?.success ? res.data : (Array.isArray(res) ? res : []);
+            // Exclude the current customer from the list.
+            setOtherClients((list || []).filter(c => String(c.id) !== String(customerId)));
+        } catch (e) { console.error(e); }
+    };
+
+    const loadOtherClientMesos = async (clientId) => {
+        setOtherClientId(clientId);
+        setOtherClientMesos([]);
+        if (!clientId) return;
+        setLoadingOtherMesos(true);
+        try {
+            const res = await window.api.training.getMesocycles(Number(clientId));
+            const list = res?.success ? res.data : (Array.isArray(res) ? res : []);
+            setOtherClientMesos(list || []);
+        } catch (e) { console.error(e); }
+        finally { setLoadingOtherMesos(false); }
     };
 
     // Auto-generate name: "Customer Name - Month Year"
@@ -306,7 +348,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                     <button
                                         onClick={() => {
                                             setShowTemplates(!showTemplates);
-                                            if (!showTemplates) loadTemplates();
+                                            if (!showTemplates) { loadTemplates(); loadOtherClients(); }
                                             if (showCopyPrevious) setShowCopyPrevious(false);
                                         }}
                                         className="text-xs font-bold text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-all"
@@ -420,6 +462,51 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                                     </button>
                                                 ))}
                                             </div>
+                                        )}
+                                    </div>
+
+                                    {/* Copiar plan de otro cliente */}
+                                    <div className="border-t border-white/5 p-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <Users size={16} className="text-violet-400" />
+                                            <div>
+                                                <h4 className="text-sm font-bold text-white">Copiar plan de otro cliente</h4>
+                                                <p className="text-xs text-slate-400">Reutiliza un plan ya hecho de otra persona</p>
+                                            </div>
+                                        </div>
+                                        <select
+                                            value={otherClientId}
+                                            onChange={(e) => loadOtherClientMesos(e.target.value)}
+                                            className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-violet-500 mb-3"
+                                        >
+                                            <option value="">Selecciona un cliente…</option>
+                                            {otherClients.map(c => (
+                                                <option key={c.id} value={c.id}>{c.name}</option>
+                                            ))}
+                                        </select>
+                                        {otherClientId && (
+                                            loadingOtherMesos ? (
+                                                <p className="text-xs text-slate-500 py-2 text-center">Cargando planes…</p>
+                                            ) : otherClientMesos.length === 0 ? (
+                                                <p className="text-xs text-slate-500 py-2 text-center">Este cliente no tiene planes.</p>
+                                            ) : (
+                                                <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto">
+                                                    {otherClientMesos.map(meso => (
+                                                        <button
+                                                            key={meso.id}
+                                                            onClick={() => { copyFromPreviousMesocycle(meso); setShowTemplates(false); }}
+                                                            className="group text-left p-3 bg-slate-800/30 hover:bg-slate-800 rounded-xl transition-all border border-white/5 hover:border-violet-500/50"
+                                                        >
+                                                            <h5 className="font-bold text-white text-sm line-clamp-1 group-hover:text-violet-300 transition-colors">{meso.name}</h5>
+                                                            <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                                                                <span>💪 {meso.routines?.length || 0} días</span>
+                                                                <span>•</span>
+                                                                <span>{meso.routines?.reduce((acc, r) => acc + (r.items?.length || 0), 0) || 0} ej.</span>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )
                                         )}
                                     </div>
                                 </div>
@@ -609,16 +696,25 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                     <div className="flex flex-col h-full gap-4">
                         {/* DAY TABS */}
                         <div className="flex gap-2 overflow-x-auto pb-1 min-h-[50px]">
-                            {days.map(day => (
-                                <div key={day.id} className="relative group">
+                            {days.map((day, idx) => (
+                                <div
+                                    key={day.id}
+                                    draggable
+                                    onDragStart={() => setDayDragIndex(idx)}
+                                    onDragEnd={() => { setDayDragIndex(null); setDayDragOverIndex(null); }}
+                                    onDragOver={(e) => { e.preventDefault(); if (dayDragOverIndex !== idx) setDayDragOverIndex(idx); }}
+                                    onDrop={(e) => { e.preventDefault(); reorderDays(dayDragIndex, idx); setDayDragIndex(null); setDayDragOverIndex(null); }}
+                                    className={`relative group rounded-lg transition-all ${dayDragOverIndex === idx && dayDragIndex !== idx ? 'ring-2 ring-blue-400' : ''} ${dayDragIndex === idx ? 'opacity-50' : ''}`}
+                                >
                                     <button
                                         onClick={() => setCurrentDayId(day.id)}
-                                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all border flex items-center gap-2 ${currentDayId === day.id
+                                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all border flex items-center gap-2 cursor-grab active:cursor-grabbing ${currentDayId === day.id
                                             ? 'bg-blue-600 text-white border-blue-500'
                                             : 'bg-slate-800 text-slate-400 border-white/5 hover:bg-slate-700'
                                             }`}
+                                        title="Arrastra para reordenar los días"
                                     >
-                                        {/* SIMPLE TEXT (Clickable, no selection issues) */}
+                                        <GripHorizontal size={13} className="opacity-40 flex-shrink-0" />
                                         <span>{day.name}</span>
                                     </button>
 
