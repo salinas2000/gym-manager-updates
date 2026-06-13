@@ -292,7 +292,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // --- RENDER ---
 
     return (
-        <div className="flex flex-col h-full bg-slate-950/50 absolute inset-0 z-10 backdrop-blur-xl">
+        <div className="flex flex-col h-full bg-slate-950/50 absolute inset-0 z-10 backdrop-blur-xl pt-9">
             {/* TOOLBAR */}
             <div className="bg-slate-900 border-b border-white/5 p-4 flex justify-between items-center shadow-2xl">
                 <div className="flex items-center gap-4">
