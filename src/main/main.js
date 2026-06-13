@@ -286,13 +286,19 @@ app.whenReady().then(() => {
             runProfileSubmissionsCheck(); // Pull client profile edits
         }, 5000);
 
-        // 7. Lease Renewal (Offline Protection)
+        // 7. Lease Renewal (Offline Protection) + presence heartbeat.
+        // Each renewLease() call also stamps licenses.last_seen in the cloud
+        // (via the license-ops Edge Function), which powers the master panel's
+        // real online/last-connection status. Running it periodically keeps
+        // last_seen fresh while the app stays open.
         const runLeaseRenewal = async () => {
             const renewed = await licenseService.renewLease();
             if (renewed) console.log('✅ [Main] License Lease Renewed successfully.');
         };
         // Initial renewal check
         setTimeout(runLeaseRenewal, 10000);
+        // Recurring heartbeat every 10 minutes
+        setInterval(runLeaseRenewal, 10 * 60 * 1000);
 
         // 8. Background Cloud Sync (Push local changes to Supabase)
         const runCloudSync = () => {

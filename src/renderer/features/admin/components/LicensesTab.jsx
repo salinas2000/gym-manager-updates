@@ -3,6 +3,26 @@ import { Lock, AlertCircle, MoreVertical, Activity, Unlock, Trash2, Info, Plus, 
 import { cn } from '../../../lib/utils';
 import { useNotifications } from '../../../context/NotificationContext';
 
+// Human "time ago" from minutes.
+function relTime(mins) {
+    if (mins < 1) return 'ahora mismo';
+    if (mins < 60) return `hace ${Math.round(mins)} min`;
+    const h = mins / 60;
+    if (h < 24) return `hace ${Math.round(h)} h`;
+    const d = h / 24;
+    return `hace ${Math.round(d)} d`;
+}
+
+// Real presence from licenses.last_seen (stamped by the license-ops heartbeat).
+// Online = seen in the last 15 min (matches the desktop's ~10-min heartbeat).
+function presence(gym) {
+    if (gym.active === false) return { dot: 'bg-slate-600', text: 'text-slate-500', label: 'Desactivada', pulse: false, sub: null };
+    if (!gym.last_seen) return { dot: 'bg-zinc-600', text: 'text-zinc-500', label: 'Sin conexión', pulse: false, sub: 'Nunca conectado' };
+    const mins = (Date.now() - new Date(gym.last_seen).getTime()) / 60000;
+    if (mins < 15) return { dot: 'bg-emerald-500', text: 'text-emerald-400', label: 'Online', pulse: true, sub: null };
+    return { dot: 'bg-slate-500', text: 'text-slate-400', label: 'Offline', pulse: false, sub: `Última conexión ${relTime(mins)}` };
+}
+
 export function LicensesTab({
     gyms,
     releases,
@@ -38,8 +58,8 @@ export function LicensesTab({
             </thead>
             <tbody className="divide-y divide-white/5 text-sm text-slate-300">
                 {gyms.map((gym) => {
-                    const health = { color: 'bg-emerald-500', text: 'text-emerald-400', label: 'Online' };
                     const isRevoked = gym.active === false;
+                    const p = presence(gym);
 
                     return (
                         <tr key={gym.license_key} className={cn("hover:bg-white/[0.02] transition-colors", isRevoked && "opacity-75 grayscale")}>
@@ -92,12 +112,12 @@ export function LicensesTab({
                             </td>
                             <td className="p-4">
                                 <div className="flex items-center gap-2">
-                                    <div className={cn("w-2 h-2 rounded-full", isRevoked ? "bg-slate-600" : health.color, !isRevoked && "animate-pulse")}></div>
-                                    <span className={cn("text-xs font-medium", isRevoked ? "text-slate-500" : health.text)}>
-                                        {isRevoked ? 'Desactivada' : health.label}
+                                    <div className={cn("w-2 h-2 rounded-full", p.dot, p.pulse && "animate-pulse")}></div>
+                                    <span className={cn("text-xs font-medium", p.text)}>
+                                        {p.label}
                                     </span>
                                 </div>
-                                {!isRevoked && gym.last_sync && <div className="text-[10px] text-slate-500 mt-1">Sincronización: {new Date(gym.last_sync).toLocaleDateString()}</div>}
+                                {p.sub && <div className="text-[10px] text-slate-500 mt-1">{p.sub}</div>}
                             </td>
                             <td className="p-4">
                                 {gym.expires_at ? (

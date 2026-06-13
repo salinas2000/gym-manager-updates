@@ -155,7 +155,8 @@ class AdminService {
                 hardware_id,
                 active,
                 app_version,
-                expires_at
+                expires_at,
+                last_seen
             `)
             //.eq('is_master', false) // Show all licenses including Master
             .order('created_at', { ascending: false });
