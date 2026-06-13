@@ -30,6 +30,7 @@ export function LicensesTab({
     activeGymId,
     setActiveGymId,
     setConfirmAction,
+    onViewDetail,
     handleViewBackups,
     handlePushDB,
     generating
@@ -64,10 +65,14 @@ export function LicensesTab({
                     return (
                         <tr key={gym.license_key} className={cn("hover:bg-white/[0.02] transition-colors", isRevoked && "opacity-75 grayscale")}>
                             <td className="p-4">
-                                <div className="font-bold text-white flex items-center gap-2">
+                                <button
+                                    onClick={() => onViewDetail && onViewDetail(gym)}
+                                    title="Ver ficha del gimnasio"
+                                    className="font-bold text-white flex items-center gap-2 hover:text-indigo-300 transition-colors text-left"
+                                >
                                     {gym.gym_name || 'Sin Nombre'}
                                     {isRevoked && <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full border border-red-500/20">REVOCADA</span>}
-                                </div>
+                                </button>
                                 <div className="flex items-center gap-2 mt-1">
                                     <code className="text-[10px] text-indigo-400 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/10">
                                         {gym.license_key}
@@ -140,6 +145,12 @@ export function LicensesTab({
 
                                 {activeGymId === gym.license_key && (
                                     <div className="absolute right-4 top-12 w-52 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-20 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                                        <button
+                                            onClick={() => { setActiveGymId(null); onViewDetail && onViewDetail(gym); }}
+                                            className="w-full flex items-center gap-2 px-4 py-3 text-left text-xs text-slate-300 hover:bg-slate-800 transition-colors"
+                                        >
+                                            <Info size={14} className="text-indigo-400" /> Ver ficha
+                                        </button>
                                         <button
                                             onClick={() => handleViewBackups(gym)}
                                             className="w-full flex items-center gap-2 px-4 py-3 text-left text-xs text-slate-300 hover:bg-slate-800 transition-colors"

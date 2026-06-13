@@ -574,6 +574,7 @@ function registerHandlers() {
     const adminService = require('../services/local/admin.service');
     handle('admin:getStats', () => adminService.getGlobalStats());
     handle('admin:listGyms', () => adminService.listGymsDetail());
+    handle('admin:getGymDetail', (gymId) => adminService.getGymDetail(gymId));
 
     // Org & Licenses
     handle('admin:createOrganization', (name, email, templatePath) => adminService.createOrganization(name, email, templatePath));

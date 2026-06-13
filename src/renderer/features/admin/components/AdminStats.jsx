@@ -2,8 +2,13 @@ import React from 'react';
 import { cn } from '../../../lib/utils';
 import { Activity, Globe, Wifi, WifiOff, RefreshCw, BarChart3, Users, DollarSign, Cloud, CheckCircle, AlertCircle, Database } from 'lucide-react';
 
-export function AdminStats({ stats }) {
+export function AdminStats({ stats, gyms = [] }) {
     if (!stats) return null;
+
+    // Online = active license seen in the last 15 min (matches the desktop heartbeat).
+    const onlineCount = gyms.filter(
+        (g) => g.active !== false && g.last_seen && (Date.now() - new Date(g.last_seen).getTime()) < 15 * 60 * 1000
+    ).length;
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -32,12 +37,12 @@ export function AdminStats({ stats }) {
                 sub="Producción"
             />
             <StatCard
-                title="Estado Sistema"
-                value="100%"
-                icon={Database}
-                color="text-purple-400"
-                bg="bg-purple-500/10"
-                sub="Uptime"
+                title="Online Ahora"
+                value={onlineCount}
+                icon={Wifi}
+                color="text-emerald-400"
+                bg="bg-emerald-500/10"
+                sub={`de ${stats.totalGyms} gimnasios`}
             />
         </div>
     );

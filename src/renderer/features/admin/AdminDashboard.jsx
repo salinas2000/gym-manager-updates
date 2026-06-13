@@ -13,6 +13,7 @@ import { IssueLicenseModal } from './components/IssueLicenseModal';
 import { BackupModal } from './components/BackupModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { DataToolsTab } from './components/DataToolsTab';
+import { GymDetailModal } from './components/GymDetailModal';
 
 export default function AdminDashboard() {
     const { addNotification } = useNotifications();
@@ -35,14 +36,18 @@ export default function AdminDashboard() {
     const [isIssueLicenseOpen, setIsIssueLicenseOpen] = useState(false);
     const [editingOrg, setEditingOrg] = useState(null);
     const [selectedGymForBackup, setSelectedGymForBackup] = useState(null);
+    const [detailGym, setDetailGym] = useState(null); // gym row for the detail drill-down
     const [confirmAction, setConfirmAction] = useState(null); // { type, gymId, gymName }
 
     useEffect(() => {
         loadData();
+        // Auto-refresh silently every 30s so online/last-seen stays live.
+        const id = setInterval(() => loadData(true), 30000);
+        return () => clearInterval(id);
     }, []);
 
-    const loadData = async () => {
-        setLoading(true);
+    const loadData = async (silent = false) => {
+        if (!silent) setLoading(true);
         try {
             const [statsData, gymsData, orgsData, releasesData] = await Promise.all([
                 window.api.admin.getStats(),
@@ -136,7 +141,7 @@ export default function AdminDashboard() {
 
             <main className="p-8 max-w-7xl mx-auto space-y-8">
                 {/* Stats Section */}
-                <AdminStats stats={stats} />
+                <AdminStats stats={stats} gyms={gyms} />
 
                 {/* Main Content Area */}
                 <div className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
@@ -226,6 +231,7 @@ export default function AdminDashboard() {
                                 activeGymId={activeGymId}
                                 setActiveGymId={setActiveGymId}
                                 setConfirmAction={setConfirmAction}
+                                onViewDetail={(gym) => setDetailGym(gym)}
                                 handleViewBackups={(gym) => setSelectedGymForBackup(gym)}
                                 handlePushDB={() => { }} // Placeholder if needed in tab, but BackupModal handles it usually
                                 generating={false}
@@ -279,6 +285,11 @@ export default function AdminDashboard() {
                 gym={selectedGymForBackup}
                 onClose={() => setSelectedGymForBackup(null)}
                 backups={[]} // Pass real backups if available
+            />
+
+            <GymDetailModal
+                gym={detailGym}
+                onClose={() => setDetailGym(null)}
             />
 
             <ConfirmModal

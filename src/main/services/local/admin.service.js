@@ -187,6 +187,45 @@ class AdminService {
         return gymsWithStatus;
     }
 
+    /**
+     * Per-gym detail for the master panel drill-down (read-only cloud stats).
+     * Every query is best-effort so a missing table never breaks the card.
+     */
+    async getGymDetail(gymId) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+
+        const out = { customers: 0, lastActivity: null, upcomingBookings: 0, rmPending: 0, lastSync: null };
+
+        try {
+            const { count } = await supabase.from('cloud_customers').select('*', { count: 'exact', head: true }).eq('gym_id', gymId);
+            out.customers = count || 0;
+        } catch (e) { /* table missing */ }
+
+        try {
+            const { data } = await supabase.from('cloud_customers').select('synced_at').eq('gym_id', gymId).order('synced_at', { ascending: false }).limit(1).maybeSingle();
+            out.lastSync = data?.synced_at || null;
+        } catch (e) { /* ignore */ }
+
+        try {
+            const { data } = await supabase.from('customer_workout_logs').select('logged_at').eq('gym_id', gymId).order('logged_at', { ascending: false }).limit(1).maybeSingle();
+            out.lastActivity = data?.logged_at || null;
+        } catch (e) { /* ignore */ }
+
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const { count } = await supabase.from('gym_class_bookings').select('*', { count: 'exact', head: true }).eq('gym_id', gymId).eq('status', 'confirmed').gte('booking_date', today);
+            out.upcomingBookings = count || 0;
+        } catch (e) { /* ignore */ }
+
+        try {
+            const { count } = await supabase.from('customer_rm_records').select('*', { count: 'exact', head: true }).eq('gym_id', gymId).eq('status', 'pending');
+            out.rmPending = count || 0;
+        } catch (e) { /* ignore */ }
+
+        return out;
+    }
+
     async deleteLicense(licenseKey) {
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
