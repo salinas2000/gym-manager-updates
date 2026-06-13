@@ -143,8 +143,14 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // Copiar plan de otro cliente
     const [otherClients, setOtherClients] = useState([]);
     const [otherClientId, setOtherClientId] = useState('');
+    const [otherClientName, setOtherClientName] = useState('');
+    const [otherClientSearch, setOtherClientSearch] = useState('');
     const [otherClientMesos, setOtherClientMesos] = useState([]);
     const [loadingOtherMesos, setLoadingOtherMesos] = useState(false);
+
+    // Customers store first_name + last_name (no single `name` column).
+    const clientFullName = (c) =>
+        [c.first_name, c.last_name].filter(Boolean).join(' ').trim() || c.name || 'Cliente';
 
     const loadOtherClients = async () => {
         try {
@@ -471,42 +477,72 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                             <Users size={16} className="text-violet-400" />
                                             <div>
                                                 <h4 className="text-sm font-bold text-white">Copiar plan de otro cliente</h4>
-                                                <p className="text-xs text-slate-400">Reutiliza un plan ya hecho de otra persona</p>
+                                                <p className="text-xs text-slate-400">Busca a la persona y elige uno de sus planes</p>
                                             </div>
                                         </div>
-                                        <select
-                                            value={otherClientId}
-                                            onChange={(e) => loadOtherClientMesos(e.target.value)}
-                                            className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-violet-500 mb-3"
-                                        >
-                                            <option value="">Selecciona un cliente…</option>
-                                            {otherClients.map(c => (
-                                                <option key={c.id} value={c.id}>{c.name}</option>
-                                            ))}
-                                        </select>
-                                        {otherClientId && (
-                                            loadingOtherMesos ? (
-                                                <p className="text-xs text-slate-500 py-2 text-center">Cargando planes…</p>
-                                            ) : otherClientMesos.length === 0 ? (
-                                                <p className="text-xs text-slate-500 py-2 text-center">Este cliente no tiene planes.</p>
-                                            ) : (
-                                                <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto">
-                                                    {otherClientMesos.map(meso => (
-                                                        <button
-                                                            key={meso.id}
-                                                            onClick={() => { copyFromPreviousMesocycle(meso); setShowTemplates(false); }}
-                                                            className="group text-left p-3 bg-slate-800/30 hover:bg-slate-800 rounded-xl transition-all border border-white/5 hover:border-violet-500/50"
-                                                        >
-                                                            <h5 className="font-bold text-white text-sm line-clamp-1 group-hover:text-violet-300 transition-colors">{meso.name}</h5>
-                                                            <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                                                                <span>💪 {meso.routines?.length || 0} días</span>
-                                                                <span>•</span>
-                                                                <span>{meso.routines?.reduce((acc, r) => acc + (r.items?.length || 0), 0) || 0} ej.</span>
-                                                            </div>
-                                                        </button>
-                                                    ))}
+
+                                        {!otherClientId ? (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    value={otherClientSearch}
+                                                    onChange={(e) => setOtherClientSearch(e.target.value)}
+                                                    placeholder="Buscar cliente por nombre…"
+                                                    className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-violet-500 mb-2 placeholder:text-slate-500"
+                                                />
+                                                <div className="max-h-44 overflow-y-auto space-y-1">
+                                                    {otherClients.length === 0 ? (
+                                                        <p className="text-xs text-slate-500 py-2 text-center">No hay otros clientes.</p>
+                                                    ) : (() => {
+                                                        const q = otherClientSearch.trim().toLowerCase();
+                                                        const filtered = otherClients.filter(c => clientFullName(c).toLowerCase().includes(q));
+                                                        if (filtered.length === 0) return <p className="text-xs text-slate-500 py-2 text-center">Sin resultados.</p>;
+                                                        return filtered.map(c => (
+                                                            <button
+                                                                key={c.id}
+                                                                onClick={() => { setOtherClientName(clientFullName(c)); loadOtherClientMesos(c.id); }}
+                                                                className="w-full text-left px-3 py-2 rounded-lg bg-slate-800/40 hover:bg-slate-800 border border-white/5 hover:border-violet-500/40 transition-all text-sm font-medium text-slate-200"
+                                                            >
+                                                                {clientFullName(c)}
+                                                            </button>
+                                                        ));
+                                                    })()}
                                                 </div>
-                                            )
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-sm font-bold text-violet-300">{otherClientName}</span>
+                                                    <button
+                                                        onClick={() => { setOtherClientId(''); setOtherClientName(''); setOtherClientMesos([]); }}
+                                                        className="text-xs font-bold text-slate-400 hover:text-white"
+                                                    >
+                                                        ← Cambiar
+                                                    </button>
+                                                </div>
+                                                {loadingOtherMesos ? (
+                                                    <p className="text-xs text-slate-500 py-2 text-center">Cargando planes…</p>
+                                                ) : otherClientMesos.length === 0 ? (
+                                                    <p className="text-xs text-slate-500 py-2 text-center">Este cliente no tiene planes.</p>
+                                                ) : (
+                                                    <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto">
+                                                        {otherClientMesos.map(meso => (
+                                                            <button
+                                                                key={meso.id}
+                                                                onClick={() => { copyFromPreviousMesocycle(meso); setShowTemplates(false); }}
+                                                                className="group text-left p-3 bg-slate-800/30 hover:bg-slate-800 rounded-xl transition-all border border-white/5 hover:border-violet-500/50"
+                                                            >
+                                                                <h5 className="font-bold text-white text-sm line-clamp-1 group-hover:text-violet-300 transition-colors">{meso.name}</h5>
+                                                                <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                                                                    <span>💪 {meso.routines?.length || 0} días</span>
+                                                                    <span>•</span>
+                                                                    <span>{meso.routines?.reduce((acc, r) => acc + (r.items?.length || 0), 0) || 0} ej.</span>
+                                                                </div>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                 </div>
