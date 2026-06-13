@@ -131,7 +131,12 @@ export default function ExerciseModal({
             if (res.success) {
                 queryClient.invalidateQueries({ queryKey: ['exercises'] });
                 toast.success('Ejercicio creado con éxito');
-                if (onSuccess) onSuccess({ ...variables, id: res.id });
+                // The IPC layer wraps the service result as { success, data }, so the
+                // new exercise's id lives at res.data.id (res.id is undefined). Without
+                // this the routine item is added with exerciseId=undefined and the
+                // mesocycle save crashes when SQLite tries to bind it.
+                const newId = res.data?.id ?? res.id;
+                if (onSuccess) onSuccess({ ...variables, id: newId });
                 onCloseModal();
             } else {
                 toast.error('Error al crear: ' + res.error);

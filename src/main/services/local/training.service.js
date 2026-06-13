@@ -649,6 +649,10 @@ class TrainingService extends BaseService {
             let order = 0;
             for (const item of payloadItems || []) {
                 const itemId = item.id;
+                // Defensive: never try to persist an item without an exercise —
+                // SQLite would throw binding undefined and abort the whole save.
+                const exId = item.exerciseId || item.exercise_id;
+                if (exId == null) continue;
                 const isExistingItem =
                     typeof itemId === 'number' &&
                     Number.isInteger(itemId) &&
@@ -667,7 +671,7 @@ class TrainingService extends BaseService {
                 if (isExistingItem) {
                     updateItemStmt.run({
                         id: itemId,
-                        exerciseId: item.exerciseId || item.exercise_id,
+                        exerciseId: exId,
                         series: item.series ?? null,
                         reps: item.reps ?? null,
                         rpe: item.rpe || '',
@@ -683,7 +687,7 @@ class TrainingService extends BaseService {
                     insertItem.run({
                         gymId,
                         routineId,
-                        exerciseId: item.exerciseId || item.exercise_id,
+                        exerciseId: exId,
                         series: item.series ?? null,
                         reps: item.reps ?? null,
                         rpe: item.rpe || '',
