@@ -29,6 +29,10 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
     const [editing, setEditing] = useState(false);
     const [editData, setEditData] = useState({});
     const [saving, setSaving] = useState(false);
+    // RGPD/GDPR export+anonymize in-flight flag. MUST live here with the other
+    // hooks — never after the `if (!isOpen) return null` early return below, or
+    // the hook count changes between renders (React error #310).
+    const [gdprBusy, setGdprBusy] = useState(false);
     // Mobile-app action state (single in-flight indicator, distinguished by action)
     const [mobileAction, setMobileAction] = useState(null); // 'invite' | 'reset' | 'revoke' | null
     // Confirmation modal state — used by mobile-app actions instead of window.confirm
@@ -113,8 +117,6 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
     const monthsActive = createdDate ? Math.max(1, Math.round((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24 * 30))) : 0;
 
     // ── RGPD / GDPR ──────────────────────────────────────────────────────────
-    const [gdprBusy, setGdprBusy] = useState(false);
-
     const handleExportGdpr = async () => {
         setGdprBusy(true);
         try {
