@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, RefreshCw, Key, ShieldCheck, Search, Filter, Trash2, Database } from 'lucide-react';
+import { Building2, RefreshCw, Key, ShieldCheck, Search, Filter, Trash2, Database, Download } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useNotifications } from '../../context/NotificationContext';
 
@@ -68,6 +68,31 @@ export default function AdminDashboard() {
         }
     };
 
+    const [backupBusy, setBackupBusy] = useState(false);
+    const handleDownloadBackup = async () => {
+        setBackupBusy(true);
+        try {
+            // Create a fresh snapshot, then download the latest one.
+            await window.api.admin.runCloudBackup();
+            const res = await window.api.admin.getLatestCloudBackup();
+            const row = res?.success ? res.data : res;
+            if (!row?.payload) { addNotification('No hay copia disponible', 'error'); return; }
+            const blob = new Blob([JSON.stringify(row.payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const stamp = new Date(row.created_at || Date.now()).toISOString().slice(0, 19).replace(/[:T]/g, '-');
+            a.href = url;
+            a.download = `backup_nube_${stamp}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            addNotification('Copia de seguridad descargada', 'success');
+        } catch (e) {
+            addNotification(e.message || 'Error al descargar la copia', 'error');
+        } finally {
+            setBackupBusy(false);
+        }
+    };
+
     const confirmActionHandler = async () => {
         if (!confirmAction) return;
         try {
@@ -124,6 +149,14 @@ export default function AdminDashboard() {
                     </div>
                 </div>
                 <div className="flex gap-3">
+                    <button
+                        onClick={handleDownloadBackup}
+                        disabled={backupBusy}
+                        title="Crear y descargar una copia de seguridad de los datos de la nube (off-site)"
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all border border-white/5 flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {backupBusy ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />} Descargar copia
+                    </button>
                     <button
                         onClick={() => setIsCreateOrgOpen(true)}
                         className="px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl text-xs font-bold transition-all border border-indigo-500/20 flex items-center gap-2 group"

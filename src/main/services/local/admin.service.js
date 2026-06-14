@@ -227,6 +227,29 @@ class AdminService {
         return out;
     }
 
+    /** Create a fresh cloud backup snapshot (the daily cron's function). */
+    async runCloudBackup() {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+        const { error } = await supabase.rpc('do_cloud_backup');
+        if (error) throw error;
+        return { success: true };
+    }
+
+    /** Latest cloud backup snapshot (the JSON payload) for off-site download. */
+    async getLatestCloudBackup() {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+        const { data, error } = await supabase
+            .from('cloud_backups')
+            .select('id, created_at, payload')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error) throw error;
+        return data; // { id, created_at, payload } | null
+    }
+
     /** Change a gym's plan/tier (basic | pro | premium). */
     async setPlan(gymId, plan) {
         this.checkMaster();

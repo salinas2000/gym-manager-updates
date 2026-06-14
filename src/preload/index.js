@@ -164,6 +164,8 @@ contextBridge.exposeInMainWorld('api', {
         listGyms: () => ipcRenderer.invoke('admin:listGyms'),
         getGymDetail: (gymId) => ipcRenderer.invoke('admin:getGymDetail', gymId),
         setPlan: (gymId, plan) => ipcRenderer.invoke('admin:setPlan', { gymId, plan }),
+        runCloudBackup: () => ipcRenderer.invoke('admin:runCloudBackup'),
+        getLatestCloudBackup: () => ipcRenderer.invoke('admin:getLatestCloudBackup'),
 
         // Org Refactor
         createOrganization: (name, email, templatePath) => ipcRenderer.invoke('admin:createOrganization', name, email, templatePath),

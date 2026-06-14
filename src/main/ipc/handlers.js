@@ -581,6 +581,8 @@ function registerHandlers() {
     handle('admin:listGyms', () => adminService.listGymsDetail());
     handle('admin:getGymDetail', (gymId) => adminService.getGymDetail(gymId));
     handle('admin:setPlan', ({ gymId, plan }) => adminService.setPlan(gymId, plan));
+    handle('admin:runCloudBackup', () => adminService.runCloudBackup());
+    handle('admin:getLatestCloudBackup', () => adminService.getLatestCloudBackup());
 
     // Org & Licenses
     handle('admin:createOrganization', (name, email, templatePath) => adminService.createOrganization(name, email, templatePath));
