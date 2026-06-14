@@ -3,6 +3,7 @@ import { X, User, Mail, Phone, CreditCard, Dumbbell, Calendar, TrendingUp, Clock
 import { useGym } from '../../context/GymContext';
 import { useToast } from '../../context/ToastContext';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import { can } from '../../lib/entitlements';
 
 const TABS = [
     { id: 'overview', label: 'General' },
@@ -11,8 +12,10 @@ const TABS = [
 ];
 
 export default function CustomerProfileCard({ isOpen, onClose, customer, onNavigateTraining, onOpenPayments }) {
-    const { updateCustomer, refreshMobileLinks } = useGym();
+    const { updateCustomer, refreshMobileLinks, settings } = useGym();
     const toast = useToast();
+    // The mobile-app tab/actions only show if the gym's plan includes it.
+    const hasMobileApp = can(settings?.plan, settings?.planFeatures, 'mobile_app');
     const [payments, setPayments] = useState([]);
     const [mesocycles, setMesocycles] = useState([]);
     const [membershipHistory, setMembershipHistory] = useState([]);
@@ -285,7 +288,7 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
 
                     {/* Tabs */}
                     <div className="flex gap-1 mt-5">
-                        {TABS.map(tab => (
+                        {TABS.filter(tab => tab.id !== 'app' || hasMobileApp).map(tab => (
                             <button
                                 key={tab.id}
                                 onClick={() => { setActiveTab(tab.id); setEditing(false); }}
