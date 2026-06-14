@@ -138,6 +138,21 @@ export function GymProvider({ children }) {
                 if (customersRes?.success) {
                     setCustomers(customersRes.data || []);
                 }
+                // Re-read the plan/tier from the (locally cached) license so a plan
+                // change made in the master panel repaints the menu in-place once
+                // the ~10-min heartbeat has refreshed it — no app restart needed.
+                try {
+                    const licRes = await window.api.license.getStatus();
+                    if (licRes?.success && licRes.data?.authenticated) {
+                        const lic = licRes.data.data || {};
+                        const nextPlan = lic.plan || 'pro';
+                        const nextFeat = lic.features || null;
+                        setSettings(prev => {
+                            if (prev.plan === nextPlan && JSON.stringify(prev.planFeatures) === JSON.stringify(nextFeat)) return prev;
+                            return { ...prev, plan: nextPlan, planFeatures: nextFeat };
+                        });
+                    }
+                } catch { /* non-fatal — next tick retries */ }
                 // Mobile links are cheap (single Supabase query) — refresh too
                 refreshMobileLinks();
             } catch (err) {
