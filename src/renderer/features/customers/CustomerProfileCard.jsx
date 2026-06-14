@@ -112,6 +112,48 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
     const createdDate = c.created_at ? new Date(c.created_at) : null;
     const monthsActive = createdDate ? Math.max(1, Math.round((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24 * 30))) : 0;
 
+    // ── RGPD / GDPR ──────────────────────────────────────────────────────────
+    const [gdprBusy, setGdprBusy] = useState(false);
+
+    const handleExportGdpr = async () => {
+        setGdprBusy(true);
+        try {
+            const res = await window.api.gdpr.export(c.id);
+            const data = res?.success ? res.data : res;
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `rgpd_${(c.first_name || 'cliente').toLowerCase()}_${c.id}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success('Datos exportados');
+        } catch (e) {
+            toast.error('Error al exportar los datos');
+        } finally {
+            setGdprBusy(false);
+        }
+    };
+
+    const handleAnonymizeGdpr = async () => {
+        if (!window.confirm('¿Anonimizar a este cliente?\n\nSe borrarán sus datos personales y médicos (y sus datos en la nube). Se conservan los registros de pago por obligación legal. Esta acción NO se puede deshacer.')) return;
+        setGdprBusy(true);
+        try {
+            const res = await window.api.gdpr.anonymize(c.id);
+            if (res?.success) {
+                toast.success('Cliente anonimizado');
+                refreshMobileLinks?.();
+                onClose?.();
+            } else {
+                toast.error(res?.error || 'Error al anonimizar');
+            }
+        } catch (e) {
+            toast.error('Error al anonimizar');
+        } finally {
+            setGdprBusy(false);
+        }
+    };
+
     const handleSaveProfile = async () => {
         setSaving(true);
         try {
@@ -352,13 +394,31 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                     </button>
                     <div className="flex gap-2">
                         {activeTab === 'ficha' && !editing && (
-                            <button
-                                onClick={() => setEditing(true)}
-                                className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
-                            >
-                                <Pencil size={14} />
-                                Editar Ficha
-                            </button>
+                            <>
+                                <button
+                                    onClick={handleExportGdpr}
+                                    disabled={gdprBusy}
+                                    title="Exportar todos los datos del cliente (RGPD)"
+                                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border border-white/5 disabled:opacity-50"
+                                >
+                                    <FileText size={14} /> Exportar (RGPD)
+                                </button>
+                                <button
+                                    onClick={handleAnonymizeGdpr}
+                                    disabled={gdprBusy}
+                                    title="Anonimizar: borra datos personales/médicos, conserva pagos (RGPD)"
+                                    className="bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border border-red-500/20 disabled:opacity-50"
+                                >
+                                    <ShieldOff size={14} /> Anonimizar
+                                </button>
+                                <button
+                                    onClick={() => setEditing(true)}
+                                    className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+                                >
+                                    <Pencil size={14} />
+                                    Editar Ficha
+                                </button>
+                            </>
                         )}
                         {activeTab === 'ficha' && editing && (
                             <>

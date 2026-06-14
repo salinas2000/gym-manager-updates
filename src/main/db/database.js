@@ -206,6 +206,9 @@ class DBManager {
         // trainer_id: entrenador asignado a la clase (FK a trainers). NULL = sin asignar
         // (en el gimnasio se muestran los de turno; en clases, el asignado).
         this.safeAddColumn('gym_classes', 'trainer_id', 'INTEGER REFERENCES trainers(id)');
+        // RGPD / GDPR: consent timestamp + anonymization marker on customers.
+        this.safeAddColumn('customers', 'gdpr_consent_at', 'TEXT');
+        this.safeAddColumn('customers', 'anonymized', 'INTEGER DEFAULT 0');
         this.safeAddColumn('tariffs', 'color_theme', 'TEXT DEFAULT "emerald"');
         // billing_months: 1=mensual (default), 3=trimestral, 6=semestral, 12=anual
         this.safeAddColumn('tariffs', 'billing_months', 'INTEGER DEFAULT 1');

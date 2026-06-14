@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+    gdpr: {
+        export: (id) => ipcRenderer.invoke('gdpr:export', id),
+        anonymize: (id) => ipcRenderer.invoke('gdpr:anonymize', id),
+        setConsent: (id) => ipcRenderer.invoke('gdpr:setConsent', id),
+    },
     customers: {
         getAll: () => ipcRenderer.invoke('customers:getAll'),
         getById: (id) => ipcRenderer.invoke('customers:getById', id),

@@ -1,5 +1,6 @@
 const { ipcMain } = require('electron');
 const customerService = require('../services/local/customer.service');
+const gdprService = require('../services/local/gdpr.service');
 const paymentService = require('../services/local/payment.service');
 const tariffService = require('../services/local/tariff.service');
 // templateService removed in v2.2.0 — templates / Excel / Google Drive integration deprecated
@@ -51,6 +52,10 @@ function registerHandlers() {
 
     // Customers
     handle('customers:getAll', () => customerService.getAll());
+    // RGPD / GDPR — data-subject rights for a single customer
+    handle('gdpr:export', (id) => gdprService.exportCustomerDataFull(id));
+    handle('gdpr:anonymize', (id) => gdprService.anonymizeCustomer(id));
+    handle('gdpr:setConsent', (id) => gdprService.setConsent(id));
     handle('customers:create', (data) => customerService.create(data));
     handle('customers:update', (id, data) => customerService.update(id, data));
     handle('customers:toggleActive', (id, mode, options) => customerService.toggleActive(id, mode, options));
