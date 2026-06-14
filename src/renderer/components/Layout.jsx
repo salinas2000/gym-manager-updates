@@ -2,6 +2,7 @@ import React from 'react';
 import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
+import { can } from '../lib/entitlements';
 import NotificationBell from './ui/NotificationBell';
 import GlobalBanner from './ui/GlobalBanner';
 import WindowControls from './ui/WindowControls';
@@ -31,6 +32,8 @@ export default function Layout({ children, currentView, onNavigate }) {
     const [appVersion, setAppVersion] = React.useState('1.0.0');
     const [licenseWarning, setLicenseWarning] = React.useState(null);
     const { settings, reloadSettings } = useGym();
+    // Feature gating by the gym's plan (+ per-gym overrides).
+    const has = (feature) => can(settings?.plan, settings?.planFeatures, feature);
 
     React.useEffect(() => {
         const checkLicense = async () => {
@@ -126,20 +129,24 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('customers')}
                             color="text-blue-400"
                         />
-                        <SidebarItem
-                            icon={CalendarDays}
-                            label="Clases"
-                            active={currentView === 'classes'}
-                            onClick={() => onNavigate('classes')}
-                            color="text-cyan-400"
-                        />
-                        <SidebarItem
-                            icon={UserCog}
-                            label="Entrenadores"
-                            active={currentView === 'trainers'}
-                            onClick={() => onNavigate('trainers')}
-                            color="text-blue-400"
-                        />
+                        {has('classes') && (
+                            <SidebarItem
+                                icon={CalendarDays}
+                                label="Clases"
+                                active={currentView === 'classes'}
+                                onClick={() => onNavigate('classes')}
+                                color="text-cyan-400"
+                            />
+                        )}
+                        {has('trainers') && (
+                            <SidebarItem
+                                icon={UserCog}
+                                label="Entrenadores"
+                                active={currentView === 'trainers'}
+                                onClick={() => onNavigate('trainers')}
+                                color="text-blue-400"
+                            />
+                        )}
                         <SidebarItem
                             icon={Package}
                             label="Almacén / Stock"
@@ -193,13 +200,15 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('history')}
                             color="text-slate-400"
                         />
-                        <SidebarItem
-                            icon={Trophy}
-                            label="RM pendientes"
-                            active={currentView === 'rm'}
-                            onClick={() => onNavigate('rm')}
-                            color="text-amber-400"
-                        />
+                        {has('rm') && (
+                            <SidebarItem
+                                icon={Trophy}
+                                label="RM pendientes"
+                                active={currentView === 'rm'}
+                                onClick={() => onNavigate('rm')}
+                                color="text-amber-400"
+                            />
+                        )}
 
                         {/* Diseñador (templates) removed in v2.2.0 */}
 

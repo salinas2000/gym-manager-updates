@@ -156,7 +156,8 @@ class AdminService {
                 active,
                 app_version,
                 expires_at,
-                last_seen
+                last_seen,
+                plan
             `)
             //.eq('is_master', false) // Show all licenses including Master
             .order('created_at', { ascending: false });
@@ -224,6 +225,17 @@ class AdminService {
         } catch (e) { /* ignore */ }
 
         return out;
+    }
+
+    /** Change a gym's plan/tier (basic | pro | premium). */
+    async setPlan(gymId, plan) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+        const allowed = ['basic', 'pro', 'premium'];
+        if (!allowed.includes(plan)) throw new Error('Plan no válido');
+        const { error } = await supabase.from('licenses').update({ plan }).eq('gym_id', gymId);
+        if (error) throw error;
+        return { success: true };
     }
 
     async deleteLicense(licenseKey) {

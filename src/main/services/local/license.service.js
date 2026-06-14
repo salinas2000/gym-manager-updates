@@ -166,6 +166,9 @@ class LicenseService {
             // Owner-admin / owner-sync bearer. Encrypted by electron-store with
             // the hardware-bound key — extraction from a copied file fails.
             owner_token: license.owner_token || null,
+            // Plan/tier + optional per-gym feature overrides (drives entitlements).
+            plan: license.plan || 'pro',
+            features: license.features || null,
         };
 
         store.set('license', localData);
@@ -204,6 +207,10 @@ class LicenseService {
             data.owner_token = result.owner_token;
             console.log('[LicenseService] 🔑 owner_token refreshed from cloud');
         }
+        // Keep plan/features in sync so upgrades/downgrades from the master
+        // panel apply on the next renewal (within ~10 min via the heartbeat).
+        if (result.plan) data.plan = result.plan;
+        if (result.features !== undefined) data.features = result.features || null;
         store.set('license', data);
 
         console.log('[LicenseService] Lease Renewed until:', new Date(data.lease_expires_at).toISOString());

@@ -41,9 +41,16 @@ export function GymProvider({ children }) {
                 setSettings(prev => ({ ...prev, ...settingsRes.data }));
             }
 
-            if (licenseRes.success && licenseRes.data?.authenticated && licenseRes.data?.data?.is_master) {
-                console.log('[GymContext] Master License Detected');
-                setSettings(prev => ({ ...prev, isMaster: true, role: 'Super Admin' }));
+            if (licenseRes.success && licenseRes.data?.authenticated) {
+                const lic = licenseRes.data.data || {};
+                setSettings(prev => ({
+                    ...prev,
+                    isMaster: !!lic.is_master,
+                    ...(lic.is_master ? { role: 'Super Admin' } : {}),
+                    // Plan/tier + per-gym overrides → drives feature gating.
+                    plan: lic.plan || 'pro',
+                    planFeatures: lic.features || null,
+                }));
             } else {
                 console.log('[GymContext] Regular or No License Detected');
             }

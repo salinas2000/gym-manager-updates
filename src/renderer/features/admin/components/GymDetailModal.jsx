@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { X, Users, Activity, CalendarCheck, Trophy, Cloud, Lock, RefreshCw, Wifi } from 'lucide-react';
+import { X, Users, Activity, CalendarCheck, Trophy, Cloud, Lock, RefreshCw, Wifi, Crown, Loader2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
+import { PLAN_LABELS, PLAN_ORDER } from '../../../lib/entitlements';
 
 function relTime(ts) {
     if (!ts) return 'nunca';
@@ -35,6 +36,23 @@ function MiniStat({ icon: Icon, label, value, color }) {
 export function GymDetailModal({ gym, onClose }) {
     const [detail, setDetail] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [plan, setPlan] = useState(gym?.plan || 'pro');
+    const [savingPlan, setSavingPlan] = useState(false);
+
+    useEffect(() => { setPlan(gym?.plan || 'pro'); }, [gym]);
+
+    const changePlan = async (newPlan) => {
+        if (!gym || newPlan === plan) return;
+        setPlan(newPlan);
+        setSavingPlan(true);
+        try {
+            await window.api.admin.setPlan(gym.gym_id, newPlan);
+        } catch (e) {
+            setPlan(gym.plan || 'pro'); // revert on failure
+        } finally {
+            setSavingPlan(false);
+        }
+    };
 
     useEffect(() => {
         if (!gym) return;
@@ -85,6 +103,25 @@ export function GymDetailModal({ gym, onClose }) {
                             {gym.hardware_id ? <><Lock size={10} /> {gym.hardware_id.substring(0, 10)}…</> : <span className="text-orange-400">sin activar</span>}
                         </p>
                     </div>
+                </div>
+
+                {/* Plan / tier */}
+                <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <Crown size={15} className="text-amber-400" />
+                        <span className="text-xs font-bold text-slate-300">Plan</span>
+                        {savingPlan && <Loader2 size={12} className="animate-spin text-slate-500" />}
+                    </div>
+                    <select
+                        value={plan}
+                        onChange={(e) => changePlan(e.target.value)}
+                        disabled={savingPlan}
+                        className="bg-slate-800 border border-white/10 rounded-lg px-3 py-1.5 text-xs font-bold text-white outline-none focus:border-indigo-500 disabled:opacity-50"
+                    >
+                        {PLAN_ORDER.map((p) => (
+                            <option key={p} value={p}>{PLAN_LABELS[p]}</option>
+                        ))}
+                    </select>
                 </div>
 
                 {/* Cloud stats */}

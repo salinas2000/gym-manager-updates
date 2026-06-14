@@ -158,6 +158,7 @@ contextBridge.exposeInMainWorld('api', {
         getStats: () => ipcRenderer.invoke('admin:getStats'),
         listGyms: () => ipcRenderer.invoke('admin:listGyms'),
         getGymDetail: (gymId) => ipcRenderer.invoke('admin:getGymDetail', gymId),
+        setPlan: (gymId, plan) => ipcRenderer.invoke('admin:setPlan', { gymId, plan }),
 
         // Org Refactor
         createOrganization: (name, email, templatePath) => ipcRenderer.invoke('admin:createOrganization', name, email, templatePath),
