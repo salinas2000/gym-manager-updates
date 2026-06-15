@@ -328,7 +328,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
             </div>
 
             {/* CONTENT */}
-            <div className="flex-1 overflow-hidden p-6 relative">
+            <div className="flex-1 min-h-0 overflow-y-auto p-6 relative">
 
                 {/* STEP 1: CONFIG */}
                 {step === 1 && (
