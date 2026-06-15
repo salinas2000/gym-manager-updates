@@ -147,6 +147,17 @@ class CloudService {
                         console.log('ℹ️ [CLOUD_SYNC] Gym ID mismatch. Ignored.');
                         return;
                     }
+
+                    // force_resync is a main-process maintenance action (no UI
+                    // needed): re-flag the training tables for upload. Handled
+                    // here AND in the polling fallback — _handleForceResync
+                    // claims each load_id exactly once, so a double-fire is a
+                    // harmless no-op.
+                    if (payloadType === 'force_resync') {
+                        this._handleForceResync(receivedGymId, payload.new.id);
+                        return;
+                    }
+
                     if (!this.mainWindow) return;
 
                     if (payloadType === 'exercise_dataset') {
@@ -506,6 +517,15 @@ class CloudService {
             this._notifiedLoadIds = this._notifiedLoadIds || new Set();
             for (const row of pendingRows) {
                 if (this._notifiedLoadIds.has(row.id)) continue;
+
+                // Maintenance action — handled in main (no UI). Dedup is enforced
+                // again inside _handleForceResync via a persistent load_id claim.
+                if (row.payload_type === 'force_resync') {
+                    this._notifiedLoadIds.add(row.id);
+                    this._handleForceResync(row.gym_id, row.id);
+                    continue;
+                }
+
                 if (!this.mainWindow) continue;
 
                 const eventName = row.payload_type === 'exercise_dataset' ? 'cloud:exercise-dataset-pending'
@@ -524,6 +544,71 @@ class CloudService {
             }
         } catch (e) {
             console.error('[CLOUD_SYNC] checkRemoteLoad Error:', e);
+        }
+    }
+
+    /**
+     * Remote "force re-sync" action. Re-flags this gym's training subtree
+     * (mesocycles → routines → routine_items) as unsynced so the next sync
+     * re-uploads it to the cloud. Used to recover cloud rows that went missing
+     * while the local copy is intact (e.g. after a cloud-side cleanup).
+     *
+     * Robustness guarantees (by design — never syncs twice / never duplicates):
+     *   - EXACTLY-ONCE per order: a persistent `processed_remote_loads` claim on
+     *     load_id. Realtime + polling can both fire this; only the first wins.
+     *     The claim survives app restarts, so a still-'pending' order isn't
+     *     reprocessed after a relaunch.
+     *   - NO DUPLICATE ROWS: the actual upload is a Supabase upsert keyed by
+     *     (gym_id, local_id), so re-uploading an existing row overwrites it.
+     *   - NO CONCURRENT SYNC: runFullSync() is guarded by its own `_running`
+     *     lock, so this can't double-run with the periodic 2-min sync.
+     *   - SCOPED: only ever touches the calling gym's own rows (WHERE gym_id=?).
+     */
+    async _handleForceResync(gymId, loadId) {
+        if (!gymId) return;
+        const dbManager = require('../../db/database');
+        let claimed = false;
+        try {
+            const db = dbManager.getInstance();
+
+            // Claim this order exactly once.
+            db.prepare('CREATE TABLE IF NOT EXISTS processed_remote_loads (load_id TEXT PRIMARY KEY, processed_at TEXT DEFAULT CURRENT_TIMESTAMP)').run();
+            if (loadId != null) {
+                const claim = db.prepare('INSERT OR IGNORE INTO processed_remote_loads (load_id) VALUES (?)').run(String(loadId));
+                if (claim.changes === 0) {
+                    return; // already handled by realtime/polling/another run
+                }
+                claimed = true;
+            }
+
+            // Re-flag the training subtree for upload (single transaction, own gym only).
+            const resetTx = db.transaction(() => {
+                db.prepare('UPDATE mesocycles SET synced = 0 WHERE gym_id = ?').run(gymId);
+                db.prepare('UPDATE routines SET synced = 0 WHERE gym_id = ?').run(gymId);
+                db.prepare('UPDATE routine_items SET synced = 0 WHERE gym_id = ?').run(gymId);
+            });
+            resetTx();
+            console.log(`[CLOUD_SYNC] 🔁 force_resync: training tables re-flagged for upload (gym ${gymId})`);
+
+            // Push now. runFullSync is concurrency-guarded; idempotent upsert.
+            const syncService = require('./sync.service');
+            await syncService.runFullSync();
+
+            // Mark the order done so the polling fallback stops returning it.
+            try {
+                const ownerData = require('./owner-data.client');
+                await ownerData.update('cloud_remote_loads', { status: 'done' }, { gymId, filters: { id: loadId } });
+            } catch (e) { /* best-effort; local claim already prevents re-run */ }
+
+            console.log(`[CLOUD_SYNC] ✅ force_resync complete (gym ${gymId}, order ${loadId})`);
+        } catch (e) {
+            console.error('[CLOUD_SYNC] force_resync failed:', e.message);
+            // Roll back the claim so the order can be retried later. The
+            // synced=0 flags (if already set) are harmless and the periodic
+            // sync will finish the upload regardless.
+            if (claimed && loadId != null) {
+                try { dbManager.getInstance().prepare('DELETE FROM processed_remote_loads WHERE load_id = ?').run(String(loadId)); } catch (_) { }
+            }
         }
     }
 
