@@ -299,9 +299,26 @@ class CustomerService extends BaseService {
         const gymId = this.getGymId();
 
         const result = db.transaction(() => {
-            // Log for cloud sync
-            db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)')
-                .run(gymId, 'customers', id);
+            const logStmt = db.prepare('INSERT INTO sync_deleted_log (gym_id, table_name, local_id) VALUES (?, ?, ?)');
+
+            // Cascade-log the customer's training data. The local FK cascade
+            // deletes these rows automatically when the customer row goes, but
+            // the cloud only removes what we explicitly log here — otherwise the
+            // mesocycles/routines/items are left ORPHANED in the cloud (their
+            // customer no longer exists). Mirrors deleteMesocycle()'s logging.
+            const mesos = db.prepare('SELECT id FROM mesocycles WHERE customer_id = ? AND gym_id = ?').all(id, gymId);
+            const getRoutines = db.prepare('SELECT id FROM routines WHERE mesocycle_id = ?');
+            const getItems = db.prepare('SELECT id FROM routine_items WHERE routine_id = ?');
+            for (const m of mesos) {
+                for (const r of getRoutines.all(m.id)) {
+                    for (const it of getItems.all(r.id)) logStmt.run(gymId, 'routine_items', it.id);
+                    logStmt.run(gymId, 'routines', r.id);
+                }
+                logStmt.run(gymId, 'mesocycles', m.id);
+            }
+
+            // Log the customer itself last.
+            logStmt.run(gymId, 'customers', id);
 
             const stmt = db.prepare('DELETE FROM customers WHERE id = ? AND gym_id = ?');
             return stmt.run(id, gymId);
