@@ -81,7 +81,7 @@ export default function TariffManager() {
         <div className="w-full h-full bg-slate-900 rounded-3xl border border-white/10 shadow-2xl flex overflow-hidden">
 
             {/* LEFT COLUMN: EDITOR */}
-            <div className="w-1/3 border-r border-white/5 p-8 flex flex-col relative bg-slate-900/50">
+            <div className="w-1/3 border-r border-white/5 p-8 flex flex-col relative bg-slate-900/50 overflow-y-auto custom-scrollbar">
                 <div className="mb-8">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                         {editingId ? <Edit2 className="text-yellow-400" /> : <Sparkles className="text-blue-400" />}

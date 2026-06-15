@@ -154,7 +154,7 @@ export default function TrainingHistory({ initialCustomer, onNavigate }) {
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-hidden relative">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar relative min-h-0">
                             <CustomerTrainingTab
                                 customerId={selectedCustomer.id}
                                 onNewMesocycle={handleNewPlan}
