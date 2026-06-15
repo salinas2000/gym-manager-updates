@@ -163,13 +163,19 @@ describe('Customer Service', () => {
       expect(() => customerService.create(customerData)).toThrow();
     });
 
-    test('should reject missing email', () => {
+    test('should allow missing email (email is optional by design)', () => {
+      // Gyms routinely have members without an email (walk-ins, minors, bulk
+      // imports). The schema marks email optional, so create() must NOT throw.
       const customerData = {
         first_name: 'John',
         last_name: 'Doe'
       };
 
-      expect(() => customerService.create(customerData)).toThrow();
+      mockDb.prepare().run.mockReturnValue({ lastInsertRowid: 1 });
+      mockDb.transaction.mockImplementation((fn) => fn);
+
+      const result = customerService.create(customerData);
+      expect(result).toHaveProperty('id');
     });
 
     test('should handle duplicate email error', () => {
