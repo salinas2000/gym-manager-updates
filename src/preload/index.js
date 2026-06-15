@@ -82,6 +82,13 @@ contextBridge.exposeInMainWorld('api', {
             ipcRenderer.on('cloud:customer-dataset-pending', sub);
             return () => ipcRenderer.removeListener('cloud:customer-dataset-pending', sub);
         },
+        // "Sincronizar tablas" actionable notification + its trigger.
+        onResyncPrompt: (callback) => {
+            const sub = (_e, d) => callback(d);
+            ipcRenderer.on('cloud:resync-prompt', sub);
+            return () => ipcRenderer.removeListener('cloud:resync-prompt', sub);
+        },
+        forceResync: (data) => ipcRenderer.invoke('cloud:forceResync', data),
         sendCustomersToGym: (targetGymId, customerIds) => ipcRenderer.invoke('cloud:sendCustomersToGym', { targetGymId, customerIds }),
         // Background sync
         syncNow: () => ipcRenderer.invoke('cloud:syncNow'),

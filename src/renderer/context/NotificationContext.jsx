@@ -106,11 +106,37 @@ export function NotificationProvider({ children }) {
                 });
             });
 
+            // --- "Sincronizar tablas con la nube" actionable notification ---
+            const cleanupResync = window.api.cloud?.onResyncPrompt?.((data) => {
+                if (addToast) addToast('Sincronización pendiente. Abre notificaciones.', 'info', 6000);
+                addNotification({
+                    id: `resync-prompt-${data.load_id}`,
+                    type: 'update',
+                    title: 'Sincronizar tablas con la nube',
+                    message: 'Tienes entrenamientos pendientes de subir a la nube. Pulsa para volver a sincronizarlos — tus clientes los verán en su app en unos minutos.',
+                    priority: 'high',
+                    actionLabel: 'SINCRONIZAR AHORA',
+                    onAction: async () => {
+                        try {
+                            await window.api.cloud.forceResync({ gym_id: data.gym_id, load_id: data.load_id });
+                            addNotification({
+                                id: `resync-done-${data.load_id}`,
+                                type: 'success',
+                                message: 'Sincronización lanzada. Tus tablas se están subiendo a la nube.',
+                            });
+                        } catch (e) {
+                            addNotification({ id: `resync-error-${data.load_id}`, type: 'error', message: 'Error al sincronizar: ' + e.message });
+                        }
+                    }
+                });
+            });
+
             return () => {
                 cleanupStatus();
                 cleanupRemote();
                 cleanupExerciseDataset?.();
                 cleanupCustomerDataset?.();
+                cleanupResync?.();
             };
         }
     }, [addToast]);

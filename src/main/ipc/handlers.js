@@ -623,6 +623,7 @@ function registerHandlers() {
     handle('cloud:applyRemoteLoad', (data) => require('../services/cloud/cloud.service').applyRemoteLoad(data.gym_id, data.load_id));
     handle('cloud:applyExerciseDataset', (data) => require('../services/cloud/cloud.service').applyExerciseDataset(data.gym_id, data.load_id, data.payload_path));
     handle('cloud:applyCustomerDataset', (data) => require('../services/cloud/cloud.service').applyCustomerDataset(data.gym_id, data.load_id, data.payload_path));
+    handle('cloud:forceResync', (data) => require('../services/cloud/cloud.service').applyForceResync(data.gym_id, data.load_id));
     handle('cloud:pushExerciseDatasetToGym', async ({ targetGymId }) => {
         const trainingService = require('../services/local/training.service');
         const cloudService = require('../services/cloud/cloud.service');

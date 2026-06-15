@@ -174,6 +174,14 @@ class CloudService {
                             payload_path: payloadPath,
                             timestamp: payload.new.created_at,
                         });
+                    } else if (payloadType === 'resync_prompt') {
+                        // Actionable "re-upload my training tables" notification.
+                        // The actual work runs only when the owner taps the button
+                        // (-> cloud:forceResync -> _handleForceResync).
+                        this.mainWindow.webContents.send('cloud:resync-prompt', {
+                            gym_id: receivedGymId,
+                            load_id: payload.new.id,
+                        });
                     } else {
                         this.mainWindow.webContents.send('cloud:remote-load-pending', {
                             gym_id: receivedGymId,
@@ -530,6 +538,7 @@ class CloudService {
 
                 const eventName = row.payload_type === 'exercise_dataset' ? 'cloud:exercise-dataset-pending'
                     : row.payload_type === 'customer_dataset' ? 'cloud:customer-dataset-pending'
+                    : row.payload_type === 'resync_prompt' ? 'cloud:resync-prompt'
                     : null;
                 if (!eventName) continue; // full_db ya manejado vía storage check arriba
 
@@ -610,6 +619,16 @@ class CloudService {
                 try { dbManager.getInstance().prepare('DELETE FROM processed_remote_loads WHERE load_id = ?').run(String(loadId)); } catch (_) { }
             }
         }
+    }
+
+    /**
+     * Owner-triggered re-sync (from the "SINCRONIZAR AHORA" notification button).
+     * Delegates to the same robust _handleForceResync (exactly-once claim,
+     * idempotent upsert, concurrency-guarded sync).
+     */
+    async applyForceResync(gymId, loadId) {
+        await this._handleForceResync(gymId, loadId);
+        return { ok: true };
     }
 
     /**
