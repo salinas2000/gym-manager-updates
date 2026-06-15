@@ -181,7 +181,7 @@ export default function ExerciseLibraryPage() {
                 </div>
 
                 {/* EXERCISE LIST */}
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 min-h-0 overflow-y-auto p-6">
                     {/* Empty State / Prompt */}
                     {!activeCategory && !activeSubcategory && !searchTerm && (
                         <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center gap-4 text-blue-200">

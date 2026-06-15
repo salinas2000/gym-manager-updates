@@ -388,7 +388,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                 </div>
 
                 {/* List - Expandable Cards */}
-                <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-950/20">
+                <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2 bg-slate-950/20">
                     {isLoading ? (
                         <div className="py-8 flex flex-col items-center gap-3">
                             <LoadingSpinner size="sm" />
@@ -477,7 +477,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
                     {!currentDay ? (
                         <div className="h-full flex items-center justify-center text-slate-500 text-sm italic">
                             <p>Crea o selecciona un día para empezar a construir la rutina</p>

@@ -388,7 +388,7 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
             </div>
 
             {/* TABLE BODY */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                 {filtered.map((customer) => {
                     const tariff = tariffs.find(t => t.id === customer.tariff_id);
                     const theme = getTariffTheme(tariff);

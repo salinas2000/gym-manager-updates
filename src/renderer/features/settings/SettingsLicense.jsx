@@ -46,7 +46,7 @@ export default function SettingsLicense({
                 {/* LEFT: VISUAL CARD (THE VAULT) */}
                 <div className="relative group">
                     <div className="absolute inset-0 bg-gradient-to-br from-amber-500/20 to-blue-600/20 rounded-2xl blur-xl opacity-50 group-hover:opacity-75 transition-opacity"></div>
-                    <div className="relative bg-slate-900 border border-white/10 rounded-2xl p-6 h-full flex flex-col justify-between overflow-hidden">
+                    <div className="relative bg-slate-900 border border-white/10 rounded-2xl p-6 h-full flex flex-col justify-between overflow-y-auto custom-scrollbar">
 
                         {/* Background Deco */}
                         <div className="absolute top-0 right-0 p-24 bg-gradient-to-b from-white/5 to-transparent rounded-full blur-3xl -mr-12 -mt-12 pointer-events-none"></div>
