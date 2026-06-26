@@ -67,32 +67,66 @@ class OwnerStorageClient {
         });
         if (!signRes?.success) return signRes || { success: false, error: 'signed_upload_failed' };
 
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), UPLOAD_TIMEOUT_MS);
-        try {
-            // Supabase presigned upload URL accepts either PUT or POST. We use PUT
-            // because the desktop has the path already; Supabase docs show this
-            // path is supported alongside the token in the URL itself.
-            const res = await fetch(signRes.url, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': contentType || 'application/octet-stream',
-                    'x-upsert': (opts.upsert ?? true) ? 'true' : 'false',
-                },
-                body: buffer,
-                signal: ctrl.signal,
-            });
-            clearTimeout(timer);
-            if (!res.ok) {
+        // Node's fetch (undici) intermittently throws "fetch failed" on some
+        // networks (IPv6 / proxy / AV) while streaming a sizeable request body
+        // through Cloudflare — EVEN WHEN the bytes actually reach the server and
+        // the object is created. So we (1) retry the PUT a few times, and (2) if
+        // every attempt throws, VERIFY whether the object landed before failing.
+        let lastErr = 'upload_failed';
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), UPLOAD_TIMEOUT_MS);
+            try {
+                const res = await fetch(signRes.url, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': contentType || 'application/octet-stream',
+                        'x-upsert': (opts.upsert ?? true) ? 'true' : 'false',
+                    },
+                    body: buffer,
+                    signal: ctrl.signal,
+                });
+                clearTimeout(timer);
+                if (res.ok) return { success: true, path: signRes.path };
                 let detail = '';
                 try { detail = await res.text(); } catch { /* */ }
-                return { success: false, error: `upload_http_${res.status}: ${detail.substring(0, 200)}` };
+                lastErr = `upload_http_${res.status}: ${detail.substring(0, 200)}`;
+                break; // a real HTTP error (not a socket glitch) — don't retry
+            } catch (err) {
+                clearTimeout(timer);
+                lastErr = err.name === 'AbortError' ? 'upload_timeout' : `upload_network: ${err.message}`;
+                // socket / "fetch failed" glitch — fall through and retry
             }
-            return { success: true, path: signRes.path };
-        } catch (err) {
-            clearTimeout(timer);
-            return { success: false, error: err.name === 'AbortError' ? 'upload_timeout' : `upload_network: ${err.message}` };
         }
+
+        // Every PUT threw client-side. The upload often still succeeded, so
+        // confirm the object exists before reporting failure.
+        if (await this._objectExists(signRes.path, opts.bucket)) {
+            return { success: true, path: signRes.path };
+        }
+        return { success: false, error: lastErr };
+    }
+
+    /**
+     * Best-effort existence check via a public HEAD, retried a few times to ride
+     * out the same flaky sockets. Used to confirm an upload that the PUT couldn't
+     * confirm because undici threw on the response.
+     */
+    async _objectExists(path, opts_bucket) {
+        for (let i = 0; i < 3; i++) {
+            try {
+                const pub = await this.getPublicUrl(path, { bucket: opts_bucket });
+                if (pub?.success && pub.url) {
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+                    const res = await fetch(pub.url, { method: 'HEAD', signal: ctrl.signal });
+                    clearTimeout(timer);
+                    if (res.ok) return true;
+                    if (res.status === 404) return false;
+                }
+            } catch { /* transient — retry */ }
+        }
+        return false;
     }
 
     /**
