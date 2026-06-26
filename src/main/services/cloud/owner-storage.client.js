@@ -108,23 +108,22 @@ class OwnerStorageClient {
     }
 
     /**
-     * Best-effort existence check via a public HEAD, retried a few times to ride
-     * out the same flaky sockets. Used to confirm an upload that the PUT couldn't
-     * confirm because undici threw on the response.
+     * Existence check via the Edge Function (signedDownload), NOT a direct CDN
+     * request. On flaky networks the direct storage/CDN calls (and the upload
+     * PUT) throw "fetch failed" in undici, but the Edge Function calls go through
+     * fine — so we ask the function to sign a download URL: it succeeds if the
+     * object exists and returns 404 if not. Retried to ride out transient blips.
      */
     async _objectExists(path, opts_bucket) {
-        for (let i = 0; i < 3; i++) {
-            try {
-                const pub = await this.getPublicUrl(path, { bucket: opts_bucket });
-                if (pub?.success && pub.url) {
-                    const ctrl = new AbortController();
-                    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-                    const res = await fetch(pub.url, { method: 'HEAD', signal: ctrl.signal });
-                    clearTimeout(timer);
-                    if (res.ok) return true;
-                    if (res.status === 404) return false;
-                }
-            } catch { /* transient — retry */ }
+        for (let attempt = 0; attempt < 4; attempt++) {
+            const res = await this._call('signedDownload', {
+                path,
+                bucket: opts_bucket,
+                expiresIn: 60,
+            });
+            if (res?.success) return true;          // function signed a URL → exists
+            if (res?.status === 404) return false;  // confirmed not found
+            await new Promise((r) => setTimeout(r, 400)); // transient — brief wait, retry
         }
         return false;
     }
