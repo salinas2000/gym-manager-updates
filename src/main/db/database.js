@@ -637,6 +637,34 @@ class DBManager {
             console.error('Migration for sync status failed:', e);
         }
 
+        // 15b. One-time: purge legacy YouTube/external exercise video URLs.
+        // Exercise videos are MP4 uploads only now (self-hosted in Storage, play
+        // inline on iPhone). Any legacy URL that is NOT one of our uploaded videos
+        // (path contains `exercise_videos/`) is cleared and the row marked
+        // synced=0 so the NULL propagates to the cloud on the next sync — the
+        // local DB is the source of truth, so cleaning only the cloud wouldn't
+        // stick (sync would re-push the YouTube link).
+        try {
+            this.db.exec(`CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)`);
+            const done = this.db.prepare("SELECT value FROM app_meta WHERE key = 'video_youtube_purged_v1'").get();
+            if (!done) {
+                const info = this.db.prepare(`
+                    UPDATE exercises
+                    SET video_url = NULL, synced = 0, updated_at = datetime('now')
+                    WHERE video_url IS NOT NULL
+                      AND TRIM(video_url) <> ''
+                      AND video_url NOT LIKE '%exercise_videos/%'
+                `).run();
+                this.db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('video_youtube_purged_v1', ?)")
+                    .run(new Date().toISOString());
+                if (info.changes > 0) {
+                    console.log(`Migration 15b: cleared ${info.changes} legacy YouTube/external exercise video URL(s).`);
+                }
+            }
+        } catch (e) {
+            console.error('Migration 15b (purge YouTube videos) failed:', e);
+        }
+
         this.verifyIntegrity();
 
 

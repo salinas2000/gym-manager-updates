@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Video, FileText, Dumbbell, ChevronDown, Activity } from 'lucide-react';
+import { X, Save, Video, FileText, Dumbbell, ChevronDown, Activity, Upload, Loader2, Trash2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../context/ToastContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -220,6 +220,36 @@ export default function ExerciseModal({
         onClose();
     };
 
+    // Upload (or replace) the exercise video. MP4 only — self-hosted so it plays
+    // inline on iPhone. The previous storage object (if any) is cleaned up at
+    // save time in the main process, so replacing never leaves orphans.
+    const handleUploadVideo = async () => {
+        try {
+            setUploadingVideo(true);
+            const res = await window.api.training.uploadExerciseVideo();
+            if (res?.cancelled) return;
+            if (res?.success && res.url) {
+                setVideoUrl(res.url);
+                toast.success('Vídeo subido');
+            } else {
+                toast.error(res?.error || 'No se pudo subir el vídeo');
+            }
+        } catch (_) {
+            toast.error('Error al subir el vídeo');
+        } finally {
+            setUploadingVideo(false);
+        }
+    };
+
+    // Friendly file name from the stored public URL (strips the timestamp prefix).
+    const videoFileName = (url) => {
+        try {
+            const p = new URL(url).pathname;
+            const base = p.substring(p.lastIndexOf('/') + 1);
+            return decodeURIComponent(base.replace(/^\d+_/, '')) || 'vídeo.mp4';
+        } catch { return 'vídeo'; }
+    };
+
     // Update state if props change (smart create / edit)
     useEffect(() => {
         if (isOpen) {
@@ -365,41 +395,47 @@ export default function ExerciseModal({
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-2">
                                 <Video size={14} className="text-red-500" /> Vídeo del ejercicio
                             </label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm font-mono"
-                                    placeholder="Sube un MP4 o pega una URL (YouTube)"
-                                    value={videoUrl}
-                                    onChange={e => setVideoUrl(e.target.value)}
-                                />
+                            {videoUrl ? (
+                                <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+                                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15">
+                                        <Video size={16} className="text-emerald-400" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-semibold text-emerald-300">Vídeo subido</p>
+                                        <p className="truncate text-[11px] text-slate-500 font-mono">{videoFileName(videoUrl)}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        disabled={uploadingVideo}
+                                        onClick={handleUploadVideo}
+                                        className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-white/5 disabled:opacity-50"
+                                    >
+                                        {uploadingVideo ? 'Subiendo…' : 'Reemplazar'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={uploadingVideo}
+                                        onClick={() => setVideoUrl('')}
+                                        title="Quitar vídeo"
+                                        className="shrink-0 flex items-center gap-1 rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-bold text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                    >
+                                        <Trash2 size={13} /> Quitar
+                                    </button>
+                                </div>
+                            ) : (
                                 <button
                                     type="button"
                                     disabled={uploadingVideo}
-                                    onClick={async () => {
-                                        try {
-                                            setUploadingVideo(true);
-                                            const res = await window.api.training.uploadExerciseVideo();
-                                            if (res?.cancelled) return;
-                                            if (res?.success && res.url) {
-                                                setVideoUrl(res.url);
-                                                toast.success('Vídeo subido');
-                                            } else {
-                                                toast.error(res?.error || 'No se pudo subir el vídeo');
-                                            }
-                                        } catch (_) {
-                                            toast.error('Error al subir el vídeo');
-                                        } finally {
-                                            setUploadingVideo(false);
-                                        }
-                                    }}
-                                    className="shrink-0 flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+                                    onClick={handleUploadVideo}
+                                    className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/10 bg-slate-950 px-4 py-3 text-sm font-bold text-slate-300 hover:border-blue-500/50 hover:bg-slate-900 disabled:opacity-50"
                                 >
-                                    {uploadingVideo ? 'Subiendo…' : 'Subir MP4'}
+                                    {uploadingVideo
+                                        ? (<><Loader2 size={16} className="animate-spin" /> Subiendo…</>)
+                                        : (<><Upload size={16} /> Subir vídeo (MP4)</>)}
                                 </button>
-                            </div>
+                            )}
                             <p className="mt-1.5 text-[11px] text-slate-500">
-                                Sube un <strong>MP4</strong> para que se reproduzca dentro de la app en iPhone (recomendado), o pega una URL de YouTube.
+                                Sube un <strong>MP4</strong> (máx 200&nbsp;MB). Se reproduce dentro de la app, también en iPhone.
                             </p>
                         </div>
 

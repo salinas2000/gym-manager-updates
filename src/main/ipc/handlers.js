@@ -17,6 +17,32 @@ function isMutationChannel(channel) {
     return MUTATION_PATTERNS.some(p => channel.includes(p));
 }
 
+// Parse a self-hosted exercise video out of a public storage URL. Returns null
+// for YouTube/external/empty URLs (we only ever clean up OUR uploads, which live
+// under `<gym>/exercise_videos/...`). Bucket is read from the URL so it works
+// regardless of which storage bucket the upload used.
+function _exerciseVideoStorageObject(url) {
+    if (!url || typeof url !== 'string') return null;
+    const m = /\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/([^?]+)/.exec(url);
+    if (!m) return null;
+    const path = decodeURIComponent(m[2]);
+    if (!path.includes('exercise_videos/')) return null;
+    return { bucket: m[1], path };
+}
+
+// Best-effort: delete an uploaded exercise video from Storage. No-op for
+// YouTube/empty URLs. Never throws — a failed cleanup must not break the save.
+async function _removeExerciseVideoIfUploaded(url) {
+    const obj = _exerciseVideoStorageObject(url);
+    if (!obj) return;
+    try {
+        const ownerStorage = require('../services/cloud/owner-storage.client');
+        await ownerStorage.remove(obj.path, { bucket: obj.bucket });
+    } catch (e) {
+        console.warn('[video-cleanup] no se pudo borrar el vídeo antiguo:', e?.message);
+    }
+}
+
 function registerHandlers() {
     if (handlersRegistered) {
         console.log('[IPC] Handlers already registered, skipping...');
@@ -381,8 +407,26 @@ function registerHandlers() {
 
     handle('training:getExercises', () => trainingService.getExercises());
     handle('training:createExercise', (data) => trainingService.createExercise(data));
-    handle('training:updateExercise', (id, data) => trainingService.updateExercise(id, data));
-    handle('training:deleteExercise', (id) => trainingService.deleteExercise(id));
+    handle('training:updateExercise', async (id, data) => {
+        // Robust replace/remove: if the exercise had an uploaded video and it's
+        // being changed or cleared, delete the old object from Storage so we
+        // don't leak orphaned files.
+        const db = require('../db/database').getInstance();
+        let oldUrl = null;
+        try { oldUrl = db.prepare('SELECT video_url FROM exercises WHERE id = ?').get(id)?.video_url || null; } catch (_) { /* ignore */ }
+        const result = trainingService.updateExercise(id, data);
+        const newUrl = data?.video_url ?? data?.videoUrl ?? null;
+        if (oldUrl && oldUrl !== newUrl) await _removeExerciseVideoIfUploaded(oldUrl);
+        return result;
+    });
+    handle('training:deleteExercise', async (id) => {
+        const db = require('../db/database').getInstance();
+        let oldUrl = null;
+        try { oldUrl = db.prepare('SELECT video_url FROM exercises WHERE id = ?').get(id)?.video_url || null; } catch (_) { /* ignore */ }
+        const result = trainingService.deleteExercise(id);
+        await _removeExerciseVideoIfUploaded(oldUrl);
+        return result;
+    });
 
     // Categories
     handle('training:getCategories', () => trainingService.getCategories());
