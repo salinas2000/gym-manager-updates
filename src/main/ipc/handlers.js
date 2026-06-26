@@ -444,6 +444,48 @@ function registerHandlers() {
     handle('training:addFieldConfig', (label, type, options) => trainingService.addFieldConfig(label, type, options));
     handle('training:deleteFieldConfig', (key) => trainingService.deleteFieldConfig(key));
 
+    // Upload an exercise video (MP4/…) to cloud storage and return its public URL.
+    // Self-hosted videos play INLINE on iPhone (no "kicks me out" of the app like
+    // embedded YouTube). The returned URL goes into the exercise's video_url.
+    handle('training:uploadExerciseVideo', async () => {
+        const { dialog } = require('electron');
+        const fs = require('fs');
+        const path = require('path');
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Subir vídeo del ejercicio',
+            properties: ['openFile'],
+            filters: [{ name: 'Vídeos', extensions: ['mp4', 'mov', 'm4v', 'webm'] }],
+        });
+        if (canceled || !filePaths || filePaths.length === 0) return { cancelled: true };
+
+        const filePath = filePaths[0];
+        const buffer = fs.readFileSync(filePath);
+        const MAX = 200 * 1024 * 1024; // 200 MB
+        if (buffer.length > MAX) {
+            return { success: false, error: 'El vídeo supera 200 MB. Usa uno más corto o comprímelo.' };
+        }
+
+        const licenseService = require('../services/local/license.service');
+        const gymId = licenseService.getLicenseData()?.gym_id;
+        if (!gymId) return { success: false, error: 'Licencia no activa.' };
+
+        const ext = (path.extname(filePath).toLowerCase().replace('.', '') || 'mp4');
+        const contentType = ext === 'mov' ? 'video/quicktime'
+            : ext === 'webm' ? 'video/webm'
+            : ext === 'm4v' ? 'video/x-m4v'
+            : 'video/mp4';
+        const safe = path.basename(filePath).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const objectPath = `${gymId}/exercise_videos/${Date.now()}_${safe}`;
+
+        const ownerStorage = require('../services/cloud/owner-storage.client');
+        const up = await ownerStorage.upload(objectPath, buffer, contentType, { upsert: true });
+        if (!up?.success) return { success: false, error: up?.error || 'Error al subir el vídeo.' };
+
+        const urlRes = await ownerStorage.getPublicUrl(objectPath);
+        if (!urlRes?.success || !urlRes.url) return { success: false, error: 'No se obtuvo la URL pública del vídeo.' };
+        return { success: true, url: urlRes.url };
+    });
+
     // Orchestrator: Save -> Excel -> Upload -> Link
     // Orchestrator: Save -> Export Excel (Local)
     // Drive integration removed in v2.2.0 — clients see routines in mobile app.

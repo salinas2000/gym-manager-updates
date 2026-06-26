@@ -115,6 +115,7 @@ contextBridge.exposeInMainWorld('api', {
         createExercise: (data) => ipcRenderer.invoke('training:createExercise', data),
         updateExercise: (id, data) => ipcRenderer.invoke('training:updateExercise', id, data),
         deleteExercise: (id) => ipcRenderer.invoke('training:deleteExercise', id),
+        uploadExerciseVideo: () => ipcRenderer.invoke('training:uploadExerciseVideo'),
 
         // Category Management
         getCategories: () => ipcRenderer.invoke('training:getCategories'),

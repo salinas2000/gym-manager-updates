@@ -101,6 +101,7 @@ export default function ExerciseModal({
     const [categoryId, setCategoryId] = useState(initialCategory || '');
     const [trackingType, setTrackingType] = useState('strength');
     const [videoUrl, setVideoUrl] = useState('');
+    const [uploadingVideo, setUploadingVideo] = useState(false);
     const [notes, setNotes] = useState('');
     const [customFields, setCustomFields] = useState({});
 
@@ -362,15 +363,44 @@ export default function ExerciseModal({
                         <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-1">Multimedia y Notas</h3>
                         <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5 flex items-center gap-2">
-                                <Video size={14} className="text-red-500" /> URL de Video
+                                <Video size={14} className="text-red-500" /> Vídeo del ejercicio
                             </label>
-                            <input
-                                type="text"
-                                className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm font-mono"
-                                placeholder="https://youtube.com/..."
-                                value={videoUrl}
-                                onChange={e => setVideoUrl(e.target.value)}
-                            />
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-white focus:border-blue-500 outline-none text-sm font-mono"
+                                    placeholder="Sube un MP4 o pega una URL (YouTube)"
+                                    value={videoUrl}
+                                    onChange={e => setVideoUrl(e.target.value)}
+                                />
+                                <button
+                                    type="button"
+                                    disabled={uploadingVideo}
+                                    onClick={async () => {
+                                        try {
+                                            setUploadingVideo(true);
+                                            const res = await window.api.training.uploadExerciseVideo();
+                                            if (res?.cancelled) return;
+                                            if (res?.success && res.url) {
+                                                setVideoUrl(res.url);
+                                                toast.success('Vídeo subido');
+                                            } else {
+                                                toast.error(res?.error || 'No se pudo subir el vídeo');
+                                            }
+                                        } catch (_) {
+                                            toast.error('Error al subir el vídeo');
+                                        } finally {
+                                            setUploadingVideo(false);
+                                        }
+                                    }}
+                                    className="shrink-0 flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+                                >
+                                    {uploadingVideo ? 'Subiendo…' : 'Subir MP4'}
+                                </button>
+                            </div>
+                            <p className="mt-1.5 text-[11px] text-slate-500">
+                                Sube un <strong>MP4</strong> para que se reproduzca dentro de la app en iPhone (recomendado), o pega una URL de YouTube.
+                            </p>
                         </div>
 
                         <div>
