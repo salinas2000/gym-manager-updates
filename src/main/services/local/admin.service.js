@@ -169,12 +169,12 @@ class AdminService {
             try {
                 const { data: lastPayment } = await supabase
                     .from('cloud_payments')
-                    .select('created_at')
+                    .select('synced_at')
                     .eq('gym_id', gym.gym_id)
-                    .order('created_at', { ascending: false })
+                    .order('synced_at', { ascending: false })
                     .limit(1)
                     .single();
-                if (lastPayment) lastSync = lastPayment.created_at;
+                if (lastPayment) lastSync = lastPayment.synced_at;
             } catch (e) {
                 // Ignore missing table error
             }
