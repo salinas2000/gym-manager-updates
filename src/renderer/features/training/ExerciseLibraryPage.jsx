@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { textIncludes } from '../../lib/text';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Filter, Edit2, Trash2, Home, ChevronRight, Video, FileText, Dumbbell, Settings2 } from 'lucide-react';
 import CategorySidebar from './CategorySidebar';
@@ -79,7 +80,7 @@ export default function ExerciseLibraryPage() {
         }
 
         // 2. Search Filter
-        if (searchTerm && !ex.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+        if (searchTerm && !textIncludes(ex.name, searchTerm)) return false;
 
         return true;
     });

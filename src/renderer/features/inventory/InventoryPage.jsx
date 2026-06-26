@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { textIncludes } from '../../lib/text';
 import { Package, Plus, ShoppingCart, History, AlertTriangle, Search, Filter, Edit2, Trash2, ArrowUpRight, ArrowDownRight, FolderOpen } from 'lucide-react';
 import ProductModal from './components/ProductModal';
 import OrderModal from './components/OrderModal';
@@ -100,9 +101,9 @@ export default function InventoryPage() {
     };
 
     const filteredProducts = (Array.isArray(products) ? products : []).filter(p => {
-        const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (p.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (p.category || '').toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesSearch = textIncludes(p.name, searchTerm) ||
+            textIncludes(p.sku, searchTerm) ||
+            textIncludes(p.category, searchTerm);
 
         const matchesCategory = selectedCategory === '' || p.category === selectedCategory;
 

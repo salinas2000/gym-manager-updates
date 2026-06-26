@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { textIncludes } from '../../lib/text';
 import {
     Clock,
     AlertCircle,
@@ -36,7 +37,7 @@ export default function TrainingPriorities({ onStartPlan, onNavigate }) {
     }, []);
 
     const filtered = priorities.filter(p =>
-        `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase())
+        textIncludes(`${p.first_name} ${p.last_name}`, search)
     );
 
     const getStatusInfo = (status, days) => {

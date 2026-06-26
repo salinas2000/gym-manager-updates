@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { normalizeText, textIncludes } from '../../lib/text';
 import { useGym } from '../../context/GymContext';
 import {
     CreditCard,
@@ -240,7 +241,7 @@ export default function PaymentsManagement() {
     };
 
     const filteredReport = monthlyData.filter(item => {
-        const matchesSearch = `${item.first_name} ${item.last_name}`.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesSearch = textIncludes(`${item.first_name} ${item.last_name}`, searchTerm);
         const matchesStatus = filterStatus === 'all'
             || (filterStatus === 'paid' && item.is_paid)
             || (filterStatus === 'unpaid' && !item.is_paid);
@@ -608,11 +609,11 @@ export default function PaymentsManagement() {
                     <TabPanel>
                         {(() => {
                             const filteredMulti = multiMonthData.filter(m => {
-                                const q = (multiSearch || '').toLowerCase().trim();
+                                const q = normalizeText(multiSearch);
                                 const matchesSearch = !q
-                                    || (`${m.first_name || ''} ${m.last_name || ''}`).toLowerCase().includes(q)
-                                    || (m.tariff_name || '').toLowerCase().includes(q)
-                                    || (m.payment_method || '').toLowerCase().includes(q);
+                                    || normalizeText(`${m.first_name || ''} ${m.last_name || ''}`).includes(q)
+                                    || normalizeText(m.tariff_name).includes(q)
+                                    || normalizeText(m.payment_method).includes(q);
                                 const matchesStatus = multiStatusFilter === 'all' || m.status === multiStatusFilter;
                                 return matchesSearch && matchesStatus;
                             }).sort((a, b) => {

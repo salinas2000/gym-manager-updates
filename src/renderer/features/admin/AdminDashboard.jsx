@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { textIncludes } from '../../lib/text';
 import { Building2, RefreshCw, Key, ShieldCheck, Search, Filter, Trash2, Database, Download } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useNotifications } from '../../context/NotificationContext';
@@ -116,8 +117,8 @@ export default function AdminDashboard() {
 
     const filteredGyms = gyms.filter(gym => {
         const matchesSearch =
-            (gym.gym_name?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            (gym.license_key?.toLowerCase().includes(searchQuery.toLowerCase()));
+            textIncludes(gym.gym_name, searchQuery) ||
+            textIncludes(gym.license_key, searchQuery);
 
         const isRevoked = !gym.active;
         if (statusFilter === 'active') return matchesSearch && !isRevoked;

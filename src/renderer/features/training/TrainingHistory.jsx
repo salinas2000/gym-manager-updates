@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { textIncludes } from '../../lib/text';
 import { useGym } from '../../context/GymContext';
 import CustomerTrainingTab from './CustomerTrainingTab';
 import MesocycleEditor from './MesocycleEditor';
@@ -25,7 +26,7 @@ export default function TrainingHistory({ initialCustomer, onNavigate }) {
     // Auto-select first customer if none selected (from filtered list)
     useEffect(() => {
         const filtered = customers.filter(c => {
-            const matchesSearch = `${c.first_name} ${c.last_name}`.toLowerCase().includes(search.toLowerCase());
+            const matchesSearch = textIncludes(`${c.first_name} ${c.last_name}`, search);
             const matchesActive = filterActive === 'all'
                 ? true
                 : filterActive === 'active' ? c.active === 1 : c.active === 0;
@@ -39,7 +40,7 @@ export default function TrainingHistory({ initialCustomer, onNavigate }) {
 
     // Filtering for the display list
     const filteredCustomers = customers.filter(c => {
-        const matchesSearch = `${c.first_name} ${c.last_name}`.toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = textIncludes(`${c.first_name} ${c.last_name}`, search);
         const matchesActive = filterActive === 'all'
             ? true
             : filterActive === 'active' ? c.active === 1 : c.active === 0;

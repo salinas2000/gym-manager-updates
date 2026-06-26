@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { normalizeText } from '../../lib/text';
 import { ArrowLeft, Save, Calendar, AlertTriangle, GripHorizontal, Users } from 'lucide-react';
 import RoutineBuilder from './RoutineBuilder';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
@@ -494,8 +495,8 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                                     {otherClients.length === 0 ? (
                                                         <p className="text-xs text-slate-500 py-2 text-center">No hay otros clientes.</p>
                                                     ) : (() => {
-                                                        const q = otherClientSearch.trim().toLowerCase();
-                                                        const filtered = otherClients.filter(c => clientFullName(c).toLowerCase().includes(q));
+                                                        const q = normalizeText(otherClientSearch);
+                                                        const filtered = otherClients.filter(c => normalizeText(clientFullName(c)).includes(q));
                                                         if (filtered.length === 0) return <p className="text-xs text-slate-500 py-2 text-center">Sin resultados.</p>;
                                                         return filtered.map(c => (
                                                             <button

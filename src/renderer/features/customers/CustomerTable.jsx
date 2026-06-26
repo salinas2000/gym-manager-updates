@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { normalizeText } from '../../lib/text';
 import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload, CheckCircle2, Smartphone } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -39,11 +40,11 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
     // Filtering Logic
     const filtered = safeCustomers.filter(c => {
         // Text Search (defensivo ante valores null/undefined)
-        const q = (search || '').toLowerCase();
+        const q = normalizeText(search);
         const matchesSearch =
-            (c.first_name || '').toLowerCase().includes(q) ||
-            (c.last_name || '').toLowerCase().includes(q) ||
-            (c.email || '').toLowerCase().includes(q);
+            normalizeText(c.first_name).includes(q) ||
+            normalizeText(c.last_name).includes(q) ||
+            normalizeText(c.email).includes(q);
 
         // Status Filter
         const matchesStatus =

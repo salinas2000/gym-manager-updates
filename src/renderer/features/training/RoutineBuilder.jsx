@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { textIncludes } from '../../lib/text';
 import { useQuery } from '@tanstack/react-query';
 import TemplateManager from './TemplateManager';
 import ExerciseModal from './ExerciseModal';
@@ -149,7 +150,7 @@ export default function RoutineBuilder({ days, setDays, currentDayId }) {
     const filteredExercises = exercises.filter(ex => {
         if (activeCategory && ex.category_id !== activeCategory) return false;
         // Subcategory filter deprecated
-        if (searchTerm && !ex.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+        if (searchTerm && !textIncludes(ex.name, searchTerm)) return false;
         return true;
     });
 

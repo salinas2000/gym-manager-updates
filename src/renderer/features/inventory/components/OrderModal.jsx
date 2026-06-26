@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { textIncludes } from '../../../lib/text';
 import { X, Save, ShoppingCart, Plus, Minus, AlertCircle, Package, User, Search } from 'lucide-react';
 
 export default function OrderModal({ type, product, products, onClose, onSuccess }) {
@@ -199,7 +200,7 @@ export default function OrderModal({ type, product, products, onClose, onSuccess
                                                 <option value="">Venta General (Sin asignar)</option>
                                                 {customers
                                                     .filter(c =>
-                                                        `${c.first_name} ${c.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+                                                        textIncludes(`${c.first_name} ${c.last_name}`, searchTerm)
                                                     )
                                                     .slice(0, 50)
                                                     .map(c => (

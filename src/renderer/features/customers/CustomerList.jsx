@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { textIncludes } from '../../lib/text';
 import { Search, Plus } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { cn } from '../../lib/utils';
@@ -11,9 +12,9 @@ export default function CustomerList({ onSelectCustomer, selectedCustomerId, onA
     const safeCustomers = Array.isArray(customers) ? customers : [];
 
     const filtered = safeCustomers.filter(c =>
-        c.first_name.toLowerCase().includes(search.toLowerCase()) ||
-        c.last_name.toLowerCase().includes(search.toLowerCase()) ||
-        c.email.toLowerCase().includes(search.toLowerCase())
+        textIncludes(c.first_name, search) ||
+        textIncludes(c.last_name, search) ||
+        textIncludes(c.email, search)
     );
 
     return (

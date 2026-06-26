@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { textIncludes } from '../../lib/text';
 import ExerciseLibraryPage from './ExerciseLibraryPage';
 import MesocycleEditor from './MesocycleEditor';
 import TemplateManager from './TemplateManager';
@@ -178,8 +179,8 @@ export default function TrainingManager({ onNavigate, initialTab }) {
 
                             <div className="max-h-[400px] overflow-y-auto custom-scrollbar space-y-2">
                                 {customers.filter(c =>
-                                    c.first_name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-                                    c.last_name.toLowerCase().includes(customerSearch.toLowerCase())
+                                    textIncludes(c.first_name, customerSearch) ||
+                                    textIncludes(c.last_name, customerSearch)
                                 ).map(c => (
                                     <button
                                         key={c.id}

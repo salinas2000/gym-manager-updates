@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { textIncludes } from '../../lib/text';
 import { X, Send, Check, Search, Users, Building2, AlertTriangle } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useToast } from '../../context/ToastContext';
@@ -32,9 +33,9 @@ export default function SendCustomersModal({ isOpen, onClose }) {
 
     const safeCustomers = Array.isArray(customers) ? customers : [];
     const filtered = safeCustomers.filter(c =>
-        c.first_name.toLowerCase().includes(search.toLowerCase()) ||
-        c.last_name.toLowerCase().includes(search.toLowerCase()) ||
-        c.email.toLowerCase().includes(search.toLowerCase())
+        textIncludes(c.first_name, search) ||
+        textIncludes(c.last_name, search) ||
+        textIncludes(c.email, search)
     );
 
     const toggleSelect = (id) => {
