@@ -227,12 +227,21 @@ export default function ExerciseModal({
         try {
             setUploadingVideo(true);
             const res = await window.api.training.uploadExerciseVideo();
-            if (res?.cancelled) return;
-            if (res?.success && res.url) {
-                setVideoUrl(res.url);
+            // IPC wraps the handler's return in { success, data }. The real
+            // payload (url / cancelled / error) lives at res.data — reading
+            // res.url directly was always undefined, so it ALWAYS reported a
+            // bogus "no se pudo subir" even though the upload succeeded.
+            if (!res?.success) {
+                toast.error(res?.error || 'No se pudo subir el vídeo');
+                return;
+            }
+            const payload = res.data || {};
+            if (payload.cancelled) return;
+            if (payload.success && payload.url) {
+                setVideoUrl(payload.url);
                 toast.success('Vídeo subido');
             } else {
-                toast.error(res?.error || 'No se pudo subir el vídeo');
+                toast.error(payload.error || 'No se pudo subir el vídeo');
             }
         } catch (_) {
             toast.error('Error al subir el vídeo');
