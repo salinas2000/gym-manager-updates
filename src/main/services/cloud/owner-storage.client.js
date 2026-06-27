@@ -23,29 +23,37 @@ class OwnerStorageClient {
         const token = licenseService.getOwnerToken();
         if (!token) return { success: false, error: 'no_owner_token' };
 
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-        try {
-            const res = await fetch(`${url}/functions/v1/owner-storage`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({ op, ...args }),
-                signal: ctrl.signal,
-            });
-            clearTimeout(timer);
-            let body = null;
-            try { body = await res.json(); } catch { /* */ }
-            if (!res.ok) {
-                return { success: false, error: body?.error || `HTTP ${res.status}`, status: res.status };
+        // Retry transient undici "fetch failed" hiccups (flaky networks / IPv6 /
+        // AV intercepting TLS). The Edge Function ops are idempotent enough that
+        // a retry is safe.
+        let lastErr = 'network_error';
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+            try {
+                const res = await fetch(`${url}/functions/v1/owner-storage`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ op, ...args }),
+                    signal: ctrl.signal,
+                });
+                clearTimeout(timer);
+                let body = null;
+                try { body = await res.json(); } catch { /* */ }
+                if (!res.ok) {
+                    return { success: false, error: body?.error || `HTTP ${res.status}`, status: res.status };
+                }
+                return body || { success: true };
+            } catch (err) {
+                clearTimeout(timer);
+                lastErr = err.name === 'AbortError' ? 'timeout' : `network_${err.message}`;
+                await new Promise((r) => setTimeout(r, 300 * attempt));
             }
-            return body || { success: true };
-        } catch (err) {
-            clearTimeout(timer);
-            return { success: false, error: err.name === 'AbortError' ? 'timeout' : `network_${err.message}` };
         }
+        return { success: false, error: lastErr };
     }
 
     /**
@@ -155,11 +163,16 @@ class OwnerStorageClient {
     }
 
     /**
-     * Get a public URL for an object. Only useful if the bucket policy
-     * actually allows public read (the Edge Function just formats the URL).
+     * Public URL for an object. This is a DETERMINISTIC string — no network call
+     * needed — so we build it locally. Doing a round-trip to the Edge Function
+     * here used to fail on flaky networks (undici "fetch failed") AFTER a video
+     * had already uploaded fine, surfacing a bogus "no se pudo subir el vídeo".
      */
     async getPublicUrl(path, opts = {}) {
-        return await this._call('publicUrl', { path, bucket: opts.bucket });
+        const url = credentialManager.get()?.supabase?.url;
+        if (!url) return { success: false, error: 'no_supabase_url' };
+        const bucket = opts.bucket || 'training_files';
+        return { success: true, bucket, path, url: `${url}/storage/v1/object/public/${bucket}/${path}` };
     }
 
     /**
