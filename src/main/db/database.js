@@ -637,6 +637,39 @@ class DBManager {
             console.error('Migration for sync status failed:', e);
         }
 
+        // 15c. One-time: swap pre-uploaded MP4s in for legacy YouTube videos.
+        // Reads a bundled mapping (exercise_local_id -> MP4 url, scoped by gym_id)
+        // and sets the LOCAL video_url so it propagates to the cloud (the desktop
+        // is the source of truth). Scoped by gym_id, so only the target gym's
+        // desktop matches anything; every other gym is a no-op. Runs BEFORE 15b
+        // so any remaining (unmapped) YouTube link still gets cleared.
+        try {
+            this.db.exec(`CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)`);
+            const remapDone = this.db.prepare("SELECT value FROM app_meta WHERE key = 'video_remap_v1'").get();
+            if (!remapDone) {
+                let remap = [];
+                try { remap = require('./video-remap.json'); } catch (_) { remap = []; }
+                if (Array.isArray(remap) && remap.length) {
+                    const upd = this.db.prepare(
+                        "UPDATE exercises SET video_url = ?, synced = 0, updated_at = datetime('now') WHERE id = ? AND gym_id = ?"
+                    );
+                    let n = 0;
+                    const tx = this.db.transaction((rows) => {
+                        for (const r of rows) {
+                            if (!r || !r.video_url || r.exercise_local_id == null || !r.gym_id) continue;
+                            n += upd.run(r.video_url, r.exercise_local_id, r.gym_id).changes;
+                        }
+                    });
+                    tx(remap);
+                    if (n > 0) console.log(`Migration 15c: swapped ${n} exercise video(s) YouTube -> MP4.`);
+                }
+                this.db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('video_remap_v1', ?)")
+                    .run(new Date().toISOString());
+            }
+        } catch (e) {
+            console.error('Migration 15c (video remap) failed:', e);
+        }
+
         // 15b. One-time: purge legacy YouTube/external exercise video URLs.
         // Exercise videos are MP4 uploads only now (self-hosted in Storage, play
         // inline on iPhone). Any legacy URL that is NOT one of our uploaded videos
