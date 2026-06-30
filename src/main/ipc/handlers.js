@@ -738,6 +738,22 @@ function registerHandlers() {
     handle('cloud:getCustomerWeightLogs', ({ gymId, customerId }) =>
         require('../services/cloud/cloud.service').getCustomerWeightLogs(gymId, customerId)
     );
+    handle('cloud:getCustomerWorkoutLogs', ({ gymId, customerId }) =>
+        require('../services/cloud/cloud.service').getCustomerWorkoutLogs(gymId, customerId)
+    );
+    // Trainers (2.3.0) — boss-side management
+    handle('cloud:inviteTrainer', ({ gymId, email, fullName }) =>
+        require('../services/cloud/cloud.service').inviteTrainer(gymId, email, fullName)
+    );
+    handle('cloud:listTrainers', ({ gymId }) =>
+        require('../services/cloud/cloud.service').listTrainers(gymId)
+    );
+    handle('cloud:revokeTrainer', ({ gymId, trainerId }) =>
+        require('../services/cloud/cloud.service').revokeTrainer(gymId, trainerId)
+    );
+    handle('cloud:assignCustomersToTrainer', ({ gymId, trainerId, customerLocalIds }) =>
+        require('../services/cloud/cloud.service').assignCustomersToTrainer(gymId, trainerId, customerLocalIds)
+    );
     // RM records (client-submitted, trainer-approved)
     handle('cloud:getRmRecords', ({ gymId, status }) =>
         require('../services/cloud/cloud.service').getRmRecords(gymId, status)

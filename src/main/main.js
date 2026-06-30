@@ -173,6 +173,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
     const licenseService = require('./services/local/license.service');
+    const trainerAuthService = require('./services/local/trainer-auth.service');
     const { ipcMain } = require('electron');
 
     // 0. Window Control Handlers (custom titlebar)
@@ -201,6 +202,52 @@ app.whenReady().then(() => {
 
     ipcMain.handle('license:getHardwareId', () => licenseService.hardwareId);
 
+    // ── Trainer-mode (2.3.0) ──────────────────────────────────────────
+    // Login from the activation window. On success → close activation,
+    // open the main window in trainer mode (skips DB init, sync, etc.).
+    ipcMain.handle('trainer:signIn', async (event, payload) => {
+        const { email, password, devMode } = payload || {};
+        const result = await trainerAuthService.signIn(email, password);
+        if (result.success) {
+            const activationWin = BrowserWindow.fromWebContents(event.sender);
+            if (activationWin) activationWin.close();
+            if (devMode) startTrainerMode({ extra: true });
+            else startTrainerMode();
+        }
+        return result;
+    });
+
+    ipcMain.handle('trainer:signInWithGoogle', async (event, payload) => {
+        const { devMode } = payload || {};
+        const activationWin = BrowserWindow.fromWebContents(event.sender);
+        const result = await trainerAuthService.signInWithGoogle(activationWin);
+        if (result.success) {
+            if (activationWin) activationWin.close();
+            if (devMode) startTrainerMode({ extra: true });
+            else startTrainerMode();
+        }
+        return result;
+    });
+    ipcMain.handle('trainer:getProfile', () => trainerAuthService.getProfile());
+    ipcMain.handle('trainer:signOut', async () => {
+        const r = await trainerAuthService.signOut();
+        // Close all windows and re-open activation so the trainer can log out cleanly.
+        BrowserWindow.getAllWindows().forEach((w) => { try { w.close(); } catch { /* */ } });
+        setTimeout(() => createActivationWindow(), 100);
+        return r;
+    });
+    ipcMain.handle('trainer:getMyClients', () => trainerAuthService.callTrainerData('getMyClients', {}));
+    ipcMain.handle('trainer:getExercises', () => trainerAuthService.callTrainerData('getExercises', {}));
+    ipcMain.handle('trainer:getCustomerWorkoutLogs', (_e, { customerLocalId }) =>
+        trainerAuthService.callTrainerData('getCustomerWorkoutLogs', { customer_local_id: customerLocalId })
+    );
+    ipcMain.handle('trainer:getCustomerWeightLogs', (_e, { customerLocalId }) =>
+        trainerAuthService.callTrainerData('getCustomerWeightLogs', { customer_local_id: customerLocalId })
+    );
+    ipcMain.handle('trainer:getCustomerMesocycles', (_e, { customerLocalId }) =>
+        trainerAuthService.callTrainerData('getCustomerMesocycles', { customer_local_id: customerLocalId })
+    );
+
     // Register Updater IPC EARLY (before any window loads to avoid race condition)
     ipcMain.handle('updater:getVersion', () => app.getVersion());
     ipcMain.handle('updater:check', () => {
@@ -216,14 +263,82 @@ app.whenReady().then(() => {
         return autoUpdater.quitAndInstall();
     });
 
-    // 2. Check License
-    if (licenseService.isAuthenticated()) {
+    // 2. Choose startup mode — trainer-mode takes priority over license-mode.
+    if (trainerAuthService.isAuthenticated()) {
+        console.log('🧑‍🏫 Trainer Session Found. Starting Trainer Mode...');
+        startTrainerMode();
+    } else if (licenseService.isAuthenticated()) {
         console.log('✅ License Verified. Starting App...');
         startApp();
     } else {
         console.log('🔒 License Required. Opening Activation Window...');
         createActivationWindow();
     }
+
+    /**
+     * Trainer mode boots a slim main window pointed at the same renderer with
+     * `?mode=trainer`. We DO NOT touch the local SQLite (no gym DB on the
+     * trainer's PC), DO NOT run the realtime/sync services, and DO NOT
+     * register the full owner handlers. All trainer:* IPC handlers are
+     * registered above in whenReady(), so they're already live by the time
+     * this window opens.
+     */
+    function startTrainerMode(opts = {}) {
+        const { extra = false } = opts; // extra: don't replace mainWindow (dev side-by-side mode)
+        const preloadPath = path.resolve(__dirname, '../preload/index.js');
+        const win = new BrowserWindow({
+            width: 1280, height: 820, minWidth: 1024, minHeight: 700,
+            backgroundColor: '#0f172a', frame: false, show: false,
+            icon: path.join(__dirname, '../../resources/icon.png'),
+            title: extra ? 'Modo Entrenador (dev)' : 'Gym Manager Pro',
+            webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: false, webSecurity: true },
+        });
+        if (!extra) mainWindow = win;
+
+        const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+        if (isDev) {
+            win.loadURL('http://localhost:5173?mode=trainer');
+            if (!extra) win.webContents.openDevTools();
+        } else {
+            win.loadFile(path.join(app.getAppPath(), 'dist/index.html'), { search: 'mode=trainer' });
+        }
+        win.once('ready-to-show', () => win.show());
+
+        // Reuse the same window controls.
+        win.on('maximize', () => win.webContents.send('window:maximized-changed', true));
+        win.on('unmaximize', () => win.webContents.send('window:maximized-changed', false));
+
+        if (!extra) {
+            // Periodic refresh of the trainer session so an open app never holds an expired token.
+            setInterval(() => trainerAuthService.refreshSession().catch(() => {}), 30 * 60 * 1000);
+        }
+        return win;
+    }
+
+    // Dev-only: open the trainer mode in an EXTRA window without disturbing
+    // the boss session. If no trainer session exists, opens the activation
+    // popup focused on the trainer tab; on success, opens the extra window.
+    ipcMain.handle('dev:openTrainerMode', () => {
+        const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+        if (!isDev) return { success: false, error: 'dev_only' };
+        if (trainerAuthService.isAuthenticated()) {
+            startTrainerMode({ extra: true });
+            return { success: true, opened: 'trainer_window' };
+        }
+        // No session yet — show activation popup with devMode flag.
+        const popup = new BrowserWindow({
+            width: 500, height: 620, frame: false, resizable: false,
+            parent: mainWindow || undefined,
+            webPreferences: {
+                nodeIntegration: false, contextIsolation: true,
+                preload: path.join(__dirname, './preload/activation.js'),
+                additionalArguments: ['--dev-trainer-mode'],
+            },
+            backgroundColor: '#0f172a',
+        });
+        popup.loadFile(path.join(__dirname, '../renderer/activation.html'), { search: 'devMode=1&tab=trainer' });
+        return { success: true, opened: 'login_popup' };
+    });
 
     function startApp() {
         // 1. Initialize DB

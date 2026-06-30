@@ -203,6 +203,9 @@ class DBManager {
         // mobile_show_schedule: 1=el cliente ve el horario/clases en la app (default),
         // 0=oculto (cliente que solo quiere sus rutinas, no va al gimnasio).
         this.safeAddColumn('customers', 'mobile_show_schedule', 'INTEGER DEFAULT 1');
+        // assigned_trainer_id (2.3.0): UUID del entrenador-usuario asignado al cliente
+        // (cloud gym_trainers.id). NULL = sólo el jefe lo gestiona. TEXT porque guarda UUID.
+        this.safeAddColumn('customers', 'assigned_trainer_id', 'TEXT DEFAULT NULL');
         // trainer_id: entrenador asignado a la clase (FK a trainers). NULL = sin asignar
         // (en el gimnasio se muestran los de turno; en clases, el asignado).
         this.safeAddColumn('gym_classes', 'trainer_id', 'INTEGER REFERENCES trainers(id)');

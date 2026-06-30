@@ -4,138 +4,228 @@
 <head>
     <meta charset="UTF-8" />
     <title>Activar Gym Manager Pro</title>
-    <!-- Use the same Tailwind CSS from the main app -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
             font-family: 'Segoe UI', sans-serif;
             background-color: #0f172a;
-            /* Slate 950 */
             color: white;
             user-select: none;
             overflow: hidden;
         }
-
-        .drag-region {
-            -webkit-app-region: drag;
-            height: 30px;
-            width: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-
-        .no-drag {
-            -webkit-app-region: no-drag;
-        }
+        .drag-region { -webkit-app-region: drag; height: 30px; width: 100%; position: absolute; top: 0; left: 0; }
+        .no-drag { -webkit-app-region: no-drag; }
     </style>
 </head>
 
 <body class="h-screen w-screen flex flex-col items-center justify-center p-8">
     <div class="drag-region"></div>
 
-    <div
-        class="w-full max-w-sm bg-slate-900/80 border border-slate-700 rounded-2xl p-8 shadow-2xl backdrop-blur-sm text-center">
-        <!-- Logo -->
-        <div class="mb-6 flex justify-center">
-            <div
-                class="w-16 h-16 bg-gradient-to-br from-emerald-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
+    <div class="w-full max-w-sm bg-slate-900/80 border border-slate-700 rounded-2xl p-7 shadow-2xl backdrop-blur-sm">
+        <div class="mb-5 flex justify-center">
+            <div class="w-16 h-16 bg-gradient-to-br from-emerald-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                          d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
             </div>
         </div>
 
-        <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-500 mb-2">
-            Activación
+        <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-500 mb-2 text-center">
+            Bienvenido
         </h1>
-        <p class="text-slate-400 text-sm mb-6">
-            Ingresa tu licencia para desbloquear Gym Manager Pro.
+        <p class="text-slate-400 text-sm mb-5 text-center">
+            ¿Cómo quieres entrar?
         </p>
 
-        <form id="activationForm" class="space-y-4 no-drag">
-            <div class="relative">
-                <input type="text" id="licenseKey" placeholder="XXXX-XXXX-XXXX-XXXX"
-                    class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-center uppercase tracking-widest font-mono"
-                    required />
-            </div>
+        <!-- Tabs -->
+        <div class="flex gap-1 mb-5 p-1 bg-slate-950/80 rounded-xl border border-slate-800 no-drag">
+            <button type="button" id="tabLicense"
+                class="flex-1 py-2 text-sm font-bold rounded-lg transition bg-slate-800 text-white">
+                Licencia (gimnasio)
+            </button>
+            <button type="button" id="tabTrainer"
+                class="flex-1 py-2 text-sm font-bold rounded-lg transition text-slate-400 hover:text-white">
+                Soy entrenador
+            </button>
+        </div>
 
+        <!-- License form -->
+        <form id="licenseForm" class="space-y-3 no-drag">
+            <input type="text" id="licenseKey" placeholder="XXXX-XXXX-XXXX-XXXX"
+                class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-center uppercase tracking-widest font-mono"
+                required />
             <button type="submit" id="activateBtn"
-                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
-                <span id="btnText">Activar Licencia</span>
-                <svg id="loadingSpinner" class="animate-spin h-5 w-5 text-white hidden"
-                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                <span id="btnText">Activar licencia</span>
+                <svg id="loadingSpinner" class="animate-spin h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                    </path>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             </button>
         </form>
 
-        <div id="statusMessage" class="mt-4 text-sm font-medium hidden"></div>
+        <!-- Trainer form (hidden by default) -->
+        <div id="trainerForm" class="space-y-3 no-drag hidden">
+            <!-- Google sign-in (preferred) -->
+            <button type="button" id="googleBtn"
+                class="w-full bg-white hover:bg-slate-100 text-slate-800 font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                <svg class="h-5 w-5" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                    <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+                    <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+                    <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+                    <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+                </svg>
+                <span id="googleBtnText">Continuar con Google</span>
+                <svg id="googleSpinner" class="animate-spin h-5 w-5 text-slate-800 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+            </button>
 
-        <div class="mt-8 pt-4 border-t border-slate-800">
-            <p class="text-xs text-slate-500">
-                Gym Manager Pro &copy; 2026
+            <div class="flex items-center gap-3 my-1">
+                <div class="flex-1 h-px bg-slate-700"></div>
+                <span class="text-[10px] uppercase tracking-wider text-slate-500">o con email</span>
+                <div class="flex-1 h-px bg-slate-700"></div>
+            </div>
+
+            <form id="trainerEmailForm" class="space-y-3">
+                <input type="email" id="trainerEmail" placeholder="tu@email.com" required
+                    class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" />
+                <input type="password" id="trainerPassword" placeholder="Contraseña" required
+                    class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" />
+                <button type="submit" id="trainerLoginBtn"
+                    class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span id="trainerBtnText">Entrar como entrenador</span>
+                    <svg id="trainerSpinner" class="animate-spin h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                </button>
+            </form>
+
+            <p class="text-xs text-slate-500 text-center">
+                El jefe del gimnasio te tiene que invitar primero con tu email.
             </p>
+        </div>
+
+        <div id="statusMessage" class="mt-4 text-sm font-medium hidden text-center"></div>
+
+        <div class="mt-6 pt-4 border-t border-slate-800">
+            <p class="text-xs text-slate-500 text-center">Gym Manager Pro &copy; 2026</p>
         </div>
     </div>
 
     <script>
-        // Use exposed API instead of direct require
         const api = window.activationAPI;
 
-        const form = document.getElementById('activationForm');
-        const input = document.getElementById('licenseKey');
-        const btn = document.getElementById('activateBtn');
-        const btnText = document.getElementById('btnText');
-        const spinner = document.getElementById('loadingSpinner');
+        // Tabs
+        const tabLicense = document.getElementById('tabLicense');
+        const tabTrainer = document.getElementById('tabTrainer');
+        const licenseForm = document.getElementById('licenseForm');
+        const trainerForm = document.getElementById('trainerForm');
         const statusMsg = document.getElementById('statusMessage');
 
-        form.addEventListener('submit', async (e) => {
+        // Dev popup mode: only show trainer tab (the boss is already logged in).
+        const params = new URLSearchParams(window.location.search);
+        const isDevPopup = params.get('devMode') === '1' || api?.isDevTrainerPopup;
+        if (isDevPopup) {
+            tabLicense.style.display = 'none';
+            licenseForm.style.display = 'none';
+            tabTrainer.className = 'flex-1 py-2 text-sm font-bold rounded-lg transition bg-slate-800 text-white';
+            trainerForm.classList.remove('hidden');
+        }
+
+        function showStatus(text, kind) {
+            statusMsg.textContent = text;
+            statusMsg.className = `mt-4 text-sm font-medium text-center ${kind === 'ok' ? 'text-emerald-400' : 'text-red-400'}`;
+        }
+        function hideStatus() { statusMsg.className = 'mt-4 text-sm font-medium hidden text-center'; }
+
+        function activate(tab) {
+            hideStatus();
+            if (tab === 'license') {
+                tabLicense.className = 'flex-1 py-2 text-sm font-bold rounded-lg transition bg-slate-800 text-white';
+                tabTrainer.className = 'flex-1 py-2 text-sm font-bold rounded-lg transition text-slate-400 hover:text-white';
+                licenseForm.classList.remove('hidden'); trainerForm.classList.add('hidden');
+            } else {
+                tabTrainer.className = 'flex-1 py-2 text-sm font-bold rounded-lg transition bg-slate-800 text-white';
+                tabLicense.className = 'flex-1 py-2 text-sm font-bold rounded-lg transition text-slate-400 hover:text-white';
+                trainerForm.classList.remove('hidden'); licenseForm.classList.add('hidden');
+            }
+        }
+        tabLicense.addEventListener('click', () => activate('license'));
+        tabTrainer.addEventListener('click', () => activate('trainer'));
+
+        // License submission
+        const licenseInput = document.getElementById('licenseKey');
+        const activateBtn = document.getElementById('activateBtn');
+        const btnText = document.getElementById('btnText');
+        const spinner = document.getElementById('loadingSpinner');
+
+        licenseForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const key = input.value.trim();
+            const key = licenseInput.value.trim();
             if (!key) return;
-
-            // UI Loading State
-            btn.disabled = true;
-            btnText.textContent = 'Verificando...';
-            spinner.classList.remove('hidden');
-            input.disabled = true;
-            statusMsg.classList.add('hidden');
-            statusMsg.className = 'mt-4 text-sm font-medium hidden';
-
+            activateBtn.disabled = true; btnText.textContent = 'Verificando…'; spinner.classList.remove('hidden');
+            licenseInput.disabled = true; hideStatus();
             try {
-                // Call Main Process via Secure API
                 await api.activate(key);
+                showStatus('✅ Licencia activada', 'ok'); btnText.textContent = '¡Listo!';
+            } catch (err) {
+                showStatus(`❌ ${err.message || err}`, 'err');
+                activateBtn.disabled = false; btnText.textContent = 'Intentar de nuevo'; spinner.classList.add('hidden');
+                licenseInput.disabled = false; licenseInput.focus();
+            }
+        });
 
-                // Success UI
-                statusMsg.textContent = '✅ ¡Licencia activada correctamente!';
-                statusMsg.classList.remove('text-red-400', 'hidden');
-                statusMsg.classList.add('text-emerald-400');
-                btnText.textContent = '¡Listo!';
+        // Google login
+        const googleBtn = document.getElementById('googleBtn');
+        const googleBtnText = document.getElementById('googleBtnText');
+        const googleSpinner = document.getElementById('googleSpinner');
+        googleBtn.addEventListener('click', async () => {
+            googleBtn.disabled = true; googleBtnText.textContent = 'Abriendo Google…'; googleSpinner.classList.remove('hidden');
+            hideStatus();
+            try {
+                const result = await api.trainerSignInWithGoogle(isDevPopup);
+                if (result?.success) {
+                    showStatus('✅ Sesión iniciada', 'ok'); googleBtnText.textContent = '¡Listo!';
+                } else if (result?.cancelled) {
+                    googleBtn.disabled = false; googleBtnText.textContent = 'Continuar con Google'; googleSpinner.classList.add('hidden');
+                } else {
+                    throw new Error(result?.error || 'No se pudo iniciar sesión con Google');
+                }
+            } catch (err) {
+                showStatus(`❌ ${err.message || err}`, 'err');
+                googleBtn.disabled = false; googleBtnText.textContent = 'Continuar con Google'; googleSpinner.classList.add('hidden');
+            }
+        });
 
-                // Main process will close this window shortly
-            } catch (error) {
-                // Error UI
-                console.error(error);
-                statusMsg.textContent = `❌ ${error.message}`;
-                statusMsg.classList.remove('text-emerald-400', 'hidden');
-                statusMsg.classList.add('text-red-400');
+        // Trainer submission
+        const trainerEmailForm = document.getElementById('trainerEmailForm');
+        const trainerEmail = document.getElementById('trainerEmail');
+        const trainerPassword = document.getElementById('trainerPassword');
+        const trainerBtn = document.getElementById('trainerLoginBtn');
+        const trainerBtnText = document.getElementById('trainerBtnText');
+        const trainerSpinner = document.getElementById('trainerSpinner');
 
-                // Reset form state
-                btn.disabled = false;
-                btnText.textContent = 'Intentar de nuevo';
-                spinner.classList.add('hidden');
-                input.disabled = false;
-                input.focus();
-
-                // Shake animation
-                form.classList.add('animate-pulse');
-                setTimeout(() => form.classList.remove('animate-pulse'), 500);
+        trainerEmailForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = trainerEmail.value.trim(); const password = trainerPassword.value;
+            if (!email || !password) return;
+            trainerBtn.disabled = true; trainerBtnText.textContent = 'Verificando…'; trainerSpinner.classList.remove('hidden');
+            trainerEmail.disabled = true; trainerPassword.disabled = true; hideStatus();
+            try {
+                const result = await api.trainerSignIn(email, password, isDevPopup);
+                if (result?.success) {
+                    showStatus('✅ Sesión iniciada', 'ok'); trainerBtnText.textContent = '¡Listo!';
+                } else {
+                    throw new Error(result?.error || 'No se pudo iniciar sesión');
+                }
+            } catch (err) {
+                showStatus(`❌ ${err.message || err}`, 'err');
+                trainerBtn.disabled = false; trainerBtnText.textContent = 'Intentar de nuevo'; trainerSpinner.classList.add('hidden');
+                trainerEmail.disabled = false; trainerPassword.disabled = false;
             }
         });
     </script>

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Trash2, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useGym } from '../../context/GymContext';
+import CustomerProgress from './CustomerProgress';
 
 export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false }) {
 
@@ -10,6 +11,7 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
     const { customers } = useGym();
     const customer = customers?.find(c => c.id === customerId); // eslint-disable-line @typescript-eslint/no-unused-vars
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
+    const [view, setView] = useState('tablas'); // 'tablas' | 'progreso'
 
     // Helper to open modal
     const requestConfirm = ({ title, message, type = 'info', confirmText, onConfirm }) => {
@@ -137,6 +139,25 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
 
     return (
         <div className="flex flex-col h-full relative">
+            {/* Pestañas: Tablas / Progreso */}
+            <div className="mb-4 flex gap-1 border-b border-white/10">
+                {[['tablas', 'Tablas'], ['progreso', 'Progreso']].map(([v, label]) => (
+                    <button
+                        key={v}
+                        onClick={() => setView(v)}
+                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold transition-colors ${view === v ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            {view === 'progreso' ? (
+                <div className="flex-1 overflow-y-auto pr-2">
+                    <CustomerProgress customerId={customerId} />
+                </div>
+            ) : (
+            <>
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     <Calendar className="text-blue-400" />
@@ -229,6 +250,8 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                     })
                 )}
             </div>
+            </>
+            )}
 
             <ConfirmationModal
                 isOpen={confirmModal.isOpen}

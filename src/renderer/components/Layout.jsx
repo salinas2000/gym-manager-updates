@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy, Shield } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import { can } from '../lib/entitlements';
@@ -10,20 +10,21 @@ import WindowControls from './ui/WindowControls';
 const SidebarItem = ({ icon: Icon, label, active, onClick, color = "text-slate-500" }) => (
     <div
         onClick={onClick}
+        title={label}
         className={`
-    flex items-center gap-3 px-4 py-2.5 rounded-xl cursor-pointer transition-all group
+    flex items-center gap-2.5 px-3 py-1.5 rounded-lg cursor-pointer transition-all group
     ${active
-                ? 'bg-blue-600 shadow-[0_0_20px_rgba(37,99,235,0.3)] text-white'
+                ? 'bg-blue-600 shadow-[0_0_14px_rgba(37,99,235,0.3)] text-white'
                 : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
   `}>
-        <Icon size={18} className={active ? 'text-white' : `${color} group-hover:text-slate-200`} />
-        <span className="font-medium text-xs uppercase tracking-wider">{label}</span>
+        <Icon size={15} className={active ? 'text-white' : `${color} group-hover:text-slate-200`} />
+        <span className="font-medium text-[11px] uppercase tracking-wider truncate">{label}</span>
     </div>
 );
 
 const SectionLabel = ({ label }) => (
-    <div className="px-4 mt-6 mb-2">
-        <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">{label}</span>
+    <div className="px-3 mt-3 mb-1">
+        <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.18em]">{label}</span>
     </div>
 );
 
@@ -74,12 +75,12 @@ export default function Layout({ children, currentView, onNavigate }) {
             <GlobalBanner />
             <div className="flex h-screen w-full overflow-hidden bg-slate-950 text-slate-100">
                 {/* Glassmorphism Sidebar */}
-                <aside className="w-64 h-full flex flex-col p-6 border-r border-white/5 bg-slate-900/30 backdrop-blur-xl z-10">
+                <aside className="w-56 h-full flex flex-col p-4 border-r border-white/5 bg-slate-900/30 backdrop-blur-xl z-10">
                     {/* Drag region for sidebar top */}
-                    <div className="h-3 -mt-6 -mx-6 mb-3" style={{ WebkitAppRegion: 'drag' }}></div>
+                    <div className="h-3 -mt-4 -mx-4 mb-2" style={{ WebkitAppRegion: 'drag' }}></div>
 
                     {/* Brand Header */}
-                    <div className="mb-10 px-2 relative group cursor-default">
+                    <div className="mb-5 px-1 relative group cursor-default">
                         <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
                         <div className="relative flex items-center justify-between gap-3 w-full">
                             <div className="flex items-center gap-3">
@@ -246,7 +247,7 @@ export default function Layout({ children, currentView, onNavigate }) {
                         />
                     </nav>
 
-                    <div className="mt-auto pt-6 border-t border-white/5 space-y-3">
+                    <div className="mt-auto pt-3 border-t border-white/5 space-y-2">
                         {/* Cloud Backup */}
                         <SidebarItem
                             icon={Cloud}
@@ -254,6 +255,21 @@ export default function Layout({ children, currentView, onNavigate }) {
                             active={currentView === 'backup'}
                             onClick={() => onNavigate('backup')}
                         />
+
+                        {/* Dev-only: open trainer mode in a SIDE window */}
+                        {import.meta.env.DEV && (
+                            <div
+                                onClick={async () => {
+                                    const r = await window.api?.dev?.openTrainerMode?.();
+                                    if (r && !r.success) alert(`No se pudo abrir: ${r.error || 'error'}`);
+                                }}
+                                title="Abre la pantalla de entrenador en una ventana aparte sin cerrar esta sesión"
+                                className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg cursor-pointer text-cyan-400 border border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/10 transition-all"
+                            >
+                                <Shield size={15} />
+                                <span className="font-medium text-[11px] uppercase tracking-wider truncate">Modo entrenador (dev)</span>
+                            </div>
+                        )}
 
 
                         <div className="flex items-center gap-3 px-2">

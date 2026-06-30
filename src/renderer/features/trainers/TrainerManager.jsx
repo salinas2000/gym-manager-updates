@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, User, Mail, Phone, Edit2, Trash2, Eye, EyeOff, Clock, X, Save } from 'lucide-react';
+import { Plus, User, Mail, Phone, Edit2, Trash2, Eye, EyeOff, Clock, X, Save, Shield, Users } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import TrainerAccessPage from '../trainer-access/TrainerAccessPage';
 
 const DAY_NAMES = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
 const COLORS = [
@@ -14,6 +15,34 @@ const COLORS = [
 ];
 
 export default function TrainerManager() {
+    const [tab, setTab] = useState('staff'); // 'staff' | 'access'
+    return (
+        <div className="flex h-full flex-col">
+            <div className="border-b border-white/10 px-6 pt-4">
+                <div className="flex gap-1">
+                    {[
+                        ['staff', 'Plantilla', Users],
+                        ['access', 'Acceso al panel', Shield],
+                    ].map(([v, label, Icon]) => (
+                        <button
+                            key={v}
+                            onClick={() => setTab(v)}
+                            className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition-colors ${tab === v ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
+                        >
+                            <Icon size={15} />
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+                {tab === 'staff' ? <StaffSection /> : <TrainerAccessPage />}
+            </div>
+        </div>
+    );
+}
+
+function StaffSection() {
     const toast = useToast();
     const [trainers, setTrainers] = useState([]);
     const [loading, setLoading] = useState(true);

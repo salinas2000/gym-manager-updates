@@ -1040,6 +1040,52 @@ class CloudService {
         return { success: true, data: Array.isArray(res.data) ? res.data : [] };
     }
 
+    // -----------------------------------------------------------------
+    // TRAINERS (2.3.0) — boss-side management. Calls go through owner-admin.
+    // -----------------------------------------------------------------
+    async inviteTrainer(gymId, email, fullName) {
+        const resolved = this._resolveGymId(gymId);
+        if (!resolved) return { success: false, error: 'Gym ID no resuelto' };
+        return await this._callOwnerAdmin('inviteTrainer', { gym_id: resolved, email, full_name: fullName || null });
+    }
+    async listTrainers(gymId) {
+        const resolved = this._resolveGymId(gymId);
+        if (!resolved) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const res = await this._callOwnerAdmin('listTrainers', { gym_id: resolved });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        return { success: true, data: Array.isArray(res.data) ? res.data : [] };
+    }
+    async revokeTrainer(gymId, trainerId) {
+        const resolved = this._resolveGymId(gymId);
+        if (!resolved) return { success: false, error: 'Gym ID no resuelto' };
+        return await this._callOwnerAdmin('revokeTrainer', { gym_id: resolved, trainer_id: trainerId });
+    }
+    async assignCustomersToTrainer(gymId, trainerId, customerLocalIds) {
+        const resolved = this._resolveGymId(gymId);
+        if (!resolved) return { success: false, error: 'Gym ID no resuelto' };
+        return await this._callOwnerAdmin('assignCustomersToTrainer', {
+            gym_id: resolved,
+            trainer_id: trainerId,
+            customer_local_ids: customerLocalIds,
+        });
+    }
+
+    /**
+     * Fetch workout logs (the sets a client recorded from the mobile app).
+     * Routes through the owner-admin Edge Function. Read-only — used by the
+     * trainer/owner "Progreso del socio" view.
+     */
+    async getCustomerWorkoutLogs(gymId, customerLocalId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const res = await this._callOwnerAdmin('getCustomerWorkoutLogs', {
+            gym_id: resolvedGymId,
+            customer_local_id: customerLocalId,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        return { success: true, data: Array.isArray(res.data) ? res.data : [] };
+    }
+
     /**
      * RM / records the clients submitted. Reads via owner-data and enriches
      * each row with the local customer name for display.

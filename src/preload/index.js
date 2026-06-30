@@ -103,12 +103,32 @@ contextBridge.exposeInMainWorld('api', {
         getPublishableConfig: () => ipcRenderer.invoke('cloud:getPublishableConfig'),
         // Mobile app data
         getCustomerWeightLogs: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerWeightLogs', { gymId, customerId }),
+        getCustomerWorkoutLogs: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerWorkoutLogs', { gymId, customerId }),
+        // Trainers (2.3.0)
+        inviteTrainer: (gymId, email, fullName) => ipcRenderer.invoke('cloud:inviteTrainer', { gymId, email, fullName }),
+        listTrainers: (gymId) => ipcRenderer.invoke('cloud:listTrainers', { gymId }),
+        revokeTrainer: (gymId, trainerId) => ipcRenderer.invoke('cloud:revokeTrainer', { gymId, trainerId }),
+        assignCustomersToTrainer: (gymId, trainerId, customerLocalIds) => ipcRenderer.invoke('cloud:assignCustomersToTrainer', { gymId, trainerId, customerLocalIds }),
         getRmRecords: (gymId, status) => ipcRenderer.invoke('cloud:getRmRecords', { gymId, status }),
         reviewRmRecord: (id, status) => ipcRenderer.invoke('cloud:reviewRmRecord', { id, status }),
         getCustomerMobileStatus: (gymId, customerId) => ipcRenderer.invoke('cloud:getCustomerMobileStatus', { gymId, customerId }),
         getMobileLinkedCustomers: (gymId) => ipcRenderer.invoke('cloud:getMobileLinkedCustomers', { gymId }),
         resetMobilePassword: (gymId, customerId) => ipcRenderer.invoke('cloud:resetMobilePassword', { gymId, customerId }),
         revokeMobileAccess: (gymId, customerId) => ipcRenderer.invoke('cloud:revokeMobileAccess', { gymId, customerId }),
+    },
+    dev: {
+        // Dev-only: opens trainer mode in an EXTRA window (does not log out the boss).
+        openTrainerMode: () => ipcRenderer.invoke('dev:openTrainerMode'),
+    },
+    // Trainer-mode (2.3.0) — separate user role with scoped access
+    trainer: {
+        getProfile: () => ipcRenderer.invoke('trainer:getProfile'),
+        signOut: () => ipcRenderer.invoke('trainer:signOut'),
+        getMyClients: () => ipcRenderer.invoke('trainer:getMyClients'),
+        getCustomerWorkoutLogs: (customerLocalId) => ipcRenderer.invoke('trainer:getCustomerWorkoutLogs', { customerLocalId }),
+        getCustomerWeightLogs: (customerLocalId) => ipcRenderer.invoke('trainer:getCustomerWeightLogs', { customerLocalId }),
+        getCustomerMesocycles: (customerLocalId) => ipcRenderer.invoke('trainer:getCustomerMesocycles', { customerLocalId }),
+        getExercises: () => ipcRenderer.invoke('trainer:getExercises'),
     },
     training: {
         getExercises: () => ipcRenderer.invoke('training:getExercises'),
