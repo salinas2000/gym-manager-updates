@@ -671,11 +671,15 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                             onChange={e => {
                                                 const newDate = e.target.value;
                                                 setStartDate(newDate);
-                                                // Recalculate End Date
-                                                const start = new Date(newDate);
-                                                const end = new Date(start);
-                                                end.setDate(start.getDate() + (weeks * 7));
-                                                setEndDate(end.toISOString().split('T')[0]);
+                                                // If the end date is empty, seed it from the duration selector so
+                                                // there is always a valid range. Do NOT touch an existing end date
+                                                // — the user has now got explicit control over it via its own input.
+                                                if (!endDate && newDate) {
+                                                    const start = new Date(newDate);
+                                                    const end = new Date(start);
+                                                    end.setDate(start.getDate() + (weeks * 7));
+                                                    setEndDate(end.toISOString().split('T')[0]);
+                                                }
                                             }}
                                             className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 font-medium"
                                         />
@@ -705,22 +709,35 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                         )}
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-400 mb-2">Duración (Semanas)</label>
-                                        <select
-                                            value={weeks}
-                                            onChange={e => handleWeeksChange(parseInt(e.target.value))}
-                                            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 font-medium appearance-none"
-                                        >
-                                            {[2, 4, 6, 8, 12, 16].map(w => <option key={w} value={w}>{w} Semanas</option>)}
-                                        </select>
+                                        <label className="block text-sm font-bold text-slate-400 mb-2">Fecha Fin</label>
+                                        <input
+                                            type="date"
+                                            value={endDate || ''}
+                                            min={startDate || undefined}
+                                            onChange={e => setEndDate(e.target.value)}
+                                            className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 font-medium"
+                                        />
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <label className="text-[10px] uppercase font-bold text-slate-500 whitespace-nowrap">Duración</label>
+                                            <select
+                                                value={weeks}
+                                                onChange={e => handleWeeksChange(parseInt(e.target.value))}
+                                                className="flex-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 appearance-none"
+                                                title="Elige una duración para autocalcular la fecha fin"
+                                            >
+                                                {[2, 4, 6, 8, 12, 16].map(w => <option key={w} value={w}>{w} Semanas</option>)}
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
                             )}
 
                             <div className="pt-4 border-t border-white/5 flex items-center justify-between">
                                 {!isTemplate && (
-                                    <p className="text-sm text-slate-500">
-                                        Fin Estimado: <span className="text-white font-bold">{endDate || '-'}</span>
+                                    <p className="text-xs text-slate-500">
+                                        {startDate && endDate ? (
+                                            <>Del <span className="text-white font-bold">{new Date(startDate).toLocaleDateString()}</span> al <span className="text-white font-bold">{new Date(endDate).toLocaleDateString()}</span></>
+                                        ) : 'Ajusta las fechas de inicio y fin'}
                                     </p>
                                 )}
                             </div>
