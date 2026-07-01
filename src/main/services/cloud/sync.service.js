@@ -478,12 +478,17 @@ class SyncService extends BaseService {
             return 0;
         }
 
-        const routinesRes = await ownerSync.select('cloud_routines', 'local_id', gymId);
+        // NOTE (2.3.1): also fetch `created_by_device` so we can EXCLUDE trainer
+        // rows from the reconcile. NULL = owner-owned (default, backwards compat
+        // for pre-2.3.1 rows). Anything non-null was written by the trainer-mode
+        // desktop and is NOT ours to delete.
+        const routinesRes = await ownerSync.select('cloud_routines', 'local_id, created_by_device', gymId);
         if (!routinesRes?.success) {
             console.error('[SYNC] ❌ Ghost-reconcile (routines fetch):', routinesRes?.error);
             return 0;
         }
         const orphanRoutineIds = (routinesRes.data || [])
+            .filter(r => r.created_by_device == null) // ← only consider owner-owned rows
             .map(r => Number(r.local_id))
             .filter(id => !localRoutineIds.has(id));
         if (orphanRoutineIds.length > 0) {
@@ -513,12 +518,15 @@ class SyncService extends BaseService {
             console.log('[SYNC] 👻 Skipping item ghost reconcile — local has 0 items.');
             return removed;
         }
-        const itemsRes = await ownerSync.select('cloud_routine_items', 'local_id', gymId);
+        // Same defensive filter: never delete cloud_routine_items with a
+        // non-null created_by_device (trainer origin).
+        const itemsRes = await ownerSync.select('cloud_routine_items', 'local_id, created_by_device', gymId);
         if (!itemsRes?.success) {
             console.error('[SYNC] ❌ Ghost-reconcile (items fetch):', itemsRes?.error);
             return removed;
         }
         const orphanItemIds = (itemsRes.data || [])
+            .filter(i => i.created_by_device == null) // ← only consider owner-owned rows
             .map(i => Number(i.local_id))
             .filter(id => !localItemIds.has(id));
         if (orphanItemIds.length > 0) {
