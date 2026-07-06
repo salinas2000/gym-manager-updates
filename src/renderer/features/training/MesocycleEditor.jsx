@@ -5,13 +5,65 @@ import RoutineBuilder from './RoutineBuilder';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
+// ── Helpers de semanas completas (lunes → domingo) ──────────────────────
+// Parseo/format sin desfase UTC (nada de new Date('2026-07-01')).
+function pad2(n) { return String(n).padStart(2, '0'); }
+function ymdLocal(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function parseIso(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split('T')[0].split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+// Lunes de la semana en curso si hoy es lunes; si no, el próximo lunes.
+function nextMonday(from) {
+  const d = from ? new Date(from) : new Date();
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();               // 0=dom, 1=lun … 6=sáb
+  const delta = day === 1 ? 0 : (day === 0 ? 1 : 8 - day);
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+function nextMondayStr(from) { return ymdLocal(nextMonday(from)); }
+function isMondayStr(iso) {
+  const d = parseIso(iso);
+  return !!d && d.getDay() === 1;
+}
+// Fin = inicio + N semanas completas, terminando en domingo (inicio + N*7 − 1).
+function endFromWeeks(startIso, weeks) {
+  const d = parseIso(startIso);
+  if (!d) return '';
+  d.setDate(d.getDate() + weeks * 7 - 1);
+  return ymdLocal(d);
+}
+
+// Compact "1 jul – 28 jul" range for the header chip. Parses the YYYY-MM-DD
+// strings by hand to avoid the UTC-shift that `new Date('2026-07-01')` causes.
+function formatDateRange(startDate, endDate) {
+    const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const fmt = (iso) => {
+        if (!iso) return null;
+        const [y, m, d] = iso.split('T')[0].split('-').map(Number);
+        if (!y || !m || !d) return null;
+        return `${d} ${MESES[m - 1]}`;
+    };
+    const a = fmt(startDate);
+    const b = fmt(endDate);
+    if (a && b) return `${a} – ${b}`;
+    if (a) return `Desde ${a}`;
+    if (b) return `Hasta ${b}`;
+    return 'Sin fechas';
+}
+
 export default function MesocycleEditor({ customerId, customerName, initialData, onBack, onSave, templateMode = false, onViewHistory }) {
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', children: null, onConfirm: () => { }, type: 'info' });
     const [step, setStep] = useState(initialData ? 2 : 1); // 1: Config, 2: Builder
 
     // Config State
     const [name, setName] = useState(initialData?.name || '');
-    const [startDate, setStartDate] = useState(initialData?.start_date?.split('T')[0] || new Date().toISOString().split('T')[0]);
+    // Mesociclo nuevo → arranca el lunes siguiente para trabajar por semanas
+    // completas (lunes → domingo). Al editar, respeta la fecha guardada.
+    const [startDate, setStartDate] = useState(initialData?.start_date?.split('T')[0] || nextMondayStr());
     const [weeks, setWeeks] = useState(4);
     const [endDate, setEndDate] = useState(initialData?.end_date?.split('T')[0] || '');
     const [isTemplate, setIsTemplate] = useState(templateMode || false);
@@ -60,16 +112,13 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                 nextStart = firstOfMonth;
                             }
 
-                            const pad = n => String(n).padStart(2, '0');
-                            const nextStartStr = `${nextStart.getFullYear()}-${pad(nextStart.getMonth() + 1)}-${pad(nextStart.getDate())}`;
+                            // Semanas completas: alinear el arranque al lunes (el
+                            // mismo día si ya cae en lunes, o el siguiente).
+                            const nextStartStr = nextMondayStr(nextStart);
                             setSuggestedDate(nextStartStr);
                             setStartDate(nextStartStr);
-
-                            // Recalc End Date based on new Start
-                            const end = new Date(nextStart);
-                            end.setDate(nextStart.getDate() + (weeks * 7));
-                            const endStr = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
-                            setEndDate(endStr);
+                            // Fin en domingo (inicio + semanas completas − 1 día).
+                            setEndDate(endFromWeeks(nextStartStr, weeks));
                         }
                     }
                 }
@@ -191,13 +240,17 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
 
 
 
-    // Auto-calculate end date
+    // Auto-calculate end date — semanas completas, fin en domingo.
     const handleWeeksChange = (w) => {
         setWeeks(w);
-        const start = new Date(startDate);
-        const end = new Date(start);
-        end.setDate(start.getDate() + (w * 7));
-        setEndDate(end.toISOString().split('T')[0]);
+        setEndDate(endFromWeeks(startDate, w));
+    };
+
+    // Mueve la fecha de inicio al lunes siguiente y recalcula el fin.
+    const snapStartToMonday = () => {
+        const m = nextMondayStr(parseIso(startDate) || undefined);
+        setStartDate(m);
+        setEndDate(endFromWeeks(m, weeks));
     };
 
     // Initialize End Date if new
@@ -210,6 +263,14 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // Prepare for Builder
     const handleNext = async () => {
         if (!name.trim()) return setError('El nombre es obligatorio.');
+        // Both dates are required (except for templates). Un mesociclo sin
+        // fecha fin genera comportamiento inconsistente en el sync y en la
+        // vista del socio, así que lo bloqueamos aquí.
+        if (!isTemplate) {
+            if (!startDate) return setError('La fecha de inicio es obligatoria.');
+            if (!endDate) return setError('La fecha de fin es obligatoria.');
+            if (endDate < startDate) return setError('La fecha de fin debe ser posterior a la de inicio.');
+        }
 
         // Validate Overlaps before proceeding to step 2
         if (!isTemplate && customerId) {
@@ -239,6 +300,14 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
 
     // Save & Share
     const handleFinish = async (allowOverlap = false) => {
+        // Belt-and-suspenders: if user somehow reaches step 2 without valid
+        // dates (e.g. editing an old meso that was saved with '' before this
+        // validation existed), block save and send them back to step 1.
+        if (!isTemplate && (!startDate || !endDate || endDate < startDate)) {
+            setError('Falta la fecha de inicio o de fin. Vuelve a la configuración para completarlas.');
+            setStep(1);
+            return;
+        }
         setIsSaving(true);
         setError(null);
         try {
@@ -324,7 +393,20 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 </div>
 
                 <div className="flex gap-2">
-                    {/* Toolbar actions removed to avoid duplication with footer */}
+                    {/* Quick access to edit dates from the routine builder.
+                        Editing an existing meso opens directly on step 2, so
+                        without this chip the dates would be hard to reach. */}
+                    {step === 2 && !isTemplate && (
+                        <button
+                            onClick={() => setStep(1)}
+                            title="Ajustar fechas de inicio y fin"
+                            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-white/10 hover:border-blue-500/50 text-slate-300 hover:text-white px-4 py-2 rounded-xl font-bold text-sm transition-all"
+                        >
+                            <Calendar size={16} className="text-blue-400" />
+                            <span>{formatDateRange(startDate, endDate)}</span>
+                            <span className="text-blue-400 text-xs uppercase tracking-wider">· Editar</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -664,9 +746,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                             {!templateMode && (
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-400 mb-2">Fecha Inicio</label>
+                                        <label className="block text-sm font-bold text-slate-400 mb-2">Fecha Inicio <span className="text-red-400">*</span></label>
                                         <input
                                             type="date"
+                                            required
                                             value={startDate}
                                             onChange={e => {
                                                 const newDate = e.target.value;
@@ -675,14 +758,27 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                                 // there is always a valid range. Do NOT touch an existing end date
                                                 // — the user has now got explicit control over it via its own input.
                                                 if (!endDate && newDate) {
-                                                    const start = new Date(newDate);
-                                                    const end = new Date(start);
-                                                    end.setDate(start.getDate() + (weeks * 7));
-                                                    setEndDate(end.toISOString().split('T')[0]);
+                                                    setEndDate(endFromWeeks(newDate, weeks));
                                                 }
                                             }}
                                             className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 font-medium"
                                         />
+
+                                        {/* MONDAY HINT — semanas completas */}
+                                        {startDate && !isMondayStr(startDate) && (
+                                            <div className="mt-2 flex items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                                                <p className="text-xs text-amber-300/90 leading-tight">
+                                                    Los mesociclos van por semanas completas (lun → dom). Esta fecha no cae en lunes.
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={snapStartToMonday}
+                                                    className="shrink-0 text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                                                >
+                                                    Usar el lunes siguiente
+                                                </button>
+                                            </div>
+                                        )}
 
                                         {/* OCCUPIED DATES INFO */}
                                         {occupiedRanges.length > 0 && (
@@ -709,9 +805,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                         )}
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-400 mb-2">Fecha Fin</label>
+                                        <label className="block text-sm font-bold text-slate-400 mb-2">Fecha Fin <span className="text-red-400">*</span></label>
                                         <input
                                             type="date"
+                                            required
                                             value={endDate || ''}
                                             min={startDate || undefined}
                                             onChange={e => setEndDate(e.target.value)}

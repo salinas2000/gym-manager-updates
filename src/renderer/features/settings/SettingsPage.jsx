@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useGym } from '../../context/GymContext';
-import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Database, CreditCard, Clock, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Database, CreditCard, Clock, ToggleLeft, ToggleRight, Monitor } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import SettingsLicense from './SettingsLicense';
+import SettingsScreens from './SettingsScreens';
 
 export default function SettingsPage({ initialTab = 'general' }) {
     const { settings, updateSettings, refreshData } = useGym();
@@ -145,6 +146,9 @@ export default function SettingsPage({ initialTab = 'general' }) {
                 </button>
                 <button onClick={() => setActiveTab('payments')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'payments' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     <CreditCard size={16} /> Pagos
+                </button>
+                <button onClick={() => setActiveTab('screens')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'screens' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
+                    <Monitor size={16} /> Pantallas
                 </button>
                 <button onClick={() => setActiveTab('license')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'license' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     <Key size={16} /> Licencia
@@ -289,6 +293,9 @@ export default function SettingsPage({ initialTab = 'general' }) {
                     </div>
                 </div>
             )}
+
+            {/* TAB CONTENT: SCREENS */}
+            {activeTab === 'screens' && <SettingsScreens />}
 
             {/* TAB CONTENT: LICENSE */}
             {activeTab === 'license' && (

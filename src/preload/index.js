@@ -110,6 +110,14 @@ contextBridge.exposeInMainWorld('api', {
         getMobileLinkedCustomers: (gymId) => ipcRenderer.invoke('cloud:getMobileLinkedCustomers', { gymId }),
         resetMobilePassword: (gymId, customerId) => ipcRenderer.invoke('cloud:resetMobilePassword', { gymId, customerId }),
         revokeMobileAccess: (gymId, customerId) => ipcRenderer.invoke('cloud:revokeMobileAccess', { gymId, customerId }),
+        // Gym display (TV panel)
+        display: {
+            pairStart: (deviceName) => ipcRenderer.invoke('cloud:displayPairStart', { deviceName }),
+            pairAuthorize: (code, deviceName) => ipcRenderer.invoke('cloud:displayPairAuthorize', { code, deviceName }),
+            listDevices: () => ipcRenderer.invoke('cloud:displayListDevices'),
+            revokeDevice: (deviceId) => ipcRenderer.invoke('cloud:displayRevokeDevice', { deviceId }),
+            renameDevice: (deviceId, name) => ipcRenderer.invoke('cloud:displayRenameDevice', { deviceId, name }),
+        },
     },
     training: {
         getExercises: () => ipcRenderer.invoke('training:getExercises'),

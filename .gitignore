@@ -25,6 +25,9 @@ thumbs.db
 src/main/db/seeds/*.json
 !src/main/db/seeds/example.json
 
+# Borradores sueltos
+_elboletin.*
+
 # Electron Store (contains encrypted credentials)
 # Uncomment if you don't want to share user preferences
 # electron-store/

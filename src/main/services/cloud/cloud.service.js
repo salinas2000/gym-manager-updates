@@ -1157,6 +1157,90 @@ class CloudService {
         });
     }
 
+    // ─── GYM-DISPLAY EDGE FUNCTION CLIENT ───────────────────────────────────────
+    //
+    // Pairing + device management for the reactive TV panel served at
+    // display.gymanagerpro.com. Same auth pattern as owner-admin — Bearer with
+    // the encrypted owner_token. Ops: pairStart, pairAuthorize, listDevices,
+    // revokeDevice, renameDevice.
+    async _callGymDisplay(op, args) {
+        if (!this.credentials?.supabase?.url) {
+            return { success: false, error: 'Supabase no configurado' };
+        }
+        const licenseService = require('../local/license.service');
+        const token = licenseService.getOwnerToken();
+        if (!token) {
+            return { success: false, error: 'Sesión de propietario no disponible. Vuelve a iniciar sesión.' };
+        }
+        const url = `${this.credentials.supabase.url}/functions/v1/gym-display`;
+        try {
+            const ctrl = new AbortController();
+            const timeoutId = setTimeout(() => ctrl.abort(), 15000);
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ op, args }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(timeoutId);
+            let body = null;
+            try { body = await res.json(); } catch { /* non-json */ }
+            if (!res.ok) {
+                return { success: false, error: body?.error || `Error ${res.status} al llamar a gym-display`, status: res.status };
+            }
+            return body || { success: true };
+        } catch (err) {
+            return {
+                success: false,
+                error: err.name === 'AbortError' ? 'Timeout llamando a gym-display (15s)' : `Error de red: ${err.message}`,
+            };
+        }
+    }
+
+    // NOTE: the IPC `handle()` wrapper already wraps the return value in
+    // { success: true, data } and turns thrown errors into { success: false,
+    // error }. So these methods return the RAW payload and throw on failure —
+    // returning our own { success } object here would get double-wrapped and
+    // the renderer would read `undefined`.
+
+    /** Start a pairing: returns { code, expires_at, expires_in_seconds }. */
+    async displayPairStart(deviceName) {
+        const res = await this._callGymDisplay('pairStart', { device_name: deviceName || null });
+        if (!res?.success) throw new Error(res?.error || 'Error al generar el código');
+        return res.data;
+    }
+
+    /** Authorize a pending pairing so the TV can pick up its display token. */
+    async displayPairAuthorize(code, deviceName) {
+        const res = await this._callGymDisplay('pairAuthorize', { code, device_name: deviceName || undefined });
+        if (!res?.success) throw new Error(res?.error || 'Error al autorizar la pantalla');
+        return res.data;
+    }
+
+    /** List paired displays for this gym (both active and revoked). */
+    async displayListDevices() {
+        const res = await this._callGymDisplay('listDevices', {});
+        if (!res?.success) throw new Error(res?.error || 'Error al listar las pantallas');
+        return Array.isArray(res.data) ? res.data : [];
+    }
+
+    /** Revoke a paired display; the TV loses access on next request. */
+    async displayRevokeDevice(deviceId) {
+        const res = await this._callGymDisplay('revokeDevice', { device_id: deviceId });
+        if (!res?.success) throw new Error(res?.error || 'Error al revocar la pantalla');
+        return null;
+    }
+
+    /** Rename a paired display. */
+    async displayRenameDevice(deviceId, name) {
+        const res = await this._callGymDisplay('renameDevice', { device_id: deviceId, name });
+        if (!res?.success) throw new Error(res?.error || 'Error al renombrar la pantalla');
+        return null;
+    }
+
     /**
      * Get the publishable (anon) key configuration for the mobile app.
      * The admin can use this to configure the mobile app or generate a QR code.

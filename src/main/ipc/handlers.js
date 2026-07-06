@@ -765,6 +765,23 @@ function registerHandlers() {
         require('../services/cloud/cloud.service').getPublishableConfig()
     );
 
+    // ─── Gym display (TV panel) pairing + device management ─────────────
+    handle('cloud:displayPairStart', ({ deviceName } = {}) =>
+        require('../services/cloud/cloud.service').displayPairStart(deviceName)
+    );
+    handle('cloud:displayPairAuthorize', ({ code, deviceName } = {}) =>
+        require('../services/cloud/cloud.service').displayPairAuthorize(code, deviceName)
+    );
+    handle('cloud:displayListDevices', () =>
+        require('../services/cloud/cloud.service').displayListDevices()
+    );
+    handle('cloud:displayRevokeDevice', ({ deviceId } = {}) =>
+        require('../services/cloud/cloud.service').displayRevokeDevice(deviceId)
+    );
+    handle('cloud:displayRenameDevice', ({ deviceId, name } = {}) =>
+        require('../services/cloud/cloud.service').displayRenameDevice(deviceId, name)
+    );
+
     handle('admin:restoreBackup', ({ gymId, fileName }) => adminService.restoreRemoteBackup(gymId, fileName));
 
     // Credentials Management
