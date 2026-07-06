@@ -206,6 +206,11 @@ class DBManager {
         // assigned_trainer_id (2.3.0): UUID del entrenador-usuario asignado al cliente
         // (cloud gym_trainers.id). NULL = sólo el jefe lo gestiona. TEXT porque guarda UUID.
         this.safeAddColumn('customers', 'assigned_trainer_id', 'TEXT DEFAULT NULL');
+        // 2.3.2 Auto-baja por impago: timestamp cuando la app desactivó
+        // automáticamente al cliente (grace period tras vencimiento). NULL =
+        // activo o desactivado a mano por el jefe. La app móvil muestra un
+        // banner de "cuenta pausada" cuando este campo tiene valor.
+        this.safeAddColumn('customers', 'auto_deactivated_at', 'TEXT DEFAULT NULL');
         // trainer_id: entrenador asignado a la clase (FK a trainers). NULL = sin asignar
         // (en el gimnasio se muestran los de turno; en clases, el asignado).
         this.safeAddColumn('gym_classes', 'trainer_id', 'INTEGER REFERENCES trainers(id)');
@@ -704,38 +709,52 @@ class DBManager {
         this.verifyIntegrity();
 
 
-        // 10. Daily Cleanup: Finalize Scheduled Cancellations
-        // If a membership ended yesterday (or before) but the customer is still marked active, deactivate them now.
+        // 10. Daily Cleanup: Auto-deactivate customers whose last membership
+        // ended more than <grace_days> ago. Only fires when the boss has
+        // enabled the feature in Ajustes → Pagos. Stamps auto_deactivated_at
+        // so the payment UI can distinguish auto vs manual deactivation and
+        // offer a "Reactivar" button when the client pays again.
         try {
-            console.log('Maintenance: Checking for scheduled cancellations...');
-            const result = this.db.prepare(`
-                UPDATE customers 
-                SET active = 0
-                WHERE active = 1 AND id IN (
-                    SELECT customer_id FROM memberships
-                    WHERE end_date < datetime('now') AND end_date IS NOT NULL
-                    GROUP BY customer_id
-                    HAVING MAX(start_date) < datetime('now') -- Ensure we are looking at the latest valid period
-                )
-            `).run();
-            // Note: The subquery logic can be complex if multiple memberships exist. 
-            // Simplified: If the *current* relevant membership (end_date IS NOT NULL) has expired.
-            // A safer query:
-            // "Update customers to active=0 WHERE active=1 AND NOT EXISTS (any open membership OR any future membership)"
+            // Read gym settings (falls back to defaults). Both keys are
+            // upserted at gym init and by the Settings UI when the user saves.
+            const readSetting = (key, fallback) => {
+                try {
+                    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+                    return row?.value ?? fallback;
+                } catch { return fallback; }
+            };
+            const autoEnabled = readSetting('auto_deactivate_overdue_enabled', '0') === '1';
+            const graceDays = Math.max(0, parseInt(readSetting('auto_deactivate_grace_days', '15'), 10) || 15);
 
-            const cleanupInfo = this.db.prepare(`
-                UPDATE customers 
-                SET active = 0 
-                WHERE active = 1 
-                AND NOT EXISTS (
-                    SELECT 1 FROM memberships 
-                    WHERE customer_id = customers.id 
-                    AND (end_date IS NULL OR end_date > datetime('now'))
-                )
-            `).run();
+            if (!autoEnabled) {
+                console.log('Maintenance: Auto-deactivate disabled by settings — skipping.');
+            } else {
+                console.log(`Maintenance: Checking for overdue memberships (grace ${graceDays} days)...`);
 
-            if (cleanupInfo.changes > 0) {
-                console.log(`Maintenance: Deactivated ${cleanupInfo.changes} customers with expired memberships.`);
+                const cutoff = `datetime('now', '-${graceDays} days')`;
+                const cleanupInfo = this.db.prepare(`
+                    UPDATE customers
+                    SET active = 0,
+                        auto_deactivated_at = datetime('now'),
+                        synced = 0,
+                        updated_at = datetime('now')
+                    WHERE active = 1
+                      AND NOT EXISTS (
+                          SELECT 1 FROM memberships
+                          WHERE customer_id = customers.id
+                            AND (end_date IS NULL OR end_date > ${cutoff})
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM memberships
+                          WHERE customer_id = customers.id
+                            AND end_date IS NOT NULL
+                            AND end_date <= ${cutoff}
+                      )
+                `).run();
+
+                if (cleanupInfo.changes > 0) {
+                    console.log(`Maintenance: Auto-deactivated ${cleanupInfo.changes} customer(s) past grace period.`);
+                }
             }
         } catch (error) {
             console.error('Maintenance cleanup failed:', error);

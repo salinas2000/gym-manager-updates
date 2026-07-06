@@ -190,7 +190,7 @@ class CustomerService extends BaseService {
                     SET end_date = NULL, synced = 0, updated_at = datetime('now')
                     WHERE customer_id = ? AND end_date IS NOT NULL AND end_date > ?
                 `).run(id, nowISO);
-                db.prepare('UPDATE customers SET active = 1, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
+                db.prepare('UPDATE customers SET active = 1, auto_deactivated_at = NULL, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
                 return { ...customer, active: 1, latest_end_date: null };
             }
 
@@ -265,7 +265,7 @@ class CustomerService extends BaseService {
                 `).run(id, nowISO);
 
                 // Always set to active
-                db.prepare('UPDATE customers SET active = 1, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
+                db.prepare('UPDATE customers SET active = 1, auto_deactivated_at = NULL, synced = 0, updated_at = datetime(\'now\') WHERE id = ?').run(id);
 
                 const latestStart = db.prepare('SELECT start_date FROM memberships WHERE customer_id = ? ORDER BY start_date DESC LIMIT 1').get(id);
                 return { ...customer, active: 1, latest_end_date: null, latest_start_date: latestStart ? latestStart.start_date : null };

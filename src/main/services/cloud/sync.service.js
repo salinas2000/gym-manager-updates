@@ -153,7 +153,7 @@ class SyncService extends BaseService {
                     birth_date: emptyToNull(r.birth_date),
                     medical_info: r.medical_info ? JSON.parse(r.medical_info) : null,
                     mobile_show_schedule: r.mobile_show_schedule != null ? r.mobile_show_schedule : 1,
-                    trainer_id: emptyToNull(r.assigned_trainer_id),
+                    auto_deactivated_at: emptyToNull(r.auto_deactivated_at),
                     synced_at: new Date().toISOString(),
                 }),
             },

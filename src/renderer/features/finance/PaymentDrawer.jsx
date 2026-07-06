@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Zap } from 'lucide-react';
+import { X, Zap, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useGym } from '../../context/GymContext';
 import MembershipTimeline from '../customers/MembershipTimeline';
@@ -69,13 +69,25 @@ export default function PaymentDrawer({ isOpen, onClose, children, customer }) {
                         </h2>
                         <p className="text-slate-400 text-sm mb-4">{customer.email}</p>
 
+                        {!customer.active && customer.auto_deactivated_at && (
+                            <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200 flex items-start gap-2">
+                                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                                <div>
+                                    <p className="font-bold">Baja automática por impago</p>
+                                    <p className="text-xs mt-0.5">
+                                        Este socio quedó inactivo el {new Date(customer.auto_deactivated_at).toLocaleDateString()} al superar el periodo de gracia. Al registrar el próximo pago, reactívalo con el botón de abajo.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {!customer.active && (
                             <button
                                 onClick={handleReactivate}
                                 className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
                             >
                                 <Zap size={18} className="text-yellow-300 fill-current" />
-                                Reactivar Socio
+                                {customer.auto_deactivated_at ? 'Reactivar y renovar' : 'Reactivar Socio'}
                             </button>
                         )}
                     </div>

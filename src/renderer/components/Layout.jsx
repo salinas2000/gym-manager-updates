@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy, Shield } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import { can } from '../lib/entitlements';
@@ -256,20 +256,6 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('backup')}
                         />
 
-                        {/* Dev-only: open trainer mode in a SIDE window */}
-                        {import.meta.env.DEV && (
-                            <div
-                                onClick={async () => {
-                                    const r = await window.api?.dev?.openTrainerMode?.();
-                                    if (r && !r.success) alert(`No se pudo abrir: ${r.error || 'error'}`);
-                                }}
-                                title="Abre la pantalla de entrenador en una ventana aparte sin cerrar esta sesión"
-                                className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg cursor-pointer text-cyan-400 border border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/10 transition-all"
-                            >
-                                <Shield size={15} />
-                                <span className="font-medium text-[11px] uppercase tracking-wider truncate">Modo entrenador (dev)</span>
-                            </div>
-                        )}
 
 
                         <div className="flex items-center gap-3 px-2">

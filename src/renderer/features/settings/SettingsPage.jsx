@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useGym } from '../../context/GymContext';
-import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Database } from 'lucide-react';
+import { Save, Building2, UserCircle, Briefcase, Lock, Unlock, Key, ShieldCheck, CheckCircle, AlertCircle, Database, CreditCard, Clock, ToggleLeft, ToggleRight } from 'lucide-react';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import SettingsLicense from './SettingsLicense';
 
@@ -30,6 +30,12 @@ export default function SettingsPage({ initialTab = 'general' }) {
         role: ''
     });
 
+    // Payments settings — auto-deactivate on overdue
+    const [payFormEnabled, setPayFormEnabled] = useState(false);
+    const [payFormGraceDays, setPayFormGraceDays] = useState(15);
+    const [isSavingPayments, setIsSavingPayments] = useState(false);
+    const [paymentsMessage, setPaymentsMessage] = useState(null);
+
     const [licenseKey, setLicenseKey] = useState('');
 
     // UI State
@@ -48,6 +54,9 @@ export default function SettingsPage({ initialTab = 'general' }) {
                     gym_name: settings.gym_name || prev.gym_name,
                     role: settings.role || prev.role
                 }));
+                setPayFormEnabled(settings.auto_deactivate_overdue_enabled === '1');
+                const g = parseInt(settings.auto_deactivate_grace_days, 10);
+                setPayFormGraceDays(Number.isFinite(g) && g > 0 ? g : 15);
             }
 
             try {
@@ -134,6 +143,9 @@ export default function SettingsPage({ initialTab = 'general' }) {
                 <button onClick={() => setActiveTab('general')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 ${activeTab === 'general' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     Identidad Corporativa
                 </button>
+                <button onClick={() => setActiveTab('payments')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'payments' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
+                    <CreditCard size={16} /> Pagos
+                </button>
                 <button onClick={() => setActiveTab('license')} className={`pb-3 px-2 text-sm font-bold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'license' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
                     <Key size={16} /> Licencia
                 </button>
@@ -195,6 +207,86 @@ export default function SettingsPage({ initialTab = 'general' }) {
                             </button>
                         </div>
                     </form>
+                </div>
+            )}
+
+            {/* TAB CONTENT: PAYMENTS */}
+            {activeTab === 'payments' && (
+                <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                    <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 shadow-xl glass-panel">
+                        <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                            <Clock className="text-cyan-400" /> Baja automática por impago
+                        </h3>
+                        <p className="text-sm text-slate-400 mb-6">
+                            Si un socio no renueva su cuota, la app puede darle de baja pasado un periodo de gracia. En la app móvil verá un aviso de "cuenta pausada por impago". Al registrar el próximo pago, aparecerá un botón para reactivarlo.
+                        </p>
+
+                        <div className="space-y-5">
+                            <label className="flex items-center justify-between gap-4 rounded-xl bg-slate-950/60 p-4 border border-white/5 cursor-pointer hover:border-cyan-500/30 transition">
+                                <div className="min-w-0 flex-1">
+                                    <p className="font-bold text-white">Activar baja automática</p>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        Cuando esté activo, los socios cuya última cuota venció hace más días que el periodo de gracia pasarán a estado inactivo automáticamente.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setPayFormEnabled(v => !v)}
+                                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${payFormEnabled ? 'bg-cyan-500' : 'bg-slate-700'}`}
+                                    role="switch"
+                                    aria-checked={payFormEnabled}
+                                >
+                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${payFormEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </label>
+
+                            <div className={`rounded-xl bg-slate-950/60 p-4 border border-white/5 transition-opacity ${payFormEnabled ? 'opacity-100' : 'opacity-50'}`}>
+                                <label className="block text-sm font-bold text-slate-300 mb-2">Días de gracia tras el vencimiento</label>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="number" min={0} max={365}
+                                        value={payFormGraceDays}
+                                        disabled={!payFormEnabled}
+                                        onChange={(e) => setPayFormGraceDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                        className="w-24 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white text-center font-mono focus:border-cyan-500 outline-none disabled:cursor-not-allowed"
+                                    />
+                                    <span className="text-sm text-slate-400">días después del vencimiento</span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-2">
+                                    Ejemplo: si un socio tenía cuota hasta el 1 de julio y pones 15 días, se dará de baja automática el 16 de julio.
+                                </p>
+                            </div>
+                        </div>
+
+                        {paymentsMessage && (
+                            <div className={`mt-4 rounded-lg border px-3 py-2 text-sm ${paymentsMessage.kind === 'ok' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-red-500/30 bg-red-500/10 text-red-300'}`}>
+                                {paymentsMessage.text}
+                            </div>
+                        )}
+
+                        <div className="flex justify-end pt-6">
+                            <button
+                                type="button"
+                                disabled={isSavingPayments}
+                                onClick={async () => {
+                                    setIsSavingPayments(true); setPaymentsMessage(null);
+                                    try {
+                                        await window.api.settings.update({
+                                            auto_deactivate_overdue_enabled: payFormEnabled ? '1' : '0',
+                                            auto_deactivate_grace_days: String(payFormGraceDays),
+                                        });
+                                        await refreshData?.();
+                                        setPaymentsMessage({ kind: 'ok', text: '✅ Guardado' });
+                                    } catch (err) {
+                                        setPaymentsMessage({ kind: 'err', text: `❌ ${err.message || err}` });
+                                    } finally { setIsSavingPayments(false); }
+                                }}
+                                className="bg-cyan-600 hover:bg-cyan-500 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-cyan-500/20 transition-all disabled:opacity-50"
+                            >
+                                <Save size={18} /> Guardar
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
