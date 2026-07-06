@@ -503,26 +503,49 @@ function registerHandlers() {
         if (canceled || !filePaths || filePaths.length === 0) return { cancelled: true };
 
         const filePath = filePaths[0];
-        const buffer = fs.readFileSync(filePath);
+
+        // Aviso a la UI del estado (comprimiendo / subiendo) — el handle()
+        // wrapper no nos pasa el event, así que emitimos por webContents.
+        const { BrowserWindow } = require('electron');
+        const sendStatus = (phase) => {
+            try { BrowserWindow.getAllWindows()[0]?.webContents.send('training:videoStatus', phase); }
+            catch (_) { /* ignore */ }
+        };
+
+        // ── Comprimir a MP4 web-optimizado (720p, H.264, faststart) antes de
+        // subir. Si ffmpeg falla, subimos el original como fallback. ──
+        const { transcodeToMp4 } = require('../services/local/video-transcode');
+        sendStatus('compressing');
+        const t = await transcodeToMp4(filePath);
+        const transcoded = !!t.success;
+        const uploadPath = transcoded ? t.outPath : filePath;
+
+        const buffer = fs.readFileSync(uploadPath);
+        const cleanupTmp = () => { if (transcoded) { try { fs.unlinkSync(uploadPath); } catch (_) { /* ignore */ } } };
         const MAX = 200 * 1024 * 1024; // 200 MB
         if (buffer.length > MAX) {
-            return { success: false, error: 'El vídeo supera 200 MB. Usa uno más corto o comprímelo.' };
+            cleanupTmp();
+            return { success: false, error: 'El vídeo supera 200 MB incluso comprimido. Usa uno más corto.' };
         }
 
         const licenseService = require('../services/local/license.service');
         const gymId = licenseService.getLicenseData()?.gym_id;
-        if (!gymId) return { success: false, error: 'Licencia no activa.' };
+        if (!gymId) { cleanupTmp(); return { success: false, error: 'Licencia no activa.' }; }
 
-        const ext = (path.extname(filePath).toLowerCase().replace('.', '') || 'mp4');
+        // Tras transcodificar el resultado es siempre MP4; si no, respetamos el original.
+        const ext = transcoded ? 'mp4' : (path.extname(filePath).toLowerCase().replace('.', '') || 'mp4');
         const contentType = ext === 'mov' ? 'video/quicktime'
             : ext === 'webm' ? 'video/webm'
             : ext === 'm4v' ? 'video/x-m4v'
             : 'video/mp4';
-        const safe = path.basename(filePath).replace(/[^a-zA-Z0-9._-]/g, '_');
+        let safe = path.basename(filePath).replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (transcoded) safe = safe.replace(/\.[^.]+$/, '') + '.mp4';
         const objectPath = `${gymId}/exercise_videos/${Date.now()}_${safe}`;
 
+        sendStatus('uploading');
         const ownerStorage = require('../services/cloud/owner-storage.client');
         const up = await ownerStorage.upload(objectPath, buffer, contentType, { upsert: true });
+        cleanupTmp();
         if (!up?.success) return { success: false, error: up?.error || 'Error al subir el vídeo.' };
 
         const urlRes = await ownerStorage.getPublicUrl(objectPath);

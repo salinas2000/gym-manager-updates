@@ -102,6 +102,7 @@ export default function ExerciseModal({
     const [trackingType, setTrackingType] = useState('strength');
     const [videoUrl, setVideoUrl] = useState('');
     const [uploadingVideo, setUploadingVideo] = useState(false);
+    const [videoPhase, setVideoPhase] = useState(null); // 'compressing' | 'uploading' | null
     const [notes, setNotes] = useState('');
     const [customFields, setCustomFields] = useState({});
 
@@ -224,8 +225,12 @@ export default function ExerciseModal({
     // inline on iPhone. The previous storage object (if any) is cleaned up at
     // save time in the main process, so replacing never leaves orphans.
     const handleUploadVideo = async () => {
+        let unsub = null;
         try {
             setUploadingVideo(true);
+            setVideoPhase(null);
+            // Escucha el estado (comprimiendo / subiendo) que emite el proceso principal.
+            unsub = window.api.training.onVideoStatus?.((phase) => setVideoPhase(phase));
             const res = await window.api.training.uploadExerciseVideo();
             // IPC wraps the handler's return in { success, data }. The real
             // payload (url / cancelled / error) lives at res.data — reading
@@ -246,9 +251,14 @@ export default function ExerciseModal({
         } catch (_) {
             toast.error('Error al subir el vídeo');
         } finally {
+            if (unsub) unsub();
             setUploadingVideo(false);
+            setVideoPhase(null);
         }
     };
+
+    // Etiqueta del botón según la fase (comprimir tarda unos segundos).
+    const videoBtnLabel = videoPhase === 'compressing' ? 'Comprimiendo…' : 'Subiendo…';
 
     // Friendly file name from the stored public URL (strips the timestamp prefix).
     const videoFileName = (url) => {
@@ -419,7 +429,7 @@ export default function ExerciseModal({
                                         onClick={handleUploadVideo}
                                         className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-white/5 disabled:opacity-50"
                                     >
-                                        {uploadingVideo ? 'Subiendo…' : 'Reemplazar'}
+                                        {uploadingVideo ? videoBtnLabel : 'Reemplazar'}
                                     </button>
                                     <button
                                         type="button"
@@ -439,8 +449,8 @@ export default function ExerciseModal({
                                     className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/10 bg-slate-950 px-4 py-3 text-sm font-bold text-slate-300 hover:border-blue-500/50 hover:bg-slate-900 disabled:opacity-50"
                                 >
                                     {uploadingVideo
-                                        ? (<><Loader2 size={16} className="animate-spin" /> Subiendo…</>)
-                                        : (<><Upload size={16} /> Subir vídeo (MP4)</>)}
+                                        ? (<><Loader2 size={16} className="animate-spin" /> {videoBtnLabel}</>)
+                                        : (<><Upload size={16} /> Subir vídeo</>)}
                                 </button>
                             )}
                             <p className="mt-1.5 text-[11px] text-slate-500">

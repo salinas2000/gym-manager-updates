@@ -125,6 +125,11 @@ contextBridge.exposeInMainWorld('api', {
         updateExercise: (id, data) => ipcRenderer.invoke('training:updateExercise', id, data),
         deleteExercise: (id) => ipcRenderer.invoke('training:deleteExercise', id),
         uploadExerciseVideo: () => ipcRenderer.invoke('training:uploadExerciseVideo'),
+        onVideoStatus: (callback) => {
+            const sub = (_e, phase) => callback(phase);
+            ipcRenderer.on('training:videoStatus', sub);
+            return () => ipcRenderer.removeListener('training:videoStatus', sub);
+        },
 
         // Category Management
         getCategories: () => ipcRenderer.invoke('training:getCategories'),
