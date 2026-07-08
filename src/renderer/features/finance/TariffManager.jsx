@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { Plus, Trash2, X, CreditCard, Sparkles, Check, Edit2 } from 'lucide-react';
+import { Plus, Trash2, X, CreditCard, Sparkles, Check, Edit2, Lock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const COLORS = [
@@ -77,6 +77,10 @@ export default function TariffManager() {
     const getTheme = (id) => COLORS.find(c => c.id === id) || COLORS[1]; // Fallback emerald
     const selectedColor = getTheme(colorId);
 
+    // Tarifa de sistema ("Sin pago"): importe fijo a 0€, no eliminable.
+    const editingTariff = editingId ? tariffs.find(x => x.id === editingId) : null;
+    const editingIsSystem = !!(editingTariff && editingTariff.is_system);
+
     return (
         <div className="w-full h-full bg-slate-900 rounded-3xl border border-white/10 shadow-2xl flex overflow-hidden">
 
@@ -117,8 +121,10 @@ export default function TariffManager() {
                                 value={amount}
                                 onChange={e => setAmount(e.target.value)}
                                 placeholder="0.00"
+                                disabled={editingIsSystem}
                                 className={cn(
                                     "flex-1 bg-slate-800/50 border rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono",
+                                    editingIsSystem && "opacity-50 cursor-not-allowed",
                                     editingId ? "border-yellow-500/20" : "border-white/10"
                                 )}
                             />
@@ -146,7 +152,12 @@ export default function TariffManager() {
                                 </button>
                             )}
                         </div>
-                        {billingMonths > 1 && (
+                        {editingIsSystem && (
+                            <p className="text-[11px] text-emerald-400/80 pl-1 flex items-center gap-1">
+                                <Lock size={11} /> Tarifa del sistema para socios que no pagan cuota. Importe fijo a 0€.
+                            </p>
+                        )}
+                        {billingMonths > 1 && !editingIsSystem && (
                             <p className="text-[11px] text-slate-500 pl-1">
                                 {amountIsTotal
                                     ? `Equivalente: ${amount ? (parseFloat(amount) / billingMonths).toFixed(2) : '0.00'}€/mes × ${billingMonths} meses`
@@ -283,13 +294,23 @@ export default function TariffManager() {
                                     isEditing ? "ring-4 ring-yellow-400/50 border-yellow-400 scale-[1.02]" : "border-white/5"
                                 )}
                             >
-                                {/* Delete Button (Stop propagation to avoid triggering edit) */}
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); deleteTariff(tItem.id); }}
-                                    className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-red-500/80 rounded-full text-white/70 hover:text-white transition-all opacity-0 group-hover:opacity-100"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
+                                {/* Delete Button (Stop propagation to avoid triggering edit).
+                                    La tarifa de sistema ("Sin pago") no se puede eliminar: muestra un candado. */}
+                                {tItem.is_system ? (
+                                    <div
+                                        title="Tarifa del sistema para socios sin pago. No se puede eliminar."
+                                        className="absolute top-4 right-4 p-2 bg-black/20 rounded-full text-white/70"
+                                    >
+                                        <Lock size={16} />
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); deleteTariff(tItem.id); }}
+                                        className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-red-500/80 rounded-full text-white/70 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                )}
 
                                 <div className="flex flex-col h-full justify-between">
                                     <div className="flex justify-between items-start">

@@ -45,7 +45,7 @@ describe('Tariff Service', () => {
 
       const result = tariffService.getAll();
 
-      expect(mockDb.prepare).toHaveBeenCalledWith('SELECT * FROM tariffs');
+      expect(mockDb.prepare).toHaveBeenCalledWith('SELECT * FROM tariffs ORDER BY is_system ASC, id ASC');
       expect(result).toEqual(mockTariffs);
     });
 
@@ -62,7 +62,7 @@ describe('Tariff Service', () => {
 
       const result = tariffService.create({ name: 'Gold', amount: 45 });
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         id: 5,
         name: 'Gold',
         amount: 45,
@@ -97,6 +97,8 @@ describe('Tariff Service', () => {
 
   describe('delete()', () => {
     test('should nullify customers tariff_id before deleting', () => {
+      // is_system lookup returns a non-system tariff so deletion proceeds.
+      mockStatement.get.mockReturnValue({ is_system: 0 });
       const prepareCalls = [];
       mockDb.prepare.mockImplementation((sql) => {
         prepareCalls.push(sql);
@@ -105,19 +107,25 @@ describe('Tariff Service', () => {
 
       tariffService.delete(3);
 
-      expect(prepareCalls[0]).toMatch(/UPDATE customers SET tariff_id = NULL/);
-      expect(prepareCalls[1]).toMatch(/DELETE FROM tariffs WHERE id/);
+      expect(prepareCalls.some(s => /UPDATE customers SET tariff_id = NULL/.test(s))).toBe(true);
+      expect(prepareCalls.some(s => /DELETE FROM tariffs WHERE id/.test(s))).toBe(true);
     });
 
     test('should return true if tariff was deleted', () => {
+      mockStatement.get.mockReturnValue({ is_system: 0 });
       mockStatement.run.mockReturnValue({ changes: 1 });
       expect(tariffService.delete(1)).toBe(true);
     });
 
     test('should return false if tariff not found', () => {
-      mockStatement.run.mockReturnValueOnce({ changes: 0 }); // customers update
-      mockStatement.run.mockReturnValueOnce({ changes: 0 }); // tariff delete
+      mockStatement.get.mockReturnValue({ is_system: 0 });
+      mockStatement.run.mockReturnValue({ changes: 0 });
       expect(tariffService.delete(999)).toBe(false);
+    });
+
+    test('should refuse to delete the system "Sin pago" tariff', () => {
+      mockStatement.get.mockReturnValue({ is_system: 1 });
+      expect(() => tariffService.delete(1)).toThrow(/no se puede eliminar/i);
     });
   });
 

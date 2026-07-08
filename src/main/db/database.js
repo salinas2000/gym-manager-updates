@@ -222,6 +222,9 @@ class DBManager {
         this.safeAddColumn('tariffs', 'billing_months', 'INTEGER DEFAULT 1');
         // amount_is_total: 0=amount es por mes (default), 1=amount ya es el total del periodo
         this.safeAddColumn('tariffs', 'amount_is_total', 'INTEGER DEFAULT 0');
+        // is_system: 1 = tarifa creada automáticamente por el sistema y no eliminable
+        // (p.ej. "Sin pago" para socios que no abonan cuota: staff, familiares, invitados).
+        this.safeAddColumn('tariffs', 'is_system', 'INTEGER DEFAULT 0');
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS exercises (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -739,6 +742,12 @@ class DBManager {
                         synced = 0,
                         updated_at = datetime('now')
                     WHERE active = 1
+                      -- Nunca dar de baja a socios con tarifa "Sin pago" (no abonan cuota).
+                      AND NOT EXISTS (
+                          SELECT 1 FROM tariffs
+                          WHERE tariffs.id = customers.tariff_id
+                            AND tariffs.is_system = 1
+                      )
                       AND NOT EXISTS (
                           SELECT 1 FROM memberships
                           WHERE customer_id = customers.id

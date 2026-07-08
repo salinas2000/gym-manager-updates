@@ -56,7 +56,11 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                 setShowProfile(false);
                 setShowMedical(false);
             } else {
-                setFormData(initialForm);
+                // Nuevo socio: por defecto la tarifa "Sin pago" (del sistema), para que
+                // no haya que registrar pagos si el socio no abona cuota. El jefe puede
+                // cambiarla a una tarifa de pago en el mismo desplegable.
+                const systemTariff = tariffs.find(x => x.is_system);
+                setFormData({ ...initialForm, tariff_id: systemTariff ? systemTariff.id : null });
                 setShowProfile(false);
                 setShowMedical(false);
             }
