@@ -111,6 +111,16 @@ export function GymProvider({ children }) {
                 await window.api.license.reportVersion(version);
                 console.log('[GymContext] Version reported:', version);
             }
+            // Catch-up: sube la config de auto-baja a la nube al arrancar, para que
+            // la app móvil la refleje (contador/aviso de impago) sin re-guardar.
+            try {
+                const sres = await window.api.settings.getAll();
+                const s = (sres && sres.data) ? sres.data : (sres || {});
+                await window.api.license.reportSettings({
+                    enabled: s.auto_deactivate_overdue_enabled === '1',
+                    graceDays: parseInt(s.auto_deactivate_grace_days, 10) || 15,
+                });
+            } catch { /* best-effort */ }
         } catch (e) {
             console.error('[GymContext] Failed to report version:', e);
         }

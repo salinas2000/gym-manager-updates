@@ -171,6 +171,8 @@ contextBridge.exposeInMainWorld('api', {
         getHardwareId: () => ipcRenderer.invoke('license:getHardwareId'),
         getStatus: () => ipcRenderer.invoke('license:getStatus'),
         reportVersion: (v) => ipcRenderer.invoke('license:reportVersion', v),
+        reportSettings: (payload) => ipcRenderer.invoke('license:reportSettings', payload),
+        verifyKey: (key) => ipcRenderer.invoke('license:verifyKey', key),
     },
     // google removed in v2.2.0
     updater: {

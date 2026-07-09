@@ -235,6 +235,38 @@ class LicenseService {
     }
 
     /**
+     * Sube la config de auto-baja a la fila de licencia en la nube, para que la
+     * app móvil la refleje (contador/aviso de impago). Best-effort.
+     */
+    async reportSettings({ enabled, graceDays }) {
+        const lic = this.getLicenseData();
+        if (!lic || lic.is_master) return { success: false, error: 'no_license' };
+        const token = lic.owner_token;
+        if (!token) return { success: false, error: 'no_token' };
+        const args = { gym_id: lic.gym_id };
+        if (typeof enabled === 'boolean') args.auto_deactivate_enabled = enabled;
+        if (Number.isInteger(graceDays)) args.auto_deactivate_grace_days = graceDays;
+        const result = await callLicenseOps('reportSettings', args, token);
+        if (result._error) {
+            console.warn(`[LicenseService] Settings report failed: ${result._error}`);
+            return { success: false, error: result._error };
+        }
+        return { success: true };
+    }
+
+    /**
+     * Verifica que la clave introducida coincide con la licencia activa de este
+     * equipo. Se usa para proteger cambios sensibles (p.ej. días de gracia) frente
+     * a entrenadores que usan el escritorio: solo el dueño conoce la clave.
+     */
+    verifyLicenseKey(key) {
+        const lic = this.getLicenseData();
+        const stored = (lic && lic.license_key) ? String(lic.license_key) : '';
+        const given = String(key || '').trim().toUpperCase();
+        return !!stored && given === stored.trim().toUpperCase();
+    }
+
+    /**
      * Deactivate the license locally (Logout).
      */
     deactivate() {

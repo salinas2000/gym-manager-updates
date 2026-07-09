@@ -36,6 +36,12 @@ export default function SettingsPage({ initialTab = 'general' }) {
     const [payFormGraceDays, setPayFormGraceDays] = useState(15);
     const [isSavingPayments, setIsSavingPayments] = useState(false);
     const [paymentsMessage, setPaymentsMessage] = useState(null);
+    // Candado de licencia para editar los días de gracia: solo el dueño (que
+    // conoce la clave) puede cambiarlos, no un entrenador con acceso al escritorio.
+    const [daysUnlocked, setDaysUnlocked] = useState(false);
+    const [showKeyGate, setShowKeyGate] = useState(false);
+    const [gateKey, setGateKey] = useState('');
+    const [gateError, setGateError] = useState('');
 
     const [licenseKey, setLicenseKey] = useState('');
 
@@ -250,12 +256,56 @@ export default function SettingsPage({ initialTab = 'general' }) {
                                     <input
                                         type="number" min={0} max={365}
                                         value={payFormGraceDays}
-                                        disabled={!payFormEnabled}
+                                        disabled={!payFormEnabled || !daysUnlocked}
                                         onChange={(e) => setPayFormGraceDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
                                         className="w-24 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white text-center font-mono focus:border-cyan-500 outline-none disabled:cursor-not-allowed"
                                     />
                                     <span className="text-sm text-slate-400">días después del vencimiento</span>
+                                    {payFormEnabled && !daysUnlocked && !showKeyGate && (
+                                        <button
+                                            type="button"
+                                            onClick={() => { setShowKeyGate(true); setGateError(''); setGateKey(''); }}
+                                            className="ml-auto flex items-center gap-1.5 text-xs font-bold text-cyan-400 hover:text-cyan-300"
+                                            title="Introduce la clave de licencia para cambiar los días"
+                                        >
+                                            <Lock size={13} /> Desbloquear
+                                        </button>
+                                    )}
+                                    {daysUnlocked && (
+                                        <span className="ml-auto flex items-center gap-1 text-xs font-semibold text-emerald-400"><CheckCircle size={13} /> Desbloqueado</span>
+                                    )}
                                 </div>
+
+                                {payFormEnabled && showKeyGate && !daysUnlocked && (
+                                    <div className="mt-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
+                                        <p className="mb-2 text-xs text-slate-400">Introduce tu <b className="text-slate-200">clave de licencia</b> para cambiar los días de gracia.</p>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={gateKey}
+                                                onChange={(e) => setGateKey(e.target.value)}
+                                                placeholder="GYM-XXXXXXXX"
+                                                className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm tracking-wider focus:border-cyan-500 outline-none"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    setGateError('');
+                                                    try {
+                                                        const res = await window.api.license.verifyKey(gateKey.trim());
+                                                        const ok = res?.data ?? res;
+                                                        if (ok) { setDaysUnlocked(true); setShowKeyGate(false); }
+                                                        else setGateError('Clave incorrecta.');
+                                                    } catch (err) { setGateError(err.message || 'Error al verificar'); }
+                                                }}
+                                                className="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-lg text-sm font-bold"
+                                            >
+                                                Desbloquear
+                                            </button>
+                                        </div>
+                                        {gateError && <p className="mt-2 text-xs text-red-400">{gateError}</p>}
+                                    </div>
+                                )}
                                 <p className="text-xs text-slate-500 mt-2">
                                     Ejemplo: si un socio tenía cuota hasta el 1 de julio y pones 15 días, se dará de baja automática el 16 de julio.
                                 </p>
@@ -279,6 +329,11 @@ export default function SettingsPage({ initialTab = 'general' }) {
                                             auto_deactivate_overdue_enabled: payFormEnabled ? '1' : '0',
                                             auto_deactivate_grace_days: String(payFormGraceDays),
                                         });
+                                        // Sube la config a la nube para que la app móvil la refleje
+                                        // (contador/aviso de impago). Best-effort: no bloquea el guardado.
+                                        try {
+                                            await window.api.license.reportSettings({ enabled: payFormEnabled, graceDays: payFormGraceDays });
+                                        } catch { /* offline / sin licencia: se reintenta al próximo guardado */ }
                                         await refreshData?.();
                                         setPaymentsMessage({ kind: 'ok', text: '✅ Guardado' });
                                     } catch (err) {

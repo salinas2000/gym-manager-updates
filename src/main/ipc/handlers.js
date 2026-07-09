@@ -617,6 +617,8 @@ function registerHandlers() {
         data: licService.getLicenseData()
     }));
     handle('license:reportVersion', (version) => licService.updateVersion(version));
+    handle('license:reportSettings', (payload) => licService.reportSettings(payload || {}));
+    handle('license:verifyKey', (key) => licService.verifyLicenseKey(key));
     handle('license:deactivate', async (event) => {
         const { app, dialog, BrowserWindow } = require('electron');
         const win = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow();
