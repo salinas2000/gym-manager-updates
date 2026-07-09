@@ -239,8 +239,10 @@ class LicenseService {
      * app móvil la refleje (contador/aviso de impago). Best-effort.
      */
     async reportSettings({ enabled, graceDays }) {
+        // A diferencia de reportVersion, SÍ sube para gimnasios master: también
+        // tienen socios que deben ver el aviso de impago en la app móvil.
         const lic = this.getLicenseData();
-        if (!lic || lic.is_master) return { success: false, error: 'no_license' };
+        if (!lic) return { success: false, error: 'no_license' };
         const token = lic.owner_token;
         if (!token) return { success: false, error: 'no_token' };
         const args = { gym_id: lic.gym_id };
@@ -260,8 +262,9 @@ class LicenseService {
      * a entrenadores que usan el escritorio: solo el dueño conoce la clave.
      */
     verifyLicenseKey(key) {
+        // El dato de licencia guardado usa el campo `key` (ver activate()).
         const lic = this.getLicenseData();
-        const stored = (lic && lic.license_key) ? String(lic.license_key) : '';
+        const stored = (lic && lic.key) ? String(lic.key) : '';
         const given = String(key || '').trim().toUpperCase();
         return !!stored && given === stored.trim().toUpperCase();
     }
