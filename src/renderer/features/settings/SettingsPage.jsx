@@ -36,12 +36,35 @@ export default function SettingsPage({ initialTab = 'general' }) {
     const [payFormGraceDays, setPayFormGraceDays] = useState(15);
     const [isSavingPayments, setIsSavingPayments] = useState(false);
     const [paymentsMessage, setPaymentsMessage] = useState(null);
-    // Candado de licencia para editar los días de gracia: solo el dueño (que
-    // conoce la clave) puede cambiarlos, no un entrenador con acceso al escritorio.
-    const [daysUnlocked, setDaysUnlocked] = useState(false);
-    const [showKeyGate, setShowKeyGate] = useState(false);
-    const [gateKey, setGateKey] = useState('');
-    const [gateError, setGateError] = useState('');
+    // Modal de configuración de baja automática. Activar o cambiar los días exige
+    // aceptar y meter la clave de licencia (solo el dueño, no un entrenador).
+    const [cfgOpen, setCfgOpen] = useState(false);
+    const [cfgEnabled, setCfgEnabled] = useState(false);
+    const [cfgDays, setCfgDays] = useState(15);
+    const [cfgKey, setCfgKey] = useState('');
+    const [cfgError, setCfgError] = useState('');
+    const [cfgSaving, setCfgSaving] = useState(false);
+    const openPayConfig = () => { setCfgEnabled(payFormEnabled); setCfgDays(payFormGraceDays); setCfgKey(''); setCfgError(''); setCfgOpen(true); };
+    const savePayConfig = async () => {
+        setCfgError('');
+        let ok = false;
+        try { const res = await window.api.license.verifyKey(cfgKey.trim()); ok = res?.data ?? res; }
+        catch { setCfgError('Error al verificar la clave.'); return; }
+        if (!ok) { setCfgError('Clave de licencia incorrecta.'); return; }
+        setCfgSaving(true);
+        try {
+            await window.api.settings.update({
+                auto_deactivate_overdue_enabled: cfgEnabled ? '1' : '0',
+                auto_deactivate_grace_days: String(cfgDays),
+            });
+            try { await window.api.license.reportSettings({ enabled: cfgEnabled, graceDays: cfgDays }); } catch { /* best-effort */ }
+            await refreshData?.();
+            setPayFormEnabled(cfgEnabled); setPayFormGraceDays(cfgDays);
+            setPaymentsMessage({ kind: 'ok', text: '✅ Guardado' });
+            setCfgOpen(false);
+        } catch (err) { setCfgError(err.message || 'Error al guardar'); }
+        finally { setCfgSaving(false); }
+    };
 
     const [licenseKey, setLicenseKey] = useState('');
 
@@ -232,84 +255,32 @@ export default function SettingsPage({ initialTab = 'general' }) {
                         </p>
 
                         <div className="space-y-5">
-                            <label className="flex items-center justify-between gap-4 rounded-xl bg-slate-950/60 p-4 border border-white/5 cursor-pointer hover:border-cyan-500/30 transition">
-                                <div className="min-w-0 flex-1">
-                                    <p className="font-bold text-white">Activar baja automática</p>
-                                    <p className="text-xs text-slate-500 mt-0.5">
-                                        Cuando esté activo, los socios cuya última cuota venció hace más días que el periodo de gracia pasarán a estado inactivo automáticamente.
-                                    </p>
+                            <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950/60 p-4 border border-white/5">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${payFormEnabled ? 'bg-emerald-500/15' : 'bg-slate-700/40'}`}>
+                                        {payFormEnabled ? <CheckCircle className="text-emerald-400" size={20} /> : <Lock className="text-slate-500" size={18} />}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="font-bold text-white">{payFormEnabled ? 'Activada' : 'Desactivada'}</p>
+                                        <p className="text-xs text-slate-500 mt-0.5">
+                                            {payFormEnabled
+                                                ? `${payFormGraceDays} días de gracia tras el vencimiento`
+                                                : 'Los socios no se dan de baja automáticamente'}
+                                        </p>
+                                    </div>
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => setPayFormEnabled(v => !v)}
-                                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${payFormEnabled ? 'bg-cyan-500' : 'bg-slate-700'}`}
-                                    role="switch"
-                                    aria-checked={payFormEnabled}
+                                    onClick={openPayConfig}
+                                    className="shrink-0 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg hover:shadow-cyan-500/20 transition-all"
                                 >
-                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${payFormEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                    <Lock size={14} /> Configurar
                                 </button>
-                            </label>
-
-                            <div className={`rounded-xl bg-slate-950/60 p-4 border border-white/5 transition-opacity ${payFormEnabled ? 'opacity-100' : 'opacity-50'}`}>
-                                <label className="block text-sm font-bold text-slate-300 mb-2">Días de gracia tras el vencimiento</label>
-                                <div className="flex items-center gap-3">
-                                    <input
-                                        type="number" min={0} max={365}
-                                        value={payFormGraceDays}
-                                        disabled={!payFormEnabled || !daysUnlocked}
-                                        onChange={(e) => setPayFormGraceDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                                        className="w-24 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white text-center font-mono focus:border-cyan-500 outline-none disabled:cursor-not-allowed"
-                                    />
-                                    <span className="text-sm text-slate-400">días después del vencimiento</span>
-                                    {payFormEnabled && !daysUnlocked && !showKeyGate && (
-                                        <button
-                                            type="button"
-                                            onClick={() => { setShowKeyGate(true); setGateError(''); setGateKey(''); }}
-                                            className="ml-auto flex items-center gap-1.5 text-xs font-bold text-cyan-400 hover:text-cyan-300"
-                                            title="Introduce la clave de licencia para cambiar los días"
-                                        >
-                                            <Lock size={13} /> Desbloquear
-                                        </button>
-                                    )}
-                                    {daysUnlocked && (
-                                        <span className="ml-auto flex items-center gap-1 text-xs font-semibold text-emerald-400"><CheckCircle size={13} /> Desbloqueado</span>
-                                    )}
-                                </div>
-
-                                {payFormEnabled && showKeyGate && !daysUnlocked && (
-                                    <div className="mt-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
-                                        <p className="mb-2 text-xs text-slate-400">Introduce tu <b className="text-slate-200">clave de licencia</b> para cambiar los días de gracia.</p>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="text"
-                                                value={gateKey}
-                                                onChange={(e) => setGateKey(e.target.value)}
-                                                placeholder="GYM-XXXXXXXX"
-                                                className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm tracking-wider focus:border-cyan-500 outline-none"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    setGateError('');
-                                                    try {
-                                                        const res = await window.api.license.verifyKey(gateKey.trim());
-                                                        const ok = res?.data ?? res;
-                                                        if (ok) { setDaysUnlocked(true); setShowKeyGate(false); }
-                                                        else setGateError('Clave incorrecta.');
-                                                    } catch (err) { setGateError(err.message || 'Error al verificar'); }
-                                                }}
-                                                className="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-lg text-sm font-bold"
-                                            >
-                                                Desbloquear
-                                            </button>
-                                        </div>
-                                        {gateError && <p className="mt-2 text-xs text-red-400">{gateError}</p>}
-                                    </div>
-                                )}
-                                <p className="text-xs text-slate-500 mt-2">
-                                    Ejemplo: si un socio tenía cuota hasta el 1 de julio y pones 15 días, se dará de baja automática el 16 de julio.
-                                </p>
                             </div>
+
+                            <p className="text-xs text-slate-500">
+                                Ejemplo: si un socio tenía cuota hasta el 1 de julio y pones 15 días, se dará de baja automática el 16 de julio. Cambiar esta configuración requiere tu <b className="text-slate-300">clave de licencia</b>.
+                            </p>
                         </div>
 
                         {paymentsMessage && (
@@ -318,33 +289,49 @@ export default function SettingsPage({ initialTab = 'general' }) {
                             </div>
                         )}
 
-                        <div className="flex justify-end pt-6">
-                            <button
-                                type="button"
-                                disabled={isSavingPayments}
-                                onClick={async () => {
-                                    setIsSavingPayments(true); setPaymentsMessage(null);
-                                    try {
-                                        await window.api.settings.update({
-                                            auto_deactivate_overdue_enabled: payFormEnabled ? '1' : '0',
-                                            auto_deactivate_grace_days: String(payFormGraceDays),
-                                        });
-                                        // Sube la config a la nube para que la app móvil la refleje
-                                        // (contador/aviso de impago). Best-effort: no bloquea el guardado.
-                                        try {
-                                            await window.api.license.reportSettings({ enabled: payFormEnabled, graceDays: payFormGraceDays });
-                                        } catch { /* offline / sin licencia: se reintenta al próximo guardado */ }
-                                        await refreshData?.();
-                                        setPaymentsMessage({ kind: 'ok', text: '✅ Guardado' });
-                                    } catch (err) {
-                                        setPaymentsMessage({ kind: 'err', text: `❌ ${err.message || err}` });
-                                    } finally { setIsSavingPayments(false); }
-                                }}
-                                className="bg-cyan-600 hover:bg-cyan-500 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-cyan-500/20 transition-all disabled:opacity-50"
-                            >
-                                <Save size={18} /> Guardar
-                            </button>
-                        </div>
+                        {/* Modal de confirmación: activar/días + clave de licencia */}
+                        {cfgOpen && (
+                            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={() => !cfgSaving && setCfgOpen(false)}>
+                                <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2"><Clock className="text-cyan-400" size={20} /> Baja automática por impago</h3>
+                                    <p className="text-xs text-slate-400 mt-1 mb-5">Confirma la configuración. Se requiere tu clave de licencia.</p>
+
+                                    <label className="flex items-center justify-between gap-4 rounded-xl bg-slate-950/60 p-3 border border-white/5 mb-4">
+                                        <span className="text-sm font-bold text-white">Activar baja automática</span>
+                                        <button type="button" onClick={() => setCfgEnabled(v => !v)} role="switch" aria-checked={cfgEnabled}
+                                            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${cfgEnabled ? 'bg-cyan-500' : 'bg-slate-700'}`}>
+                                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${cfgEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                        </button>
+                                    </label>
+
+                                    <div className={`mb-4 transition-opacity ${cfgEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                                        <label className="block text-sm font-bold text-slate-300 mb-1.5">Días de gracia tras el vencimiento</label>
+                                        <div className="flex items-center gap-3">
+                                            <input type="number" min={0} max={365} value={cfgDays} disabled={!cfgEnabled}
+                                                onChange={(e) => setCfgDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                                className="w-24 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white text-center font-mono focus:border-cyan-500 outline-none" />
+                                            <span className="text-sm text-slate-400">días</span>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-300 mb-1.5">Clave de licencia</label>
+                                        <input type="text" value={cfgKey} onChange={(e) => setCfgKey(e.target.value)} placeholder="GYM-XXXXXXXX"
+                                            className="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm tracking-wider focus:border-cyan-500 outline-none" />
+                                    </div>
+                                    {cfgError && <p className="mt-2 text-xs text-red-400">{cfgError}</p>}
+
+                                    <div className="flex justify-end gap-2 mt-6">
+                                        <button type="button" disabled={cfgSaving} onClick={() => setCfgOpen(false)}
+                                            className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 font-bold text-sm hover:bg-slate-700 disabled:opacity-50">Cancelar</button>
+                                        <button type="button" disabled={cfgSaving || !cfgKey.trim()} onClick={savePayConfig}
+                                            className="px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-sm flex items-center gap-2 disabled:opacity-50">
+                                            <Save size={15} /> {cfgSaving ? 'Guardando…' : 'Guardar'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
