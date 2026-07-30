@@ -157,7 +157,8 @@ class AdminService {
                 app_version,
                 expires_at,
                 last_seen,
-                plan
+                plan,
+                features
             `)
             //.eq('is_master', false) // Show all licenses including Master
             .order('created_at', { ascending: false });
@@ -259,6 +260,39 @@ class AdminService {
         const { error } = await supabase.from('licenses').update({ plan }).eq('gym_id', gymId);
         if (error) throw error;
         return { success: true };
+    }
+
+    /**
+     * Activa o desactiva módulos sueltos para UN gimnasio, por encima de su plan.
+     * Sirve para vender un extra sin cambiarle el plan entero (p.ej. dar el
+     * control de acceso a un Pro), o para quitar algo puntualmente.
+     *
+     * `features` es un objeto { modulo: boolean }. Las claves que no estén se
+     * resuelven por el plan. Pasar null limpia todos los overrides.
+     */
+    async setFeatures(gymId, features) {
+        this.checkMaster();
+        if (!supabase) throw new Error('Conexión con la nube no configurada.');
+        const { MODULES } = require('../../config/modules');
+
+        let limpio = null;
+        if (features && typeof features === 'object') {
+            limpio = {};
+            for (const [k, v] of Object.entries(features)) {
+                if (!Object.prototype.hasOwnProperty.call(MODULES, k)) {
+                    throw new Error(`Módulo desconocido: ${k}`);
+                }
+                // El núcleo no se puede desactivar: descartamos el override para
+                // que no quede basura guardada que induzca a error.
+                if (MODULES[k].core) continue;
+                limpio[k] = !!v;
+            }
+            if (Object.keys(limpio).length === 0) limpio = null;
+        }
+
+        const { error } = await supabase.from('licenses').update({ features: limpio }).eq('gym_id', gymId);
+        if (error) throw error;
+        return { success: true, features: limpio };
     }
 
     async deleteLicense(licenseKey) {

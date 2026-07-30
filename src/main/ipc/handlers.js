@@ -804,6 +804,7 @@ function registerHandlers() {
     handle('admin:getStats', () => adminService.getGlobalStats());
     handle('admin:listGyms', () => adminService.listGymsDetail());
     handle('admin:getGymDetail', (gymId) => adminService.getGymDetail(gymId));
+    handle('admin:setFeatures', ({ gymId, features }) => adminService.setFeatures(gymId, features));
     handle('admin:setPlan', ({ gymId, plan }) => adminService.setPlan(gymId, plan));
     handle('admin:runCloudBackup', () => adminService.runCloudBackup());
     handle('admin:getLatestCloudBackup', () => adminService.getLatestCloudBackup());

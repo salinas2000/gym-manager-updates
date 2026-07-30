@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Users, Activity, CalendarCheck, Trophy, Cloud, Lock, RefreshCw, Wifi, Crown, Loader2 } from 'lucide-react';
+import { X, Users, Activity, CalendarCheck, Trophy, Cloud, Lock, RefreshCw, Wifi, Crown, Loader2 , Boxes } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 // Los planes se leen del catálogo del proceso main (fuente única) para que
 // añadir un plan no requiera tocar la UI. Ver src/main/config/modules.js.
@@ -134,6 +134,9 @@ export function GymDetailModal({ gym, onClose }) {
                     </select>
                 </div>
 
+                {/* Módulos incluidos — overrides por gimnasio sobre el plan */}
+                <ModulesSection gym={gym} catalog={catalog} plan={plan} />
+
                 {/* Cloud stats */}
                 <div className="p-5">
                     {loading ? (
@@ -155,6 +158,99 @@ export function GymDetailModal({ gym, onClose }) {
                     )}
                 </div>
             </div>
+        </div>
+    );
+}
+
+/**
+ * Módulos activos del gimnasio.
+ *
+ * Cada plan trae unos módulos por defecto; aquí se pueden ajustar UNO A UNO para
+ * este gimnasio concreto (se guardan en licenses.features). Sirve para vender un
+ * extra sin subir de plan — p.ej. dar el control de acceso a un Pro — o para
+ * quitar algo puntualmente.
+ */
+function ModulesSection({ gym, catalog, plan }) {
+    const [overrides, setOverrides] = useState(gym?.features || null);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+
+    useEffect(() => { setOverrides(gym?.features || null); }, [gym]);
+
+    if (!catalog?.modules) return null;
+
+    const planModules = catalog.plans?.[plan]?.modules;
+    const porPlan = (key) => (planModules === '*' ? true : Array.isArray(planModules) ? planModules.includes(key) : true);
+    const activo = (key) => (overrides && key in overrides ? !!overrides[key] : porPlan(key));
+
+    const toggle = async (key) => {
+        const siguiente = { ...(overrides || {}) };
+        const nuevoValor = !activo(key);
+        // Si el valor coincide con el del plan, quitamos el override: así no se
+        // acumula configuración redundante que luego confunde.
+        if (nuevoValor === porPlan(key)) delete siguiente[key];
+        else siguiente[key] = nuevoValor;
+
+        const payload = Object.keys(siguiente).length ? siguiente : null;
+        setOverrides(payload);
+        setSaving(true);
+        setError(null);
+        try {
+            const res = await window.api.admin.setFeatures(gym.gym_id, payload);
+            if (!res?.success) throw new Error(res?.error || 'Error al guardar');
+        } catch (e) {
+            setOverrides(gym?.features || null);   // revertir
+            setError(e.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="px-5 py-4 border-b border-white/5">
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    <Boxes size={15} className="text-indigo-400" />
+                    <span className="text-xs font-bold text-slate-300">Módulos</span>
+                    {saving && <Loader2 size={12} className="animate-spin text-slate-500" />}
+                </div>
+                <span className="text-[10px] text-slate-500">
+                    {overrides ? `${Object.keys(overrides).length} ajuste(s) sobre el plan` : 'según el plan'}
+                </span>
+            </div>
+
+            {error && <p className="text-[11px] text-red-400 mb-2">{error}</p>}
+
+            <div className="grid grid-cols-2 gap-1.5">
+                {Object.entries(catalog.modules).map(([key, def]) => {
+                    const on = activo(key);
+                    const esCore = !!def.core;
+                    const modificado = overrides && key in overrides;
+                    return (
+                        <button
+                            key={key}
+                            type="button"
+                            disabled={esCore || saving}
+                            onClick={() => toggle(key)}
+                            title={esCore ? 'Módulo del núcleo: siempre activo' : undefined}
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors text-left ${
+                                esCore
+                                    ? 'bg-slate-800/40 border-white/5 text-slate-500 cursor-not-allowed'
+                                    : on
+                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
+                                        : 'bg-slate-800/40 border-white/5 text-slate-500 hover:bg-slate-800'}`}
+                        >
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${on ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                            <span className="truncate flex-1">{def.label}</span>
+                            {modificado && <span className="text-[9px] text-amber-400 shrink-0">●</span>}
+                        </button>
+                    );
+                })}
+            </div>
+            <p className="text-[10px] text-slate-600 mt-2">
+                El punto ámbar marca un ajuste manual distinto del plan. Los cambios llegan
+                al gimnasio en su próxima renovación de licencia (~10 min).
+            </p>
         </div>
     );
 }

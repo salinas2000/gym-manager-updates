@@ -153,6 +153,9 @@ class SyncService extends BaseService {
                     birth_date: emptyToNull(r.birth_date),
                     medical_info: r.medical_info ? JSON.parse(r.medical_info) : null,
                     mobile_show_schedule: r.mobile_show_schedule != null ? r.mobile_show_schedule : 1,
+                    // Código de control de acceso: el socio lo ve en la app móvil
+                    // y lo muestra en recepción.
+                    access_code: emptyToNull(r.access_code),
                     auto_deactivated_at: emptyToNull(r.auto_deactivated_at),
                     synced_at: new Date().toISOString(),
                 }),
