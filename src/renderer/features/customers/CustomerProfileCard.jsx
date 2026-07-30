@@ -3,7 +3,6 @@ import { X, User, Mail, Phone, CreditCard, Dumbbell, Calendar, TrendingUp, Clock
 import { useGym } from '../../context/GymContext';
 import { useToast } from '../../context/ToastContext';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
-import { can } from '../../lib/entitlements';
 
 const TABS = [
     { id: 'overview', label: 'General' },
@@ -15,7 +14,7 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
     const { updateCustomer, refreshMobileLinks, settings } = useGym();
     const toast = useToast();
     // The mobile-app tab/actions only show if the gym's plan includes it.
-    const hasMobileApp = can(settings?.plan, settings?.planFeatures, 'mobile_app');
+    const hasMobileApp = settings?.modules ? !!settings.modules.mobile_app : true;
     const [payments, setPayments] = useState([]);
     const [mesocycles, setMesocycles] = useState([]);
     const [membershipHistory, setMembershipHistory] = useState([]);

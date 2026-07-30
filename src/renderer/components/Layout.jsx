@@ -2,7 +2,6 @@ import React from 'react';
 import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
-import { can } from '../lib/entitlements';
 import NotificationBell from './ui/NotificationBell';
 import GlobalBanner from './ui/GlobalBanner';
 import WindowControls from './ui/WindowControls';
@@ -33,8 +32,10 @@ export default function Layout({ children, currentView, onNavigate }) {
     const [appVersion, setAppVersion] = React.useState('1.0.0');
     const [licenseWarning, setLicenseWarning] = React.useState(null);
     const { settings, reloadSettings } = useGym();
-    // Feature gating by the gym's plan (+ per-gym overrides).
-    const has = (feature) => can(settings?.plan, settings?.planFeatures, feature);
+    // Gating por módulo. El mapa lo resuelve el proceso main (fuente única, la
+    // misma que gobierna el guardián de IPC) y llega vía license:getStatus.
+    // Mientras no haya llegado → todo visible (fail-open, evita parpadeos).
+    const has = (feature) => (settings?.modules ? !!settings.modules[feature] : true);
 
     React.useEffect(() => {
         const checkLicense = async () => {
@@ -148,13 +149,15 @@ export default function Layout({ children, currentView, onNavigate }) {
                                 color="text-blue-400"
                             />
                         )}
-                        <SidebarItem
-                            icon={Package}
-                            label="Almacén / Stock"
-                            active={currentView === 'inventory'}
-                            onClick={() => onNavigate('inventory')}
-                            color="text-indigo-400"
-                        />
+                        {has('inventory') && (
+                            <SidebarItem
+                                icon={Package}
+                                label="Almacén / Stock"
+                                active={currentView === 'inventory'}
+                                onClick={() => onNavigate('inventory')}
+                                color="text-indigo-400"
+                            />
+                        )}
 
                         <SectionLabel label="Pagos" />
                         <SidebarItem
@@ -172,6 +175,7 @@ export default function Layout({ children, currentView, onNavigate }) {
                             color="text-amber-400"
                         />
 
+                        {has('training') && <>
                         <SectionLabel label="Entrenamiento" />
                         <SidebarItem
                             icon={ListTodo}
@@ -201,6 +205,7 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('history')}
                             color="text-slate-400"
                         />
+                        </>}
                         {has('rm') && (
                             <SidebarItem
                                 icon={Trophy}

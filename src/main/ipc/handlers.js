@@ -1,4 +1,5 @@
 const { ipcMain } = require('electron');
+const { MODULES, PLANS, PLAN_ORDER, resolveModules, moduleForChannel } = require('../config/modules');
 const customerService = require('../services/local/customer.service');
 const gdprService = require('../services/local/gdpr.service');
 const paymentService = require('../services/local/payment.service');
@@ -43,6 +44,64 @@ async function _removeExerciseVideoIfUploaded(url) {
     }
 }
 
+// ─── Gating por módulo (plan de la licencia) ─────────────────────────────────
+// Resuelve el mapa de módulos del gimnasio, memoizado por (plan, features) para
+// no recalcular en cada llamada IPC.
+let _modulesCache = { key: null, value: null };
+
+function currentModules() {
+    let plan = null;
+    let features = null;
+    try {
+        const licService = require('../services/local/license.service');
+        const lic = licService.getLicenseData() || {};
+        plan = lic.plan || null;
+        features = lic.features || null;
+    } catch {
+        // Sin licencia legible → resolveModules() abre todo (fail-open).
+    }
+    const key = `${plan}|${JSON.stringify(features)}`;
+    if (_modulesCache.key !== key) {
+        _modulesCache = { key, value: resolveModules(plan, features) };
+    }
+    return _modulesCache.value;
+}
+
+/**
+ * ¿Está permitido este canal con el plan actual?
+ * Fail-open a propósito: si el canal no está declarado (namespace nuevo sin
+ * mapear) se permite y se avisa por consola — el test de completitud es quien
+ * debe cazar eso en CI, nunca un cliente en producción.
+ *
+ * Válvula de escape: GYM_DISABLE_MODULE_GUARD=1 desactiva el gating por
+ * completo, para poder desatascar a un cliente por teléfono sin publicar build.
+ */
+function checkModuleAccess(channel) {
+    if (process.env.GYM_DISABLE_MODULE_GUARD === '1') return null;
+
+    const mod = moduleForChannel(channel);
+    if (mod === null) return null;          // infraestructura / núcleo
+    if (mod === undefined) {                 // no declarado → permitir + avisar
+        console.warn(`[modules] canal sin módulo declarado: ${channel}`);
+        return null;
+    }
+    if (currentModules()[mod]) return null;  // módulo activo
+
+    const label = MODULES[mod]?.label || mod;
+    console.warn(`[modules] bloqueado ${channel} — módulo "${label}" no incluido en el plan`);
+    return {
+        success: false,
+        code: 'MODULE_DISABLED',
+        module: mod,
+        error: `El módulo "${label}" no está incluido en el plan de este gimnasio.`,
+    };
+}
+
+/** Invalida la memoización tras un cambio de plan (heartbeat de licencia). */
+function invalidateModulesCache() {
+    _modulesCache = { key: null, value: null };
+}
+
 function registerHandlers() {
     if (handlersRegistered) {
         console.log('[IPC] Handlers already registered, skipping...');
@@ -56,6 +115,11 @@ function registerHandlers() {
     // Automatically triggers cloud sync for mutation channels
     const handle = (channel, callback) => {
         ipcMain.handle(channel, async (event, ...args) => {
+            // Gating por plan ANTES de ejecutar nada. Devuelve la misma forma
+            // { success:false, error } que el catch, así los llamantes que ya
+            // comprueban .success degradan solos sin cambios.
+            const denied = checkModuleAccess(channel);
+            if (denied) return denied;
             try {
                 const result = await callback(...args);
                 // Auto-sync after successful mutations
@@ -612,9 +676,24 @@ function registerHandlers() {
 
     // License System
     const licService = require('../services/local/license.service');
-    handle('license:getStatus', () => ({
-        authenticated: licService.isAuthenticated(),
-        data: licService.getLicenseData()
+    handle('license:getStatus', () => {
+        // El mapa de módulos se resuelve AQUÍ, en main. El renderer solo lo
+        // consume — no puede discrepar del backend porque no calcula nada.
+        invalidateModulesCache();
+        const data = licService.getLicenseData();
+        return {
+            authenticated: licService.isAuthenticated(),
+            data,
+            modules: resolveModules(data?.plan || null, data?.features || null),
+        };
+    });
+
+    // Catálogo de módulos y planes para la UI (panel maestro). Evita que el
+    // renderer duplique la lista de planes y se desincronice del catálogo.
+    handle('entitlements:getCatalog', () => ({
+        modules: MODULES,
+        plans: PLANS,
+        planOrder: PLAN_ORDER,
     }));
     handle('license:reportVersion', (version) => licService.updateVersion(version));
     handle('license:reportSettings', (payload) => licService.reportSettings(payload || {}));

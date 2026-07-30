@@ -250,12 +250,12 @@ class AdminService {
         return data; // { id, created_at, payload } | null
     }
 
-    /** Change a gym's plan/tier (basic | pro | premium). */
+    /** Change a gym's plan/tier. Los planes válidos salen del catálogo. */
     async setPlan(gymId, plan) {
         this.checkMaster();
         if (!supabase) throw new Error('Conexión con la nube no configurada.');
-        const allowed = ['basic', 'pro', 'premium'];
-        if (!allowed.includes(plan)) throw new Error('Plan no válido');
+        const { PLANS } = require('../../config/modules');
+        if (!Object.prototype.hasOwnProperty.call(PLANS, plan)) throw new Error('Plan no válido');
         const { error } = await supabase.from('licenses').update({ plan }).eq('gym_id', gymId);
         if (error) throw error;
         return { success: true };

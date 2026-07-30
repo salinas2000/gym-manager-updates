@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { X, Users, Activity, CalendarCheck, Trophy, Cloud, Lock, RefreshCw, Wifi, Crown, Loader2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { PLAN_LABELS, PLAN_ORDER } from '../../../lib/entitlements';
+// Los planes se leen del catálogo del proceso main (fuente única) para que
+// añadir un plan no requiera tocar la UI. Ver src/main/config/modules.js.
 
 function relTime(ts) {
     if (!ts) return 'nunca';
@@ -38,8 +39,17 @@ export function GymDetailModal({ gym, onClose }) {
     const [loading, setLoading] = useState(true);
     const [plan, setPlan] = useState(gym?.plan || 'pro');
     const [savingPlan, setSavingPlan] = useState(false);
+    const [catalog, setCatalog] = useState(null);
 
     useEffect(() => { setPlan(gym?.plan || 'pro'); }, [gym]);
+
+    useEffect(() => {
+        let alive = true;
+        window.api.entitlements.getCatalog()
+            .then((res) => { if (alive && res?.success) setCatalog(res.data); })
+            .catch(() => { /* el selector cae al plan actual */ });
+        return () => { alive = false; };
+    }, []);
 
     const changePlan = async (newPlan) => {
         if (!gym || newPlan === plan) return;
@@ -118,8 +128,8 @@ export function GymDetailModal({ gym, onClose }) {
                         disabled={savingPlan}
                         className="bg-slate-800 border border-white/10 rounded-lg px-3 py-1.5 text-xs font-bold text-white outline-none focus:border-indigo-500 disabled:opacity-50"
                     >
-                        {PLAN_ORDER.map((p) => (
-                            <option key={p} value={p}>{PLAN_LABELS[p]}</option>
+                        {(catalog?.planOrder || [plan]).map((p) => (
+                            <option key={p} value={p}>{catalog?.plans?.[p]?.label || p}</option>
                         ))}
                     </select>
                 </div>

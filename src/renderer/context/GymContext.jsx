@@ -50,6 +50,10 @@ export function GymProvider({ children }) {
                     // Plan/tier + per-gym overrides → drives feature gating.
                     plan: lic.plan || 'pro',
                     planFeatures: lic.features || null,
+                    // Mapa de módulos YA RESUELTO por el proceso main (misma
+                    // fuente que usa el guardián de IPC), así la UI no puede
+                    // discrepar del backend. Ver src/main/config/modules.js.
+                    modules: licenseRes.data.modules || null,
                 }));
             } else {
                 console.log('[GymContext] Regular or No License Detected');
@@ -157,9 +161,12 @@ export function GymProvider({ children }) {
                         const lic = licRes.data.data || {};
                         const nextPlan = lic.plan || 'pro';
                         const nextFeat = lic.features || null;
+                        const nextMods = licRes.data.modules || null;
                         setSettings(prev => {
-                            if (prev.plan === nextPlan && JSON.stringify(prev.planFeatures) === JSON.stringify(nextFeat)) return prev;
-                            return { ...prev, plan: nextPlan, planFeatures: nextFeat };
+                            if (prev.plan === nextPlan
+                                && JSON.stringify(prev.planFeatures) === JSON.stringify(nextFeat)
+                                && JSON.stringify(prev.modules) === JSON.stringify(nextMods)) return prev;
+                            return { ...prev, plan: nextPlan, planFeatures: nextFeat, modules: nextMods };
                         });
                     }
                 } catch { /* non-fatal — next tick retries */ }

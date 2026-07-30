@@ -174,6 +174,11 @@ contextBridge.exposeInMainWorld('api', {
         reportSettings: (payload) => ipcRenderer.invoke('license:reportSettings', payload),
         verifyKey: (key) => ipcRenderer.invoke('license:verifyKey', key),
     },
+    // Catálogo de módulos y planes (src/main/config/modules.js). La UI lo lee
+    // de aquí en vez de duplicar la lista de planes.
+    entitlements: {
+        getCatalog: () => ipcRenderer.invoke('entitlements:getCatalog'),
+    },
     // google removed in v2.2.0
     updater: {
         getVersion: () => ipcRenderer.invoke('updater:getVersion'),

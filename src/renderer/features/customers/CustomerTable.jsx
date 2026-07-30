@@ -4,7 +4,6 @@ import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCh
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { cn } from '../../lib/utils';
-import { can } from '../../lib/entitlements';
 
 // Shared Colors (Consider moving to a constants file)
 const COLORS = [
@@ -18,7 +17,7 @@ const COLORS = [
 
 export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining, onOpenProfile, onSendCustomers, onImportExcel }) {
     const { customers, toggleCustomerStatus, tariffs, deleteCustomer, mobileLinkedIds, mobileInvitedIds, settings } = useGym();
-    const hasMobileApp = can(settings?.plan, settings?.planFeatures, 'mobile_app');
+    const hasMobileApp = settings?.modules ? !!settings.modules.mobile_app : true;
     const { t } = useLanguage();
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('all'); // Default to all
