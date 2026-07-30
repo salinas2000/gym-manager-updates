@@ -93,7 +93,10 @@ describe('TrainingService - Exercises', () => {
 
     describe('createExercise()', () => {
         test('should create exercise with valid data', () => {
-            const data = { name: 'Bench Press', subcategoryId: 1, video_url: '' };
+            // Los ejercicios cuelgan de una categoría directa (categoryId), y el
+            // servicio verifica que exista en el gimnasio con un SELECT .get().
+            mockStatement.get.mockReturnValue({ id: 1 }); // categoría existe
+            const data = { name: 'Bench Press', categoryId: 1, video_url: '' };
             const result = trainingService.createExercise(data);
 
             expect(mockStatement.run).toHaveBeenCalled();
@@ -132,8 +135,11 @@ describe('TrainingService - Exercises', () => {
             const result = trainingService.deleteExercise(1);
 
             expect(result).toEqual({ success: true, id: 1 });
-            // Should have called prepare for: SELECT, DELETE routine_items, DELETE exercises
-            expect(mockDb.prepare).toHaveBeenCalledTimes(3);
+            // Debe cascada: borra routine_items y el ejercicio. No fijamos un número
+            // exacto de prepares (ahora también registra el borrado en sync_deleted_log).
+            const sqls = mockDb.prepare.mock.calls.map((c) => String(c[0]));
+            expect(sqls.some((s) => /DELETE FROM routine_items/i.test(s))).toBe(true);
+            expect(sqls.some((s) => /DELETE FROM exercises/i.test(s))).toBe(true);
         });
 
         test('should throw if exercise not found', () => {
@@ -478,12 +484,13 @@ describe('TrainingService - Field Configs', () => {
 
     describe('deleteFieldConfig()', () => {
         test('should soft-delete and clean exercises/routine_items JSON', () => {
-            // Mock exercises with the field
+            // Usamos una clave custom (no del catálogo): las del catálogo están
+            // protegidas y deleteFieldConfig lanzaría sin llegar a limpiar.
             mockStatement.all
-                .mockReturnValueOnce([{ id: 1, custom_fields: '{"rpe":"8","tempo":"3010"}' }]) // exercises
-                .mockReturnValueOnce([{ id: 10, custom_fields: '{"rpe":"7","tempo":"2010"}' }]); // routine_items
+                .mockReturnValueOnce([{ id: 1, custom_fields: '{"rpe":"8","mifield":"3010"}' }]) // exercises
+                .mockReturnValueOnce([{ id: 10, custom_fields: '{"rpe":"7","mifield":"2010"}' }]); // routine_items
 
-            trainingService.deleteFieldConfig('tempo');
+            trainingService.deleteFieldConfig('mifield');
 
             expect(mockStatement.run).toHaveBeenCalled();
         });
@@ -493,8 +500,8 @@ describe('TrainingService - Field Configs', () => {
                 .mockReturnValueOnce([{ id: 1, custom_fields: 'not valid json' }])
                 .mockReturnValueOnce([]);
 
-            // Should not throw
-            expect(() => trainingService.deleteFieldConfig('rpe')).not.toThrow();
+            // Clave custom (no catálogo). El JSON malformado se ignora sin lanzar.
+            expect(() => trainingService.deleteFieldConfig('mifield')).not.toThrow();
         });
     });
 

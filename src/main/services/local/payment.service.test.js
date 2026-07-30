@@ -64,13 +64,12 @@ describe('Payment Service', () => {
       expect(() => paymentService.create(paymentData)).toThrow();
     });
 
-    test('should reject zero amount', () => {
-      const paymentData = {
-        customer_id: 1,
-        amount: 0
-      };
+    test('should accept zero amount (multi-month coverage marker)', () => {
+      // El esquema permite 0 a propósito: representa la fila de cobertura 0€ de
+      // un pago multi-mes anterior. Debe crearse sin lanzar.
+      mockDb.prepare().run.mockReturnValue({ lastInsertRowid: 1 });
 
-      expect(() => paymentService.create(paymentData)).toThrow();
+      expect(() => paymentService.create({ customer_id: 1, amount: 0 })).not.toThrow();
     });
 
     test('should reject missing customer_id', () => {
@@ -108,6 +107,9 @@ describe('Payment Service', () => {
 
   describe('delete()', () => {
     test('should delete payment by id', () => {
+      // delete() primero hace un SELECT .get() para saber si el pago pertenece a
+      // un grupo multi-mes; el mock debe devolver la fila objetivo.
+      mockDb.prepare().get.mockReturnValue({ id: 1, payment_group_id: null });
       mockDb.prepare().run.mockReturnValue({ changes: 1 });
 
       const result = paymentService.delete(1);

@@ -79,9 +79,11 @@ describe('Membership Service', () => {
         end_date: '2026-12-31'
       });
 
-      // Should have called prepare for: UPDATE memberships, SELECT customer_id,
-      // SELECT activeMembership, UPDATE customers
-      expect(mockDb.prepare).toHaveBeenCalledTimes(4);
+      // El objetivo real es que, tras actualizar la membresía, recalcule el estado
+      // del socio (UPDATE customers). Comprobamos esa llamada en vez de fijar un
+      // número exacto de prepares (frágil ante nuevas sentencias, p.ej. el sync).
+      const sqls = mockDb.prepare.mock.calls.map((c) => String(c[0]));
+      expect(sqls.some((s) => /update\s+customers/i.test(s))).toBe(true);
     });
 
     test('should reject missing start_date', () => {

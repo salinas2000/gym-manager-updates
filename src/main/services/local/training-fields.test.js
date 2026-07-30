@@ -105,7 +105,9 @@ describe('Exercise Field Configuration', () => {
     describe('addFieldConfig()', () => {
         it('should create a new field config with generated key', () => {
             const runMock = jest.fn();
-            mockDb.prepare.mockReturnValue({ run: runMock });
+            // addFieldConfig ahora consulta un campo existente (.get) para reciclar
+            // uno borrado con la misma clave antes de insertar.
+            mockDb.prepare.mockReturnValue({ run: runMock, get: jest.fn() });
 
             const result = service.addFieldConfig('Tempo/Cadence', 'text');
 
@@ -122,7 +124,9 @@ describe('Exercise Field Configuration', () => {
 
         it('should sanitize field key (lowercase, no spaces, alphanumeric)', () => {
             const runMock = jest.fn();
-            mockDb.prepare.mockReturnValue({ run: runMock });
+            // addFieldConfig ahora consulta un campo existente (.get) para reciclar
+            // uno borrado con la misma clave antes de insertar.
+            mockDb.prepare.mockReturnValue({ run: runMock, get: jest.fn() });
 
             const result = service.addFieldConfig('Rest Time (sec)', 'number');
 
@@ -131,7 +135,9 @@ describe('Exercise Field Configuration', () => {
 
         it('should store options as JSON for select fields', () => {
             const runMock = jest.fn();
-            mockDb.prepare.mockReturnValue({ run: runMock });
+            // addFieldConfig ahora consulta un campo existente (.get) para reciclar
+            // uno borrado con la misma clave antes de insertar.
+            mockDb.prepare.mockReturnValue({ run: runMock, get: jest.fn() });
 
             const options = ['Option A', 'Option B', 'Option C'];
             service.addFieldConfig('Dropdown', 'select', options);
@@ -147,7 +153,9 @@ describe('Exercise Field Configuration', () => {
 
         it('should default to type "text" if not specified', () => {
             const runMock = jest.fn();
-            mockDb.prepare.mockReturnValue({ run: runMock });
+            // addFieldConfig ahora consulta un campo existente (.get) para reciclar
+            // uno borrado con la misma clave antes de insertar.
+            mockDb.prepare.mockReturnValue({ run: runMock, get: jest.fn() });
 
             service.addFieldConfig('New Field');
 
@@ -160,7 +168,9 @@ describe('Exercise Field Configuration', () => {
     describe('updateExerciseFieldConfig()', () => {
         it('should update field config properties', () => {
             const runMock = jest.fn();
-            mockDb.prepare.mockReturnValue({ run: runMock });
+            // addFieldConfig ahora consulta un campo existente (.get) para reciclar
+            // uno borrado con la misma clave antes de insertar.
+            mockDb.prepare.mockReturnValue({ run: runMock, get: jest.fn() });
 
             const result = service.updateExerciseFieldConfig('sets', {
                 label: 'Sets Updated',
@@ -171,19 +181,23 @@ describe('Exercise Field Configuration', () => {
             });
 
             expect(result.success).toBe(true);
-            expect(runMock).toHaveBeenCalledWith({
+            // El servicio añade is_loggable/is_prescribable (según catálogo) y gym_id.
+            // Comprobamos el subconjunto relevante en vez del objeto exacto.
+            expect(runMock).toHaveBeenCalledWith(expect.objectContaining({
                 label: 'Sets Updated',
                 type: 'number',
                 is_active: 1,
                 is_mandatory_in_template: 1,
                 options: null,
                 field_key: 'sets'
-            });
+            }));
         });
 
         it('should convert boolean flags to integers (SQLite compatibility)', () => {
             const runMock = jest.fn();
-            mockDb.prepare.mockReturnValue({ run: runMock });
+            // addFieldConfig ahora consulta un campo existente (.get) para reciclar
+            // uno borrado con la misma clave antes de insertar.
+            mockDb.prepare.mockReturnValue({ run: runMock, get: jest.fn() });
 
             service.updateExerciseFieldConfig('reps', {
                 label: 'Reps',
@@ -216,7 +230,8 @@ describe('Exercise Field Configuration', () => {
 
             service.deleteFieldConfig('obsolete_field');
 
-            expect(markDeletedMock).toHaveBeenCalledWith('obsolete_field');
+            // El borrado ahora está scopeado por gimnasio: .run(key, gymId).
+            expect(markDeletedMock).toHaveBeenCalledWith('obsolete_field', 'TEST_GYM_123');
             expect(transactionFn).toHaveBeenCalled();
         });
 
@@ -415,7 +430,9 @@ describe('Exercise Field Configuration', () => {
 
         it('should handle field key with only special characters', () => {
             const runMock = jest.fn();
-            mockDb.prepare.mockReturnValue({ run: runMock });
+            // addFieldConfig ahora consulta un campo existente (.get) para reciclar
+            // uno borrado con la misma clave antes de insertar.
+            mockDb.prepare.mockReturnValue({ run: runMock, get: jest.fn() });
 
             const result = service.addFieldConfig('!!!@@@', 'text');
 
