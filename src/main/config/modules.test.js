@@ -57,14 +57,15 @@ describe('resolveModules()', () => {
         expect(Object.values(m).every(Boolean)).toBe(true);
     });
 
-    test('crm solo deja el núcleo', () => {
+    test('crm deja el núcleo + almacén', () => {
         const m = resolveModules('crm', null);
         expect(m.customers).toBe(true);
         expect(m.finance).toBe(true);
+        expect(m.inventory).toBe(true);   // gestión de negocio, no entrenamiento
         expect(m.training).toBe(false);
         expect(m.classes).toBe(false);
         expect(m.mobile_app).toBe(false);
-        expect(m.inventory).toBe(false);
+        expect(m.displays).toBe(false);
     });
 
     test('el núcleo NUNCA se puede desactivar, ni con override', () => {
@@ -176,8 +177,47 @@ describe('Compatibilidad con el comportamiento anterior (2.3.x)', () => {
         // Es un plan nuevo: no puede haber ningún gimnasio en él todavía.
         const m = resolveModules('crm', null);
         expect(m.training).toBe(false);
-        expect(m.inventory).toBe(false);
         expect(m.displays).toBe(false);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ESPEJO MÓVIL — la app móvil es otro repo/deploy y no puede importar de aquí,
+// así que tiene una copia del catálogo. Este test impide que se desincronicen:
+// si añades un plan o un módulo aquí y no lo replicas allí, falla.
+// Se salta si la carpeta del móvil no está presente (clon solo de coreBuild).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('Espejo del catálogo en la app móvil', () => {
+    const espejo = path.join(__dirname, '../../../../gym-client-app/src/lib/entitlements.ts');
+    const existe = fs.existsSync(espejo);
+    const src = existe ? fs.readFileSync(espejo, 'utf-8') : '';
+
+    const maybe = existe ? test : test.skip;
+
+    maybe('declara exactamente los mismos planes', () => {
+        const bloque = src.slice(src.indexOf('PLAN_MODULES'), src.indexOf('/** Módulos del núcleo'));
+        const planesEnEspejo = [...bloque.matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1]);
+        expect(planesEnEspejo.sort()).toEqual(Object.keys(PLANS).sort());
+    });
+
+    maybe('declara exactamente los mismos módulos', () => {
+        const bloque = src.slice(src.indexOf('ALL_MODULES'), src.indexOf('/**\n * ¿Está activo'));
+        const modulosEnEspejo = [...bloque.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+        expect(modulosEnEspejo.sort()).toEqual([...MODULE_KEYS].sort());
+    });
+
+    maybe('cada plan del espejo lista los mismos módulos', () => {
+        for (const [nombre, def] of Object.entries(PLANS)) {
+            if (def.modules === '*') {
+                expect(`${nombre}:${src.includes(`${nombre}: '*'`)}`).toBe(`${nombre}:true`);
+                continue;
+            }
+            const linea = new RegExp(`${nombre}:\\s*\\[([^\\]]+)\\]`, 's').exec(src);
+            expect(`${nombre} presente: ${!!linea}`).toBe(`${nombre} presente: true`);
+            const enEspejo = [...linea[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+            expect(`${nombre}=${enEspejo.sort().join(',')}`)
+                .toBe(`${nombre}=${[...def.modules].sort().join(',')}`);
+        }
     });
 });
 

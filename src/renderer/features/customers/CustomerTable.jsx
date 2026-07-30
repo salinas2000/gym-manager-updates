@@ -16,8 +16,11 @@ const COLORS = [
 ];
 
 export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTariffs, onEditCustomer, onEditHistory, onOpenTraining, onOpenProfile, onSendCustomers, onImportExcel }) {
-    const { customers, toggleCustomerStatus, tariffs, deleteCustomer, mobileLinkedIds, mobileInvitedIds, settings } = useGym();
-    const hasMobileApp = settings?.modules ? !!settings.modules.mobile_app : true;
+    const { customers, toggleCustomerStatus, tariffs, deleteCustomer, mobileLinkedIds, mobileInvitedIds, settings, hasModule } = useGym();
+    const hasMobileApp = hasModule('mobile_app');
+    // Entrenamientos e historial pertenecen al módulo `training`. Se dejan
+    // visibles pero inertes cuando no está en el plan: el cliente ve que existe.
+    const hasTraining = hasModule('training');
     const { t } = useLanguage();
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('all'); // Default to all
@@ -531,12 +534,16 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                                     <Clock size={16} />
                                 </button>
                                 <button
+                                    disabled={!hasTraining}
                                     onClick={(e) => {
                                         e.stopPropagation();
+                                        if (!hasTraining) return;
                                         onOpenTraining(customer);
                                     }}
-                                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-orange-400 transition-colors tooltip"
-                                    title="Gestionar Entrenamientos"
+                                    className={`p-1.5 rounded-lg transition-colors tooltip ${hasTraining
+                                        ? 'hover:bg-slate-800 text-slate-400 hover:text-orange-400'
+                                        : 'text-slate-700 cursor-not-allowed'}`}
+                                    title={hasTraining ? "Gestionar Entrenamientos" : "Entrenamiento no incluido en tu plan"}
                                 >
                                     <Dumbbell size={16} />
                                 </button>

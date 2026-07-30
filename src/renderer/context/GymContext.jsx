@@ -11,6 +11,9 @@ export function GymProvider({ children }) {
 
     const [loading, setLoading] = useState(true);
     const [broadcast, setBroadcast] = useState(null);
+    // Catálogo de módulos (etiquetas) para pintar las pantallas de bloqueo.
+    // Viene del proceso main, que es la fuente de verdad.
+    const [moduleCatalog, setModuleCatalog] = useState(null);
     const [settings, setSettings] = useState({
         gym_name: 'Gym Manager',
         manager_name: 'Admin',
@@ -61,6 +64,13 @@ export function GymProvider({ children }) {
 
             // Load mobile link status (non-blocking)
             refreshMobileLinks();
+
+            // Catálogo de módulos (etiquetas). Estático, se pide una sola vez.
+            if (!moduleCatalog && window.api?.entitlements?.getCatalog) {
+                window.api.entitlements.getCatalog()
+                    .then((res) => { if (res?.success) setModuleCatalog(res.data?.modules || null); })
+                    .catch(() => { /* las pantallas de bloqueo usan un texto genérico */ });
+            }
 
         } catch (error) {
             console.error("Failed to load data:", error);
@@ -331,6 +341,14 @@ export function GymProvider({ children }) {
             refreshData,
             broadcast,
             settings,
+            /**
+             * ¿Está activo este módulo para el gimnasio? Único sitio donde se
+             * consulta el mapa resuelto por el proceso main. Mientras no haya
+             * llegado → true (fail-open, evita parpadeos al arrancar).
+             * Ver src/main/config/modules.js.
+             */
+            hasModule: (m) => (settings?.modules ? !!settings.modules[m] : true),
+            moduleCatalog,
             updateSettings: async (newSettings) => {
                 if (!window.api) return;
                 const res = await window.api.settings.update(newSettings);

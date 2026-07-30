@@ -52,13 +52,38 @@ let _modulesCache = { key: null, value: null };
 function currentModules() {
     let plan = null;
     let features = null;
+    let isMaster = false;
     try {
         const licService = require('../services/local/license.service');
         const lic = licService.getLicenseData() || {};
         plan = lic.plan || null;
         features = lic.features || null;
+        isMaster = !!lic.is_master;
     } catch {
         // Sin licencia legible → resolveModules() abre todo (fail-open).
+    }
+
+    // Una licencia master (el propio proveedor) no se limita por plan: el Panel
+    // Maestro es la herramienta de soporte y necesita todo — igual que
+    // service_role se salta RLS. GYM_FORCE_PLAN sí lo pisa, para poder
+    // previsualizar planes en desarrollo.
+    if (isMaster && !process.env.GYM_FORCE_PLAN) {
+        plan = null;      // resolveModules() con plan nulo → todo activo
+        features = null;
+    }
+
+    // Previsualizar un plan en desarrollo sin tocar la nube:
+    //   GYM_FORCE_PLAN=crm npm run dev
+    // Se ignora en builds empaquetados, así que un cliente no puede usarlo para
+    // desbloquear módulos que no ha comprado.
+    if (process.env.GYM_FORCE_PLAN) {
+        try {
+            const { app } = require('electron');
+            if (!app.isPackaged) {
+                plan = process.env.GYM_FORCE_PLAN;
+                features = null;
+            }
+        } catch { /* fuera de Electron (tests) → se ignora */ }
     }
     const key = `${plan}|${JSON.stringify(features)}`;
     if (_modulesCache.key !== key) {
@@ -680,11 +705,12 @@ function registerHandlers() {
         // El mapa de módulos se resuelve AQUÍ, en main. El renderer solo lo
         // consume — no puede discrepar del backend porque no calcula nada.
         invalidateModulesCache();
-        const data = licService.getLicenseData();
         return {
             authenticated: licService.isAuthenticated(),
-            data,
-            modules: resolveModules(data?.plan || null, data?.features || null),
+            data: licService.getLicenseData(),
+            // Misma función que usa el guardián de IPC: imposible que la barra
+            // lateral muestre algo que el backend luego bloquee (y viceversa).
+            modules: currentModules(),
         };
     });
 

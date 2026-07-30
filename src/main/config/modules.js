@@ -43,7 +43,9 @@ const MODULE_KEYS = Object.keys(MODULES);
 const GRANDFATHERED = ['customers', 'finance', 'training', 'inventory', 'displays'];
 
 const PLANS = {
-    crm:     { label: 'CRM',     modules: ['customers', 'finance'] },
+    // El almacén entra en CRM: vender bebidas/suplementos es gestión de negocio,
+    // no entrenamiento, así que encaja con un gimnasio que solo quiere el CRM.
+    crm:     { label: 'CRM',     modules: ['customers', 'finance', 'inventory'] },
     basic:   { label: 'Básico',  modules: [...GRANDFATHERED] },
     pro:     { label: 'Pro',     modules: [...GRANDFATHERED, 'classes', 'trainers', 'mobile_app', 'rm'] },
     premium: { label: 'Premium', modules: '*' },

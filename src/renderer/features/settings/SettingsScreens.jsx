@@ -3,11 +3,14 @@ import {
     Monitor, Plus, Copy, Check, RefreshCcw, Trash2, PencilLine, X, Loader2,
     CircleAlert, ShieldCheck, Wifi, WifiOff, ExternalLink,
 } from 'lucide-react';
+import { useGym } from '../../context/GymContext';
+import ModuleGuard from '../../components/ModuleGuard';
 
 const PANEL_URL = 'https://display.gymanagerpro.com';
 const VERCEL_FALLBACK = 'https://gym-display-app.vercel.app';
 
 export default function SettingsScreens() {
+    const { hasModule } = useGym();
     const [devices, setDevices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState(null);
@@ -53,6 +56,13 @@ export default function SettingsScreens() {
     const safeDevices = Array.isArray(devices) ? devices : [];
     const active = safeDevices.filter(d => !d.revoked_at);
     const revoked = safeDevices.filter(d => d.revoked_at);
+
+    // Módulo no incluido en el plan → pantalla bloqueada. No tiene sentido dejar
+    // vincular una tele que luego el backend rechazaría (los canales
+    // cloud:display* están gateados por el módulo `displays`).
+    if (!hasModule('displays')) {
+        return <ModuleGuard module="displays">{null}</ModuleGuard>;
+    }
 
     return (
         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">

@@ -1,23 +1,33 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy, Lock } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
 import GlobalBanner from './ui/GlobalBanner';
 import WindowControls from './ui/WindowControls';
 
-const SidebarItem = ({ icon: Icon, label, active, onClick, color = "text-slate-500" }) => (
+// `locked` = el módulo no está en el plan. Se sigue mostrando (atenuado y con
+// candado) a propósito: que el cliente vea lo que se está perdiendo. Al pulsar
+// navega igual, y ModuleGuard muestra la pantalla de "no incluido".
+const SidebarItem = ({ icon: Icon, label, active, onClick, color = "text-slate-500", locked = false }) => (
     <div
         onClick={onClick}
-        title={label}
+        title={locked ? `${label} — no incluido en tu plan` : label}
         className={`
     flex items-center gap-2.5 px-3 py-1.5 rounded-lg cursor-pointer transition-all group
-    ${active
-                ? 'bg-blue-600 shadow-[0_0_14px_rgba(37,99,235,0.3)] text-white'
-                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
+    ${locked
+                // Un módulo bloqueado NUNCA usa el azul de "activo": parecería
+                // habilitado. Al seleccionarlo solo se marca en gris.
+                ? active
+                    ? 'bg-slate-800/60 text-slate-500'
+                    : 'text-slate-600 hover:bg-slate-800/30 hover:text-slate-500'
+                : active
+                    ? 'bg-blue-600 shadow-[0_0_14px_rgba(37,99,235,0.3)] text-white'
+                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}
   `}>
-        <Icon size={15} className={active ? 'text-white' : `${color} group-hover:text-slate-200`} />
+        <Icon size={15} className={locked ? 'text-slate-700' : active ? 'text-white' : `${color} group-hover:text-slate-200`} />
         <span className="font-medium text-[11px] uppercase tracking-wider truncate">{label}</span>
+        {locked && <Lock size={11} className="ml-auto shrink-0 text-slate-600" />}
     </div>
 );
 
@@ -131,33 +141,30 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('customers')}
                             color="text-blue-400"
                         />
-                        {has('classes') && (
-                            <SidebarItem
-                                icon={CalendarDays}
-                                label="Clases"
-                                active={currentView === 'classes'}
-                                onClick={() => onNavigate('classes')}
-                                color="text-cyan-400"
-                            />
-                        )}
-                        {has('trainers') && (
-                            <SidebarItem
-                                icon={UserCog}
-                                label="Entrenadores"
-                                active={currentView === 'trainers'}
-                                onClick={() => onNavigate('trainers')}
-                                color="text-blue-400"
-                            />
-                        )}
-                        {has('inventory') && (
-                            <SidebarItem
-                                icon={Package}
-                                label="Almacén / Stock"
-                                active={currentView === 'inventory'}
-                                onClick={() => onNavigate('inventory')}
-                                color="text-indigo-400"
-                            />
-                        )}
+                        <SidebarItem
+                            icon={CalendarDays}
+                            label="Clases"
+                            active={currentView === 'classes'}
+                            onClick={() => onNavigate('classes')}
+                            color="text-cyan-400"
+                            locked={!has('classes')}
+                        />
+                        <SidebarItem
+                            icon={UserCog}
+                            label="Entrenadores"
+                            active={currentView === 'trainers'}
+                            onClick={() => onNavigate('trainers')}
+                            color="text-blue-400"
+                            locked={!has('trainers')}
+                        />
+                        <SidebarItem
+                            icon={Package}
+                            label="Almacén / Stock"
+                            active={currentView === 'inventory'}
+                            onClick={() => onNavigate('inventory')}
+                            color="text-indigo-400"
+                            locked={!has('inventory')}
+                        />
 
                         <SectionLabel label="Pagos" />
                         <SidebarItem
@@ -175,13 +182,13 @@ export default function Layout({ children, currentView, onNavigate }) {
                             color="text-amber-400"
                         />
 
-                        {has('training') && <>
                         <SectionLabel label="Entrenamiento" />
                         <SidebarItem
                             icon={ListTodo}
                             label="Prioridades"
                             active={currentView === 'priorities'}
                             onClick={() => onNavigate('priorities')}
+                            locked={!has('training')}
                             color="text-rose-400"
                         />
                         <SidebarItem
@@ -189,6 +196,7 @@ export default function Layout({ children, currentView, onNavigate }) {
                             label="Centro Entrenam."
                             active={currentView === 'training'}
                             onClick={() => onNavigate('training')}
+                            locked={!has('training')}
                             color="text-blue-400"
                         />
                         <SidebarItem
@@ -196,6 +204,7 @@ export default function Layout({ children, currentView, onNavigate }) {
                             label="Biblioteca"
                             active={currentView === 'library'}
                             onClick={() => onNavigate('library')}
+                            locked={!has('training')}
                             color="text-purple-400"
                         />
                         <SidebarItem
@@ -204,12 +213,13 @@ export default function Layout({ children, currentView, onNavigate }) {
                             active={currentView === 'history'}
                             onClick={() => onNavigate('history')}
                             color="text-slate-400"
+                            locked={!has('training')}
                         />
-                        </>}
-                        {has('rm') && (
+                        {true && (
                             <SidebarItem
                                 icon={Trophy}
                                 label="RM pendientes"
+                                locked={!has('rm')}
                                 active={currentView === 'rm'}
                                 onClick={() => onNavigate('rm')}
                                 color="text-amber-400"

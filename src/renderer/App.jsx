@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Layout from './components/Layout';
+import ModuleGuard from './components/ModuleGuard';
 import ErrorBoundary from './components/ErrorBoundary';
 import { GymProvider } from './context/GymContext';
 import { LanguageProvider } from './context/LanguageContext';
@@ -47,11 +48,11 @@ function Dashboard() {
             case 'dashboard':
                 return <DashboardPage />;
             case 'inventory':
-                return <InventoryPage />;
+                return <ModuleGuard module="inventory"><InventoryPage /></ModuleGuard>;
             case 'classes':
-                return <ClassManager />;
+                return <ModuleGuard module="classes"><ClassManager /></ModuleGuard>;
             case 'trainers':
-                return <TrainerManager />;
+                return <ModuleGuard module="trainers"><TrainerManager /></ModuleGuard>;
             case 'finance':
                 return <PaymentsPage />;
             case 'tariffs':
@@ -61,17 +62,17 @@ function Dashboard() {
             case 'settings':
                 return <GeneralSettings initialTab={selectedCustomer} />;
             case 'training':
-                return <TrainingPage key="training-center" onNavigate={handleNavigate} initialTab="templates" />;
+                return <ModuleGuard module="training"><TrainingPage key="training-center" onNavigate={handleNavigate} initialTab="templates" /></ModuleGuard>;
             case 'priorities':
-                return <TrainingPage key="training-priorities" onNavigate={handleNavigate} initialTab="priorities" />;
+                return <ModuleGuard module="training"><TrainingPage key="training-priorities" onNavigate={handleNavigate} initialTab="priorities" /></ModuleGuard>;
             case 'history':
-                return <TrainingHistoryPage initialCustomer={selectedCustomer} onNavigate={handleNavigate} />;
+                return <ModuleGuard module="training"><TrainingHistoryPage initialCustomer={selectedCustomer} onNavigate={handleNavigate} /></ModuleGuard>;
             case 'library':
-                return <LibraryPage />;
+                return <ModuleGuard module="training"><LibraryPage /></ModuleGuard>;
             case 'help':
                 return <HelpPage />;
             case 'rm':
-                return <RmReviewPage />;
+                return <ModuleGuard module="rm"><RmReviewPage /></ModuleGuard>;
             case 'customers':
             default:
                 return (

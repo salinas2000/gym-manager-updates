@@ -6,7 +6,10 @@ import { useToast } from '../../context/ToastContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
 export default function AddCustomerModal({ isOpen, onClose, customerToEdit = null }) {
-    const { addCustomer, updateCustomer, tariffs = [] } = useGym();
+    const { addCustomer, updateCustomer, tariffs = [], hasModule } = useGym();
+    // El toggle solo tiene sentido si el gimnasio tiene app de socios Y clases:
+    // controla si el socio ve el horario dentro de la app.
+    const showMobileScheduleToggle = hasModule('mobile_app') && hasModule('classes');
     const { t } = useLanguage();
     const toast = useToast();
 
@@ -329,6 +332,7 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                         )}
 
                         {/* App móvil — feature toggles */}
+                        {showMobileScheduleToggle && (
                         <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/40 border border-white/5">
                             <div className="min-w-0">
                                 <p className="text-sm font-semibold text-white">Horario y clases en la app</p>
@@ -343,6 +347,7 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                                 <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${formData.mobile_show_schedule ? 'translate-x-5' : ''}`} />
                             </button>
                         </div>
+                        )}
 
                         {error && (
                             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">

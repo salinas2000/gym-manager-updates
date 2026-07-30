@@ -11,10 +11,11 @@ const TABS = [
 ];
 
 export default function CustomerProfileCard({ isOpen, onClose, customer, onNavigateTraining, onOpenPayments }) {
-    const { updateCustomer, refreshMobileLinks, settings } = useGym();
+    const { updateCustomer, refreshMobileLinks, settings, hasModule } = useGym();
     const toast = useToast();
     // The mobile-app tab/actions only show if the gym's plan includes it.
-    const hasMobileApp = settings?.modules ? !!settings.modules.mobile_app : true;
+    const hasMobileApp = hasModule('mobile_app');
+    const hasTraining = hasModule('training');
     const [payments, setPayments] = useState([]);
     const [mesocycles, setMesocycles] = useState([]);
     const [membershipHistory, setMembershipHistory] = useState([]);
@@ -452,8 +453,12 @@ export default function CustomerProfileCard({ isOpen, onClose, customer, onNavig
                                 )}
                                 {onNavigateTraining && (
                                     <button
-                                        onClick={() => { onClose(); onNavigateTraining(customer); }}
-                                        className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+                                        disabled={!hasTraining}
+                                        onClick={() => { if (!hasTraining) return; onClose(); onNavigateTraining(customer); }}
+                                        title={hasTraining ? undefined : 'Entrenamiento no incluido en tu plan'}
+                                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${hasTraining
+                                            ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                                            : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
                                     >
                                         <Dumbbell size={14} />
                                         Entrenamientos
@@ -549,7 +554,8 @@ function OverviewTab({ customer, payments, mesocycles, membershipHistory, totalP
                 </div>
             </div>
 
-            {/* Current Training Plan */}
+            {/* Current Training Plan — solo con el módulo de entrenamiento */}
+            {hasTraining && (
             <div>
                 <h3 className="text-xs uppercase font-bold text-slate-400 tracking-widest mb-3 flex items-center gap-2">
                     <Dumbbell size={14} />
@@ -576,6 +582,7 @@ function OverviewTab({ customer, payments, mesocycles, membershipHistory, totalP
                     </div>
                 )}
             </div>
+            )}
 
             {/* Membership Timeline */}
             <div>
