@@ -112,6 +112,75 @@ describe('resolveModules()', () => {
     });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NO ROMPER PRODUCCIÓN — comparación lógica vieja vs nueva
+// ─────────────────────────────────────────────────────────────────────────────
+// Reproduce el comportamiento anterior a 2.4.0 (renderer/lib/entitlements.js,
+// ya eliminado) y comprueba que NINGÚN módulo que estuviera disponible pasa a
+// estar bloqueado, para cualquier valor de plan que pueda existir en la nube.
+describe('Compatibilidad con el comportamiento anterior (2.3.x)', () => {
+    // Tabla exacta que había en renderer/lib/entitlements.js
+    const PLAN_FEATURES_VIEJO = {
+        basic:   { classes: false, trainers: false, rm: false, mobile_app: false, analytics: false },
+        pro:     { classes: true,  trainers: true,  rm: true,  mobile_app: true,  analytics: false },
+        premium: { classes: true,  trainers: true,  rm: true,  mobile_app: true,  analytics: true },
+    };
+
+    /** Disponibilidad de un módulo ANTES del cambio. */
+    function disponibleAntes(plan, features, feature) {
+        const base = plan ? PLAN_FEATURES_VIEJO[plan] : undefined;
+        // Módulos que no estaban en la tabla (training, inventory, displays,
+        // customers, finance) NUNCA estuvieron gateados: siempre visibles.
+        if (!base) return true;
+        if (!(feature in base)) return true;
+        if (features && typeof features === 'object' && feature in features) return !!features[feature];
+        return !!base[feature];
+    }
+
+    // Todo lo que puede haber realmente en licenses.plan, incluidos casos raros
+    const PLANES_POSIBLES = [null, undefined, '', 'basic', 'pro', 'premium', 'valor_raro'];
+
+    test.each(PLANES_POSIBLES.map((p) => [String(p)]))(
+        'plan %s: ningún módulo pasa de disponible a bloqueado',
+        (planStr) => {
+            const plan = PLANES_POSIBLES.find((p) => String(p) === planStr);
+            const ahora = resolveModules(plan, null);
+            const regresiones = MODULE_KEYS.filter(
+                (m) => disponibleAntes(plan, null, m) && !ahora[m],
+            );
+            expect(regresiones).toEqual([]);
+        },
+    );
+
+    test('con overrides por gimnasio tampoco hay regresión', () => {
+        const overrides = [
+            { mobile_app: false },
+            { classes: false },
+            { classes: true, mobile_app: true },
+        ];
+        for (const plan of ['basic', 'pro', 'premium']) {
+            for (const ov of overrides) {
+                const ahora = resolveModules(plan, ov);
+                const regresiones = MODULE_KEYS.filter(
+                    (m) => disponibleAntes(plan, ov, m) && !ahora[m]
+                        // rm depende de mobile_app: si se apaga la app a mano,
+                        // que caiga rm es la intención, no una regresión.
+                        && !(m === 'rm' && ov.mobile_app === false),
+                );
+                expect(`${plan}/${JSON.stringify(ov)}: ${regresiones}`).toBe(`${plan}/${JSON.stringify(ov)}: `);
+            }
+        }
+    });
+
+    test('el plan crm es el ÚNICO que restringe módulos nuevos', () => {
+        // Es un plan nuevo: no puede haber ningún gimnasio en él todavía.
+        const m = resolveModules('crm', null);
+        expect(m.training).toBe(false);
+        expect(m.inventory).toBe(false);
+        expect(m.displays).toBe(false);
+    });
+});
+
 describe('moduleForChannel()', () => {
     test('resuelve por prefijo de namespace', () => {
         expect(moduleForChannel('customers:create')).toBe('customers');
