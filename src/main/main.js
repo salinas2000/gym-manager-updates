@@ -33,6 +33,11 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 
 const { app, BrowserWindow } = require('electron');
 
+// Sentry: monitorización de errores en producción. Se inicializa lo antes
+// posible para capturar fallos tempranos del arranque. No-op en dev.
+const { initSentry } = require('./config/sentry');
+initSentry(app);
+
 // Initialize secure credential manager AFTER electron app is loaded
 const credentialManager = require('./config/credentials');
 const credentialsLoaded = credentialManager.init();
