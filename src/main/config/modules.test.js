@@ -19,6 +19,7 @@ const {
     moduleForChannel,
     PREFIX_MODULE,
     CHANNEL_MODULE,
+    GRANDFATHERED,
 } = require('./modules');
 
 describe('Catálogo de módulos', () => {
@@ -98,7 +99,9 @@ describe('resolveModules()', () => {
         // mundo los tenía. Deben venir activos en TODOS los planes que ya
         // existían, para que nadie note el cambio al actualizar.
         const PLANES_PREEXISTENTES = ['basic', 'pro', 'premium'];
-        const NUEVOS = MODULE_KEYS.filter((k) => MODULES[k].since === '2.4.0');
+        // Los que ya existían sin gatear. NO todo módulo 2.4.0: `access` es
+        // funcionalidad nueva que nadie tenía y puede ir solo en Premium.
+        const NUEVOS = GRANDFATHERED.filter((k) => !MODULES[k].core);
 
         test('hay módulos nuevos que verificar', () => {
             expect(NUEVOS.length).toBeGreaterThan(0);
@@ -130,8 +133,12 @@ describe('Compatibilidad con el comportamiento anterior (2.3.x)', () => {
     /** Disponibilidad de un módulo ANTES del cambio. */
     function disponibleAntes(plan, features, feature) {
         const base = plan ? PLAN_FEATURES_VIEJO[plan] : undefined;
-        // Módulos que no estaban en la tabla (training, inventory, displays,
-        // customers, finance) NUNCA estuvieron gateados: siempre visibles.
+        // Un módulo que no existía en 2.3.x (p.ej. `access`) no estaba
+        // "disponible": no puede haber regresión sobre algo que no había.
+        const existiaAntes = (f) => (PLAN_FEATURES_VIEJO.pro && f in PLAN_FEATURES_VIEJO.pro)
+            || GRANDFATHERED.includes(f);
+        if (!existiaAntes(feature)) return false;
+        // Los que existían pero nunca estuvieron gateados: siempre visibles.
         if (!base) return true;
         if (!(feature in base)) return true;
         if (features && typeof features === 'object' && feature in features) return !!features[feature];
@@ -201,7 +208,9 @@ describe('Espejo del catálogo en la app móvil', () => {
     });
 
     maybe('declara exactamente los mismos módulos', () => {
-        const bloque = src.slice(src.indexOf('ALL_MODULES'), src.indexOf('/**\n * ¿Está activo'));
+        // Extracción acotada al array: un slice hasta un comentario arrastraba
+        // literales de otras líneas (p.ej. 'object' de un typeof).
+        const bloque = /ALL_MODULES\s*=\s*\[([\s\S]*?)\]/.exec(src)[1];
         const modulosEnEspejo = [...bloque.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
         expect(modulosEnEspejo.sort()).toEqual([...MODULE_KEYS].sort());
     });

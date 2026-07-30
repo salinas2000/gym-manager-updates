@@ -29,6 +29,10 @@ const MODULES = {
     rm:         { label: 'Revisión de RM',   requires: ['mobile_app'] },
     displays:   { label: 'Pantallas TV',     since: '2.4.0' },
     analytics:  { label: 'Analítica' },
+    // Funcionalidad NUEVA: no existía antes en ninguna forma, así que no entra
+    // en la regla de compatibilidad (nadie la tenía). Puede venderse solo en los
+    // planes altos desde el primer día.
+    access:     { label: 'Control de acceso', since: '2.4.0' },
 };
 
 const MODULE_KEYS = Object.keys(MODULES);
@@ -48,6 +52,7 @@ const PLANS = {
     crm:     { label: 'CRM',     modules: ['customers', 'finance', 'inventory'] },
     basic:   { label: 'Básico',  modules: [...GRANDFATHERED] },
     pro:     { label: 'Pro',     modules: [...GRANDFATHERED, 'classes', 'trainers', 'mobile_app', 'rm'] },
+    // 'access' solo en Premium: es el diferenciador para gimnasios grandes.
     premium: { label: 'Premium', modules: '*' },
 };
 
@@ -122,6 +127,7 @@ const PREFIX_MODULE = {
     trainers:    'trainers',
     training:    'training',
     inventory:   'inventory',
+    access:      'access',
     // Infraestructura / núcleo — siempre disponibles
     admin:        null,  // se rige por is_master, no por plan
     license:      null,
@@ -167,6 +173,11 @@ function moduleForChannel(channel) {
 module.exports = {
     MODULES,
     MODULE_KEYS,
+    // Módulos cuya funcionalidad YA existía sin gatear antes de 2.4.0. Son los
+    // que obliga a respetar la regla de oro. Ojo: no es lo mismo que `since`
+    // — `access` también es 2.4.0 pero es funcionalidad nueva que nadie tenía,
+    // así que puede venderse solo en Premium desde el principio.
+    GRANDFATHERED,
     PLANS,
     PLAN_ORDER,
     resolveModules,

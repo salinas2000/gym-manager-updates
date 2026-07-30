@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Layout from './components/Layout';
 import ModuleGuard from './components/ModuleGuard';
+import AccessControlPage from './features/access/AccessControlPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import { GymProvider } from './context/GymContext';
 import { LanguageProvider } from './context/LanguageContext';
@@ -47,6 +48,8 @@ function Dashboard() {
                 return <AdminDashboard />;
             case 'dashboard':
                 return <DashboardPage />;
+            case 'access':
+                return <ModuleGuard module="access"><AccessControlPage /></ModuleGuard>;
             case 'inventory':
                 return <ModuleGuard module="inventory"><InventoryPage /></ModuleGuard>;
             case 'classes':

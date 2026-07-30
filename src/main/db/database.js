@@ -1052,6 +1052,32 @@ class DBManager {
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_trainers_gym ON trainers(gym_id)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_trainer_schedules_gym ON trainer_schedules(gym_id, day_of_week)');
 
+        // 22a-bis. Control de acceso: registro de entradas al gimnasio.
+        // Cada socio tiene un código corto que teclea o escanea en recepción;
+        // el sistema decide si puede pasar según su estado y sus pagos.
+        this.safeAddColumn('customers', 'access_code', 'TEXT');
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS access_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gym_id TEXT NOT NULL,
+                customer_id INTEGER,
+                -- Lo tecleado/escaneado. Se guarda aunque no se reconozca, para
+                -- poder investigar intentos fallidos.
+                code_used TEXT,
+                allowed INTEGER NOT NULL,
+                -- Motivo del rechazo (o 'ok'). Ver access.service.js DENY_REASONS.
+                reason TEXT NOT NULL,
+                method TEXT DEFAULT 'code',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                synced INTEGER DEFAULT 0,
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+            )
+        `);
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_access_logs_gym_date ON access_logs(gym_id, created_at)');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_access_logs_customer ON access_logs(customer_id, created_at)');
+        // El código debe ser único por gimnasio para que la búsqueda sea directa.
+        this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_access_code ON customers(gym_id, access_code) WHERE access_code IS NOT NULL');
+
         // 22b. Flatten exercise hierarchy: add direct category_id to exercises
         // (we keep subcategory_id around for back-compat but UI only uses category_id)
         this.safeAddColumn('exercises', 'category_id', 'INTEGER');

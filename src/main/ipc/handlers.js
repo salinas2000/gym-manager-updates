@@ -714,6 +714,14 @@ function registerHandlers() {
         };
     });
 
+    // Control de acceso
+    const accessService = require('../services/local/access.service');
+    handle('access:checkIn', ({ code, method } = {}) => accessService.checkIn(code, method));
+    handle('access:getRecent', (limit) => accessService.getRecent(limit));
+    handle('access:getTodayStats', () => accessService.getTodayStats());
+    handle('access:ensureCode', (customerId) => accessService.ensureAccessCode(customerId));
+    handle('access:backfillCodes', () => accessService.backfillAccessCodes());
+
     // Catálogo de módulos y planes para la UI (panel maestro). Evita que el
     // renderer duplique la lista de planes y se desincronice del catálogo.
     handle('entitlements:getCatalog', () => ({

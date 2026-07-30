@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy, Lock } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy, Lock, DoorOpen } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
@@ -164,6 +164,15 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('inventory')}
                             color="text-indigo-400"
                             locked={!has('inventory')}
+                        />
+
+                        <SidebarItem
+                            icon={DoorOpen}
+                            label="Control de acceso"
+                            active={currentView === 'access'}
+                            onClick={() => onNavigate('access')}
+                            color="text-emerald-400"
+                            locked={!has('access')}
                         />
 
                         <SectionLabel label="Pagos" />

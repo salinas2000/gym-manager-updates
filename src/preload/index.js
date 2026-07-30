@@ -179,6 +179,14 @@ contextBridge.exposeInMainWorld('api', {
     entitlements: {
         getCatalog: () => ipcRenderer.invoke('entitlements:getCatalog'),
     },
+    // Control de acceso al gimnasio
+    access: {
+        checkIn: (payload) => ipcRenderer.invoke('access:checkIn', payload),
+        getRecent: (limit) => ipcRenderer.invoke('access:getRecent', limit),
+        getTodayStats: () => ipcRenderer.invoke('access:getTodayStats'),
+        ensureCode: (customerId) => ipcRenderer.invoke('access:ensureCode', customerId),
+        backfillCodes: () => ipcRenderer.invoke('access:backfillCodes'),
+    },
     // google removed in v2.2.0
     updater: {
         getVersion: () => ipcRenderer.invoke('updater:getVersion'),
