@@ -33,10 +33,12 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 
 const { app, BrowserWindow } = require('electron');
 
-// Sentry: monitorización de errores en producción. Se inicializa lo antes
-// posible para capturar fallos tempranos del arranque. No-op en dev.
-const { initSentry } = require('./config/sentry');
-initSentry(app);
+// Sentry retirado en 2.3.10. La 2.3.9 no arrancaba en los equipos de los
+// gimnasios: el empaquetado dejaba fuera @sentry/browser-utils (dependencia
+// transitiva de @sentry/electron) y el require de arriba, al ser lo primero que
+// se ejecuta, tumbaba la app antes de abrir ninguna ventana.
+// Si se reintroduce: cargarlo de forma perezosa y dentro de un try/catch, para
+// que la monitorización nunca pueda impedir que la aplicación arranque.
 
 // Initialize secure credential manager AFTER electron app is loaded
 const credentialManager = require('./config/credentials');

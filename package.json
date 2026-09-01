@@ -1,125 +1,124 @@
 {
-    "name": "gym-manager-pro",
-    "version": "2.3.9",
-    "description": "High-performance Gym Management System",
-    "main": "src/main/main.js",
-    "scripts": {
-        "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
-        "build": "vite build && electron-builder",
-        "release": "npm version patch && npm run build",
-        "ship": "npm version patch && vite build && dotenv -e .env.local -- electron-builder --publish always",
-        "postinstall": "electron-rebuild",
-        "rebuild": "electron-rebuild",
-        "migrate-credentials": "node scripts/migrate-credentials.js",
-        "test": "jest",
-        "test:watch": "jest --watch",
-        "test:coverage": "jest --coverage",
-        "test:main": "jest --selectProjects main",
-        "test:renderer": "jest --selectProjects renderer",
-        "test:ci": "jest --ci --maxWorkers=2",
-        "db:seed": "electron scripts/seed-test-data.js",
-        "db:clear": "electron scripts/clear-all-data.js",
-        "db:reset": "electron scripts/clear-all-data.js --force && electron scripts/seed-test-data.js"
-    },
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/salinas2000/gym-manager-updates.git"
-    },
-    "build": {
-        "files": [
-            "dist/**/*",
-            "src/main/**/*",
-            "src/preload/**/*",
-            "src/renderer/activation.html",
-            "package.json"
-        ],
-        "appId": "com.gymmanager.pro",
-        "productName": "Gym Manager Pro",
-        "icon": "resources/icon.png",
-        "asarUnpack": [
-            "node_modules/ffmpeg-static/**"
-        ],
-        "publish": [
-            {
-                "provider": "github",
-                "owner": "salinas2000",
-                "repo": "gym-manager-updates"
-            }
-        ],
-        "extraResources": [
-            {
-                "from": "src/main/db/seeds",
-                "to": "seeds"
-            },
-            {
-                "from": "src/main/assets/templates",
-                "to": "templates"
-            },
-            {
-                "from": ".env.local",
-                "to": ".env.local"
-            }
-        ]
-    },
-    "keywords": [
-        "gym",
-        "electron",
-        "react",
-        "sqlite"
+  "name": "gym-manager-pro",
+  "version": "2.3.10",
+  "description": "High-performance Gym Management System",
+  "main": "src/main/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "vite build && electron-builder",
+    "release": "npm version patch && npm run build",
+    "ship": "npm version patch && vite build && dotenv -e .env.local -- electron-builder --publish always",
+    "postinstall": "electron-rebuild",
+    "rebuild": "electron-rebuild",
+    "migrate-credentials": "node scripts/migrate-credentials.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:main": "jest --selectProjects main",
+    "test:renderer": "jest --selectProjects renderer",
+    "test:ci": "jest --ci --maxWorkers=2",
+    "db:seed": "electron scripts/seed-test-data.js",
+    "db:clear": "electron scripts/clear-all-data.js",
+    "db:reset": "electron scripts/clear-all-data.js --force && electron scripts/seed-test-data.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/salinas2000/gym-manager-updates.git"
+  },
+  "build": {
+    "files": [
+      "dist/**/*",
+      "src/main/**/*",
+      "src/preload/**/*",
+      "src/renderer/activation.html",
+      "package.json"
     ],
-    "author": "Antigravity",
-    "license": "MIT",
-    "dependencies": {
-        "@headlessui/react": "^1.7.19",
-        "@sentry/electron": "^7.16.0",
-        "@supabase/supabase-js": "^2.91.1",
-        "@tailwindcss/forms": "^0.5.10",
-        "@tanstack/react-query": "^5.90.20",
-        "@tremor/react": "^3.18.6",
-        "better-sqlite3": "^11.8.1",
-        "clsx": "^2.1.1",
-        "dotenv": "^17.2.3",
-        "electron-log": "^5.4.3",
-        "electron-squirrel-startup": "^1.0.1",
-        "electron-store": "^6.0.1",
-        "electron-updater": "^6.7.3",
-        "exceljs": "^4.4.0",
-        "ffmpeg-static": "^5.3.0",
-        "googleapis": "^170.1.0",
-        "lucide-react": "^0.473.0",
-        "node-machine-id": "^1.1.12",
-        "nodemailer": "^8.0.9",
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1",
-        "recharts": "^3.7.0",
-        "tailwind-merge": "^2.6.0",
-        "winston": "^3.19.0",
-        "ws": "^8.19.0",
-        "zod": "^3.24.1"
-    },
-    "devDependencies": {
-        "@babel/preset-env": "^7.29.0",
-        "@babel/preset-react": "^7.28.5",
-        "@jest/globals": "^30.2.0",
-        "@testing-library/jest-dom": "^6.9.1",
-        "@testing-library/react": "^16.3.2",
-        "@testing-library/user-event": "^14.6.1",
-        "@types/jest": "^30.0.0",
-        "@vitejs/plugin-react": "^4.3.4",
-        "autoprefixer": "^10.4.20",
-        "babel-jest": "^30.2.0",
-        "class-variance-authority": "^0.7.1",
-        "concurrently": "^9.1.2",
-        "dotenv-cli": "^11.0.0",
-        "electron": "^34.0.0",
-        "electron-builder": "^25.1.8",
-        "electron-rebuild": "^3.2.9",
-        "identity-obj-proxy": "^3.0.0",
-        "jest": "^30.2.0",
-        "jest-environment-jsdom": "^30.2.0",
-        "postcss": "^8.5.1",
-        "tailwindcss": "^3.4.17",
-        "vite": "^6.0.7",
-        "wait-on": "^8.0.2"
-    }
+    "appId": "com.gymmanager.pro",
+    "productName": "Gym Manager Pro",
+    "icon": "resources/icon.png",
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "salinas2000",
+        "repo": "gym-manager-updates"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "src/main/db/seeds",
+        "to": "seeds"
+      },
+      {
+        "from": "src/main/assets/templates",
+        "to": "templates"
+      },
+      {
+        "from": ".env.local",
+        "to": ".env.local"
+      }
+    ]
+  },
+  "keywords": [
+    "gym",
+    "electron",
+    "react",
+    "sqlite"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "@headlessui/react": "^1.7.19",
+    "@supabase/supabase-js": "^2.91.1",
+    "@tailwindcss/forms": "^0.5.10",
+    "@tanstack/react-query": "^5.90.20",
+    "@tremor/react": "^3.18.6",
+    "better-sqlite3": "^11.8.1",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
+    "electron-log": "^5.4.3",
+    "electron-squirrel-startup": "^1.0.1",
+    "electron-store": "^6.0.1",
+    "electron-updater": "^6.7.3",
+    "exceljs": "^4.4.0",
+    "ffmpeg-static": "^5.3.0",
+    "googleapis": "^170.1.0",
+    "lucide-react": "^0.473.0",
+    "node-machine-id": "^1.1.12",
+    "nodemailer": "^8.0.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.7.0",
+    "tailwind-merge": "^2.6.0",
+    "winston": "^3.19.0",
+    "ws": "^8.19.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@babel/preset-env": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
+    "@jest/globals": "^30.2.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "babel-jest": "^30.2.0",
+    "class-variance-authority": "^0.7.1",
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^11.0.0",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-rebuild": "^3.2.9",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.2"
+  }
 }
