@@ -231,6 +231,10 @@ class SyncService extends BaseService {
                     order_index: r.order_index ?? 0,
                     superset_group: r.superset_group ?? null,
                     superset_rounds: r.superset_rounds ?? null,
+                    // Vigencia por fechas (sustitucion de un ejercicio a partir
+                    // de una semana). NULL = vigente siempre.
+                    effective_from: emptyToNull(r.effective_from),
+                    effective_to: emptyToNull(r.effective_to),
                     custom_fields: r.custom_fields ? JSON.parse(r.custom_fields) : null,
                     synced_at: new Date().toISOString(),
                 }),

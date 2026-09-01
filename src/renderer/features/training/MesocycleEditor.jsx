@@ -147,17 +147,75 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
         setShowCopyPrevious(false);
     };
 
+    // ── Edición por semanas ─────────────────────────────────────────────
+    // Un ejercicio puede sustituirse A PARTIR de una semana. Editando la
+    // semana N, quitar un ejercicio no lo borra: se cierra el día anterior y
+    // sigue visible (con sus pesos) en lo ya entrenado. Lo que se añade
+    // empieza ese día. Se compara por FECHA y no por número de semana para
+    // que cambiar las fechas del plan no desplace los cortes ya hechos.
+    const [editWeek, setEditWeek] = useState(1);
+
+    // Primer día de la semana w del programa.
+    const weekStartStr = (w, startIso) => {
+        const d = parseIso(startIso);
+        if (!d) return null;
+        d.setDate(d.getDate() + (w - 1) * 7);
+        return ymdLocal(d);
+    };
+
+    const itemAppliesOn = (i, day) =>
+        !day ||
+        ((!i.effective_from || i.effective_from <= day) &&
+         (!i.effective_to || i.effective_to >= day));
+
+    const buildDays = (routines, w, startIso) => {
+        const day = weekStartStr(w, startIso);
+        return (routines && routines.length > 0)
+            ? routines.map(r => ({
+                id: r.id || Date.now() + Math.random(),
+                name: r.name,
+                items: (r.items || [])
+                    .filter(i => itemAppliesOn(i, day))
+                    .map(i => ({ ...i, _guiId: i.id || crypto.randomUUID() }))
+            }))
+            : [{ id: 1, name: 'Día 1', items: [] }];
+    };
+
     // Routine State (must be before daysPerWeek)
-    const [days, setDays] = useState(initialData?.routines && initialData.routines.length > 0
-        ? initialData.routines.map(r => ({
-            id: r.id || Date.now() + Math.random(),
-            name: r.name,
-            items: (r.items || []).map(i => ({ ...i, _guiId: i.id || crypto.randomUUID() }))
-        }))
-        : [{ id: 1, name: 'Día 1', items: [] }]
+    const [days, setDays] = useState(() =>
+        buildDays(initialData?.routines, 1, initialData?.start_date)
     );
     const [currentDayId, setCurrentDayId] = useState(days[0].id);
     const [daysPerWeek, setDaysPerWeek] = useState(initialData?.days_per_week || days.length);
+
+    // Huella de los días para detectar cambios sin guardar (ignora ids de GUI).
+    const daysFingerprint = (ds) => JSON.stringify(ds.map(d => ({
+        n: d.name,
+        it: d.items.map(i => ({
+            id: i.id ?? null,
+            ex: i.exerciseId ?? i.exercise_id ?? null,
+            nt: i.notes || '',
+            cf: i.custom_fields || {},
+            sg: i.superset_group ?? null,
+            sr: i.superset_rounds ?? null,
+        })),
+    })));
+
+    const switchEditWeek = (w) => {
+        if (w === editWeek) return;
+        const pending = daysFingerprint(days)
+            !== daysFingerprint(buildDays(initialData?.routines, editWeek, startDate));
+        if (pending && !window.confirm(
+            `Tienes cambios sin guardar en ${editWeek === 1 ? "el plan completo" : "la semana " + editWeek}.
+
+` +
+            `Si cambias de vista se perderán. ¿Continuar?`
+        )) return;
+        setEditWeek(w);
+        const next = buildDays(initialData?.routines, w, startDate);
+        setDays(next);
+        if (!next.some(d => d.id === currentDayId)) setCurrentDayId(next[0].id);
+    };
 
     // Day reordering (drag the tabs left/right). Auto-numbered names ("Día N")
     // are re-numbered by position; custom names (e.g. "Push") are kept.
@@ -321,6 +379,11 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 isTemplate,
                 allowOverlap,
                 daysPerWeek: days.length, // Auto-calculate from number of routines
+                // Semana editada. Con editWeek > 1, `days` contiene solo los
+                // ejercicios vigentes esa semana: el backend cierra los que se
+                // hayan quitado (sin borrarlos, para no perder el historial) y
+                // hace empezar en esa fecha los añadidos.
+                editWeek,
                 // Pass `id` for each day. For days loaded from the DB this is
                 // the real routine id (integer assigned by SQLite); for days
                 // added fresh in the editor it's a Date.now() float that won't
@@ -845,6 +908,36 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 {/* STEP 2: BUILDER */}
                 {step === 2 && (
                     <div className="flex flex-col h-full gap-4">
+                        {/* SELECTOR DE SEMANA — solo en planes ya guardados con varias
+                            semanas. Permite sustituir un ejercicio a partir de una
+                            semana sin tocar lo ya entrenado. */}
+                        {!isTemplate && initialData?.id && weeks > 1 && startDate && (
+                            <div className="rounded-xl border border-white/5 bg-slate-800/40 p-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
+                                        Editando
+                                    </span>
+                                    {Array.from({ length: weeks }, (_, i) => i + 1).map(w => (
+                                        <button
+                                            key={w}
+                                            type="button"
+                                            onClick={() => switchEditWeek(w)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${editWeek === w
+                                                ? 'bg-amber-600 text-white border-amber-500'
+                                                : 'bg-slate-800 text-slate-400 border-white/5 hover:bg-slate-700'}`}
+                                        >
+                                            {w === 1 ? 'Todo el plan' : `Semana ${w}`}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="mt-2 text-[11px] text-slate-500">
+                                    {editWeek === 1
+                                        ? 'Los cambios afectan al programa completo, desde la primera semana.'
+                                        : `Los cambios se aplican desde el ${weekStartStr(editWeek, startDate)} en adelante. Lo que quites seguirá visible (con sus pesos) en las semanas anteriores ya entrenadas.`}
+                                </p>
+                            </div>
+                        )}
+
                         {/* DAY TABS */}
                         <div className="flex gap-2 overflow-x-auto pb-1 min-h-[50px]">
                             {days.map((day, idx) => (

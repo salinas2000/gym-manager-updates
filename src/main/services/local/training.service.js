@@ -48,7 +48,12 @@ const mesocycleSchema = z.object({
     notes: z.string().optional(),
     isTemplate: z.union([z.boolean(), z.number(), z.string()]).optional(),
     daysPerWeek: z.number().int().min(0).optional(),
-    routines: z.array(z.any()).optional()
+    routines: z.array(z.any()).optional(),
+    // Semana del mesociclo que se está editando (1 = todo el programa).
+    // Con editWeek > 1, quitar un ejercicio no lo borra: lo cierra en la semana
+    // anterior, y los que se añaden empiezan en esa semana. Así sustituir un
+    // ejercicio a mitad de programa no reescribe ni destruye lo ya entrenado.
+    editWeek: z.number().int().min(1).optional()
 });
 
 class TrainingService extends BaseService {
@@ -551,7 +556,10 @@ class TrainingService extends BaseService {
             notes: data.notes,
             isTemplate: (data.isTemplate === true || data.isTemplate === 'true' || data.is_template === 1) ? 1 : 0,
             daysPerWeek: data.daysPerWeek || data.days_per_week,
-            routines: data.routines
+            routines: data.routines,
+            // Semana editada. Sin ella la reconciliación por semanas no se
+            // activaría nunca (quedaría siempre en 1 = programa completo).
+            editWeek: data.editWeek
         };
 
         const isTemplate = normalizedData.isTemplate;
@@ -609,7 +617,14 @@ class TrainingService extends BaseService {
         // Item reconciliation — preserves per-item local_ids so that
         // customer_workout_logs (which reference routine_item_id) don't get
         // orphaned every time the user edits anything else in the routine.
-        const getExistingItems = this.db.prepare('SELECT id FROM routine_items WHERE routine_id = ?');
+        const getExistingItems = this.db.prepare('SELECT id, effective_from, effective_to FROM routine_items WHERE routine_id = ?');
+        // Retirar un ejercicio = cerrarlo el día anterior al cambio, NUNCA
+        // borrarlo. Los registros de entrenamiento del cliente cuelgan de esta
+        // fila y viven solo en la nube, así que el escritorio no puede saber si
+        // hay pesos anotados: borrar sería destruir historial a ciegas.
+        const closeItemAt = this.db.prepare(
+            "UPDATE routine_items SET effective_to = @effectiveTo, synced = 0, updated_at = datetime('now') WHERE id = @id"
+        );
         const deleteItemsByRoutine = this.db.prepare('DELETE FROM routine_items WHERE routine_id = ?');
         const deleteSingleItem = this.db.prepare('DELETE FROM routine_items WHERE id = ?');
         const logDelete = this.db.prepare(
@@ -617,8 +632,8 @@ class TrainingService extends BaseService {
         );
 
         const insertItem = this.db.prepare(`
-            INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity, custom_fields, superset_group, superset_rounds)
-            VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity, @customFields, @supersetGroup, @supersetRounds)
+            INSERT INTO routine_items (gym_id, routine_id, exercise_id, series, reps, rpe, notes, order_index, intensity, custom_fields, superset_group, superset_rounds, effective_from, effective_to)
+            VALUES (@gymId, @routineId, @exerciseId, @series, @reps, @rpe, @notes, @orderIndex, @intensity, @customFields, @supersetGroup, @supersetRounds, @effectiveFrom, NULL)
         `);
 
         const updateItemStmt = this.db.prepare(`
@@ -643,8 +658,33 @@ class TrainingService extends BaseService {
         // workout_logs that reference routine_item_id). Items without an id
         // are inserted fresh. Anything in the existing set that the payload
         // doesn't keep is deleted + logged for cloud cleanup.
-        const reconcileItems = (routineId, payloadItems) => {
-            const existingItemIds = new Set(getExistingItems.all(routineId).map(i => i.id));
+        // Fecha (YYYY-MM-DD) del día `offset` respecto a `base`.
+        const shiftDate = (base, offsetDays) => {
+            const d = new Date(String(base).slice(0, 10) + 'T00:00:00');
+            if (Number.isNaN(d.getTime())) return null;
+            d.setDate(d.getDate() + offsetDays);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+
+        /**
+         * @param {number} routineId
+         * @param {Array}  payloadItems
+         * @param {string|null} cutFrom  Primer día de la semana editada. null =
+         *        se edita el plan completo (no hay pasado que preservar).
+         * @param {string|null} mesoStartDate Inicio del programa, para poder
+         *        fechar el cierre cuando se edita el plan completo.
+         */
+        const reconcileItems = (routineId, payloadItems, cutFrom = null, mesoStartDate = null) => {
+            const allExisting = getExistingItems.all(routineId);
+            // Editando una semana concreta solo se reconcilia contra lo VIGENTE
+            // ese día; lo de otras fechas ni se toca ni se retira.
+            const appliesOn = (i, day) =>
+                (!i.effective_from || i.effective_from <= day) &&
+                (!i.effective_to || i.effective_to >= day);
+            const inScope = cutFrom
+                ? allExisting.filter(i => appliesOn(i, cutFrom))
+                : allExisting;
+            const existingItemIds = new Set(inScope.map(i => i.id));
             const keptItemIds = new Set();
             let order = 0;
             for (const item of payloadItems || []) {
@@ -697,19 +737,46 @@ class TrainingService extends BaseService {
                         customFields,
                         supersetGroup,
                         supersetRounds,
+                        // Un ejercicio añadido mientras se edita una semana
+                        // empieza a aplicar ese día, no antes.
+                        effectiveFrom: cutFrom,
                     });
                 }
             }
-            // Anything existing but not in payload → delete + log
+            // Lo que existía y el payload no conserva: se RETIRA, nunca se
+            // borra. Cerrarlo el día anterior al corte deja intacto todo lo ya
+            // entrenado (los registros cuelgan de esta misma fila y el
+            // escritorio no puede saber si los hay: viven solo en la nube).
+            //
+            // Editando el plan completo no hay corte, así que se cierra el día
+            // anterior al inicio del programa: el rango queda vacío y el
+            // ejercicio no aparece en ninguna semana — equivale a borrarlo de
+            // cara al usuario, pero sin destruir su historial.
+            const closeAt = shiftDate(cutFrom || mesoStartDate, -1);
             for (const oldItemId of existingItemIds) {
                 if (keptItemIds.has(oldItemId)) continue;
-                logDelete.run(gymId, 'routine_items', oldItemId);
-                deleteSingleItem.run(oldItemId);
+                if (closeAt) {
+                    closeItemAt.run({ id: oldItemId, effectiveTo: closeAt });
+                } else {
+                    // Programa sin fecha de inicio: no hay forma de fechar el
+                    // corte, así que se mantiene el borrado clásico.
+                    logDelete.run(gymId, 'routine_items', oldItemId);
+                    deleteSingleItem.run(oldItemId);
+                }
             }
         };
 
         // EXECUTE TRANSACTION
         const transaction = this.db.transaction((mesoData) => {
+            // Semana del programa que se está editando. 1 (o ausente) = se edita
+            // el programa entero.
+            const editWeek = Math.max(1, Number(mesoData.editWeek) || 1);
+            // Se traduce YA a fecha real y es lo que se persiste: un corte por
+            // número de semana se desplazaría si luego cambian las fechas del
+            // plan; una fecha queda anclada al calendario.
+            const cutFrom = (editWeek > 1 && mesoData.startDate)
+                ? shiftDate(mesoData.startDate, (editWeek - 1) * 7)
+                : null;
             let mesoId = mesoData.id;
             let existingRoutineIds = new Set();
 
@@ -769,7 +836,7 @@ class TrainingService extends BaseService {
                         keptRoutineIds.add(routineId);
                         // Reconcile items in place — preserves item local_ids
                         // so customer_workout_logs stay attached to their slots.
-                        reconcileItems(routineId, routine.items);
+                        reconcileItems(routineId, routine.items, cutFrom, mesoData.startDate);
                     } else {
                         console.log('[saveMesocycle v2.2.0] INSERT new routine (payload id=', routine.id, 'not in existing set)');
                         // INSERT a new routine row
@@ -785,14 +852,20 @@ class TrainingService extends BaseService {
                         // No existing items on a brand-new routine — just insert
                         // the payload items. reconcileItems handles this correctly
                         // (existingItemIds is empty, so everything is INSERT).
-                        reconcileItems(routineId, routine.items);
+                        // Un día nuevo no tiene pasado que preservar aunque se
+                        // esté editando otra semana: sus ejercicios nacen sin
+                        // fecha de inicio (vigentes desde siempre).
+                        reconcileItems(routineId, routine.items, null, mesoData.startDate);
                     }
                 }
             }
 
-            // Anything that existed before but the payload no longer has → delete + log
+            // Anything that existed before but the payload no longer has → delete + log.
+            // Editando una semana concreta NO se borran días: quitar un día entero
+            // arrastraría todos sus registros de entrenamiento. Eso solo se permite
+            // editando el programa completo (semana 1).
             console.log('[saveMesocycle v2.2.0] kept routines →', [...keptRoutineIds], '/ existing was →', [...existingRoutineIds]);
-            for (const oldId of existingRoutineIds) {
+            for (const oldId of cutFrom ? [] : existingRoutineIds) {
                 if (keptRoutineIds.has(oldId)) continue;
                 // Log all its items as deleted too (cloud needs to drop them)
                 const itemIds = getExistingItems.all(oldId).map(i => i.id);
