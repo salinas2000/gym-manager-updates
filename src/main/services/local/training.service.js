@@ -617,7 +617,7 @@ class TrainingService extends BaseService {
         // Item reconciliation — preserves per-item local_ids so that
         // customer_workout_logs (which reference routine_item_id) don't get
         // orphaned every time the user edits anything else in the routine.
-        const getExistingItems = this.db.prepare('SELECT id, effective_from, effective_to FROM routine_items WHERE routine_id = ?');
+        const getExistingItems = this.db.prepare('SELECT id, exercise_id, effective_from, effective_to FROM routine_items WHERE routine_id = ?');
         // Retirar un ejercicio = cerrarlo el día anterior al cambio, NUNCA
         // borrarlo. Los registros de entrenamiento del cliente cuelgan de esta
         // fila y viven solo en la nube, así que el escritorio no puede saber si
@@ -686,8 +686,29 @@ class TrainingService extends BaseService {
                 : allExisting;
             const existingItemIds = new Set(inScope.map(i => i.id));
             const keptItemIds = new Set();
+
+            // Quitar un ejercicio y volver a ponerlo en el mismo guardado NO es
+            // una sustitucion: el entrenador solo lo ha recolocado. Se readopta
+            // la fila original en vez de cerrarla y crear otra, de modo que no
+            // aparezca como cambio ni se parta su historial en dos.
+            const idsEnPayload = new Set(
+                (payloadItems || []).map(it => it.id).filter(id => Number.isInteger(id))
+            );
+            const sueltosPorEjercicio = new Map();
+            for (const i of inScope) {
+                if (idsEnPayload.has(i.id)) continue;   // sigue referenciado: no esta suelto
+                const k = String(i.exercise_id);
+                if (!sueltosPorEjercicio.has(k)) sueltosPorEjercicio.set(k, []);
+                sueltosPorEjercicio.get(k).push(i.id);
+            }
+            const itemsAProcesar = (payloadItems || []).map(it => {
+                if (Number.isInteger(it.id) && existingItemIds.has(it.id)) return it;
+                const libres = sueltosPorEjercicio.get(String(it.exerciseId || it.exercise_id));
+                return (libres && libres.length) ? { ...it, id: libres.shift() } : it;
+            });
+
             let order = 0;
-            for (const item of payloadItems || []) {
+            for (const item of itemsAProcesar) {
                 const itemId = item.id;
                 // Defensive: never try to persist an item without an exercise —
                 // SQLite would throw binding undefined and abort the whole save.

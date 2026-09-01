@@ -212,4 +212,40 @@ describe('saveMesocycle — vigencia por fechas', () => {
         expect(itemsOf(routineId).find((i) => i.id === press)).toBeUndefined();
         expect(deletedItems()).toContain(press);
     });
+
+    test('quitar un ejercicio y volver a ponerlo NO cuenta como cambio', () => {
+        const { mesoId, routineId, press, remo } = seedPlan(START_EN_CURSO, FIN_EN_CURSO);
+
+        // El entrenador quita Press Banca (10) y lo vuelve a anadir en el mismo
+        // guardado: solo lo ha recolocado, no es una sustitucion.
+        save({
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
+            routines: [{ id: routineId, name: 'Día 1',
+                items: [{ id: remo, exerciseId: 11 }, { exerciseId: 10 }] }],
+        });
+
+        const items = itemsOf(routineId);
+        // Sigue habiendo dos filas: no se ha creado una nueva ni cerrado la vieja.
+        expect(items).toHaveLength(2);
+        const pressRow = items.find((i) => i.id === press);
+        expect(pressRow).toBeDefined();
+        expect(pressRow.exercise_id).toBe(10);
+        expect(pressRow.effective_to).toBeNull();   // sin cerrar: no hubo cambio
+        expect(pressRow.effective_from).toBeNull(); // sigue vigente desde siempre
+        expect(deletedItems()).toHaveLength(0);
+    });
+
+    test('sustituir por un ejercicio DISTINTO si cuenta como cambio', () => {
+        const { mesoId, routineId, press } = seedPlan(START_EN_CURSO, FIN_EN_CURSO);
+
+        // Se quita Press Banca (10) y entra Fondos (12): esto si es sustitucion.
+        save({
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
+            routines: [{ id: routineId, name: 'Día 1', items: [{ exerciseId: 12 }] }],
+        });
+
+        const items = itemsOf(routineId);
+        expect(items.find((i) => i.id === press).effective_to).toBe(AYER);
+        expect(items.find((i) => i.exercise_id === 12).effective_from).toBe(HOY);
+    });
 });
