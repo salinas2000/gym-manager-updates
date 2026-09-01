@@ -774,9 +774,25 @@ class TrainingService extends BaseService {
             // Se traduce YA a fecha real y es lo que se persiste: un corte por
             // número de semana se desplazaría si luego cambian las fechas del
             // plan; una fecha queda anclada al calendario.
-            const cutFrom = (editWeek > 1 && mesoData.startDate)
+            const cutFrom = mesoData.startDate
                 ? shiftDate(mesoData.startDate, (editWeek - 1) * 7)
                 : null;
+            // El corte NUNCA puede caer en el pasado: lo ya entrenado no se
+            // reescribe. Si llega una semana anterior a hoy (interfaz vieja,
+            // llamada directa o el reloj movido), se empuja al dia de hoy.
+            // Aqui es donde de verdad queda garantizado: la interfaz se puede
+            // saltar, esto no.
+            const hoy = new Date();
+            const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+            const cutSafe = (cutFrom && cutFrom < hoyStr && mesoData.startDate && mesoData.startDate < hoyStr)
+                ? hoyStr
+                : cutFrom;
+            // Eliminar un DIA entero se lleva por delante todo su historial, asi
+            // que solo se permite mientras el programa no haya empezado: ahi no
+            // hay nada entrenado que perder. Una vez en marcha, los ejercicios se
+            // retiran (se cierran) pero los dias se quedan.
+            const planNoEmpezado = !mesoData.startDate || mesoData.startDate >= hoyStr;
+            const wholePlan = editWeek <= 1 && planNoEmpezado;
             let mesoId = mesoData.id;
             let existingRoutineIds = new Set();
 
@@ -836,7 +852,7 @@ class TrainingService extends BaseService {
                         keptRoutineIds.add(routineId);
                         // Reconcile items in place — preserves item local_ids
                         // so customer_workout_logs stay attached to their slots.
-                        reconcileItems(routineId, routine.items, cutFrom, mesoData.startDate);
+                        reconcileItems(routineId, routine.items, cutSafe, mesoData.startDate);
                     } else {
                         console.log('[saveMesocycle v2.2.0] INSERT new routine (payload id=', routine.id, 'not in existing set)');
                         // INSERT a new routine row
@@ -865,7 +881,7 @@ class TrainingService extends BaseService {
             // arrastraría todos sus registros de entrenamiento. Eso solo se permite
             // editando el programa completo (semana 1).
             console.log('[saveMesocycle v2.2.0] kept routines →', [...keptRoutineIds], '/ existing was →', [...existingRoutineIds]);
-            for (const oldId of cutFrom ? [] : existingRoutineIds) {
+            for (const oldId of wholePlan ? existingRoutineIds : []) {
                 if (keptRoutineIds.has(oldId)) continue;
                 // Log all its items as deleted too (cloud needs to drop them)
                 const itemIds = getExistingItems.all(oldId).map(i => i.id);

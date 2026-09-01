@@ -1,28 +1,45 @@
 /**
  * saveMesocycle — vigencia por fechas.
  *
- * Sustituir un ejercicio a partir de una semana sin destruir lo ya entrenado.
- * La regla dura: un routine_item NUNCA se borra si el programa tiene fecha de
- * inicio; se cierra. Los registros de entrenamiento cuelgan de esa fila y viven
- * solo en la nube, así que el escritorio no puede saber si hay pesos anotados:
- * borrar sería destruir historial a ciegas.
+ * Reglas que se comprueban aqui:
+ *   1. Sustituir un ejercicio a partir de una semana no destruye lo entrenado:
+ *      el que sale se CIERRA el dia anterior, nunca se borra.
+ *   2. El corte no puede caer en el pasado. Lo ya entrenado no se reescribe,
+ *      venga la peticion de donde venga (la interfaz se puede saltar, esto no).
+ *   3. Un dia entero solo se puede borrar si el programa aun no ha empezado.
  *
  * Se usa un SQLite REAL en memoria en vez de mocks: lo que se comprueba es el
- * efecto sobre las filas, y eso con un `prepare` mockeado no se vería.
+ * efecto sobre las filas, y eso con un `prepare` mockeado no se veria.
+ *
+ * OJO: better-sqlite3 esta compilado para el ABI de Electron, asi que este
+ * fichero necesita el Node de Electron:
+ *   ELECTRON_RUN_AS_NODE=1 npx electron node_modules/jest/bin/jest.js --selectProjects main
  */
 
 jest.mock('../../db/database');
 jest.mock('./license.service');
 
 // tests/setup-main.js mockea better-sqlite3 para todo el proceso principal;
-// aquí hace falta el de verdad.
+// aqui hace falta el de verdad.
 const Database = jest.requireActual('better-sqlite3');
 
 const GYM = 'TEST_GYM';
-const START = '2026-08-03';           // lunes; semana 1 = 03-ago
-const WEEK3 = '2026-08-17';           // inicio de la semana 3
-const DAY_BEFORE_WEEK3 = '2026-08-16';
-const DAY_BEFORE_START = '2026-08-02';
+const DAY = 86400000;
+
+// Fechas relativas a HOY: las reglas dependen de "ya entrenado" vs "por venir",
+// asi que con fechas fijas los tests caducarian.
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const hoyD = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
+const shift = (days) => ymd(new Date(hoyD.getTime() + days * DAY));
+
+const HOY = shift(0);
+const AYER = shift(-1);
+// Plan de 4 semanas que empezo hace 2: semanas 1-2 pasadas, la 3 empieza HOY.
+const START_EN_CURSO = shift(-14);
+const FIN_EN_CURSO = shift(13);
+// Plan que aun no ha empezado (arranca en una semana).
+const START_FUTURO = shift(7);
+const FIN_FUTURO = shift(34);
 
 let db;
 let trainingService;
@@ -57,12 +74,12 @@ function createSchema(d) {
     `);
 }
 
-/** Plan de 4 semanas, un día, con Press Banca (10) y Remo (11). */
-function seedPlan(startDate = START) {
+/** Plan de 4 semanas, un dia, con Press Banca (10) y Remo (11). */
+function seedPlan(startDate, endDate) {
     const mesoId = Number(db.prepare(
         `INSERT INTO mesocycles (gym_id, customer_id, name, start_date, end_date, is_template, days_per_week)
-         VALUES (?, 1, 'Plan', ?, '2026-08-31', 0, 1)`
-    ).run(GYM, startDate).lastInsertRowid);
+         VALUES (?, 1, 'Plan', ?, ?, 0, 1)`
+    ).run(GYM, startDate, endDate).lastInsertRowid);
 
     const routineId = Number(db.prepare(
         `INSERT INTO routines (gym_id, mesocycle_id, name) VALUES (?, ?, 'Día 1')`
@@ -83,11 +100,10 @@ const itemsOf = (routineId) =>
 
 const deletedItems = () =>
     db.prepare("SELECT local_id FROM sync_deleted_log WHERE table_name = 'routine_items'")
-        .all().map(r => r.local_id);
+        .all().map((r) => r.local_id);
 
 const save = (extra) => trainingService.saveMesocycle({
-    customerId: 1, name: 'Plan', startDate: START, endDate: '2026-08-31',
-    allowOverlap: true, ...extra,
+    customerId: 1, name: 'Plan', allowOverlap: true, ...extra,
 });
 
 beforeEach(() => {
@@ -106,11 +122,12 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe('saveMesocycle — vigencia por fechas', () => {
-    test('sustituir en la semana 3 cierra el viejo el día anterior, sin borrarlo', () => {
-        const { mesoId, routineId, press, remo } = seedPlan();
+    test('sustituir en la semana en curso cierra el viejo el dia anterior, sin borrarlo', () => {
+        const { mesoId, routineId, press, remo } = seedPlan(START_EN_CURSO, FIN_EN_CURSO);
 
+        // La semana 3 arranca justo hoy.
         save({
-            id: mesoId, editWeek: 3,
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
             routines: [{
                 id: routineId, name: 'Día 1',
                 items: [{ id: remo, exerciseId: 11 }, { exerciseId: 12 }],
@@ -118,107 +135,81 @@ describe('saveMesocycle — vigencia por fechas', () => {
         });
 
         const items = itemsOf(routineId);
+        const pressRow = items.find((i) => i.id === press);
+        expect(pressRow).toBeDefined();          // la fila sobrevive: sus pesos cuelgan de ella
+        expect(pressRow.effective_to).toBe(AYER);
 
-        // Press Banca sigue existiendo (sus registros cuelgan de esta fila).
-        const pressRow = items.find(i => i.id === press);
-        expect(pressRow).toBeDefined();
-        expect(pressRow.effective_to).toBe(DAY_BEFORE_WEEK3);
-
-        // El sustituto arranca el primer día de la semana 3.
-        const nuevo = items.find(i => i.exercise_id === 12);
-        expect(nuevo.effective_from).toBe(WEEK3);
+        const nuevo = items.find((i) => i.exercise_id === 12);
+        expect(nuevo.effective_from).toBe(HOY);
         expect(nuevo.effective_to).toBeNull();
 
-        // El intacto sigue vigente siempre.
-        const remoRow = items.find(i => i.id === remo);
-        expect(remoRow.effective_from).toBeNull();
-        expect(remoRow.effective_to).toBeNull();
-
         expect(deletedItems()).toHaveLength(0);
     });
 
-    test('editando el plan completo TAMPOCO se borra: se retira sin destruir historial', () => {
-        const { mesoId, routineId, press, remo } = seedPlan();
+    test('el corte NUNCA cae en el pasado: pedir la semana 1 de un plan ya empezado se empuja a hoy', () => {
+        const { mesoId, routineId, press, remo } = seedPlan(START_EN_CURSO, FIN_EN_CURSO);
 
+        // editWeek 1 pediria cortar en el inicio (hace 2 semanas). Eso borraria
+        // de la vista lo ya entrenado, asi que se fuerza a hoy.
         save({
-            id: mesoId, // sin editWeek → plan completo
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 1,
             routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }],
         });
 
-        const items = itemsOf(routineId);
-        const pressRow = items.find(i => i.id === press);
-
-        // La fila sobrevive, cerrada el día anterior al inicio del plan: el
-        // rango queda vacío, así que no aparece en ninguna semana.
+        const pressRow = itemsOf(routineId).find((i) => i.id === press);
         expect(pressRow).toBeDefined();
-        expect(pressRow.effective_to).toBe(DAY_BEFORE_START);
+        expect(pressRow.effective_to).toBe(AYER);   // no el dia anterior al inicio
         expect(deletedItems()).toHaveLength(0);
     });
 
-    test('un ejercicio retirado no aparece en ninguna semana', () => {
-        const { mesoId, routineId, press, remo } = seedPlan();
+    test('un plan que aun no ha empezado si se puede vaciar entero (no hay nada entrenado)', () => {
+        const { mesoId, routineId, press, remo } = seedPlan(START_FUTURO, FIN_FUTURO);
 
         save({
-            id: mesoId,
+            id: mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO, editWeek: 1,
             routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }],
         });
 
-        const pressRow = itemsOf(routineId).find(i => i.id === press);
-        // Mismo filtro que aplican escritorio y móvil, sobre las 4 semanas.
-        const visibleEn = (day) =>
-            (!pressRow.effective_from || pressRow.effective_from <= day) &&
-            (!pressRow.effective_to || pressRow.effective_to >= day);
-        for (const dia of ['2026-08-03', '2026-08-10', '2026-08-17', '2026-08-24']) {
-            expect(visibleEn(dia)).toBe(false);
-        }
+        const pressRow = itemsOf(routineId).find((i) => i.id === press);
+        // Se cierra el dia anterior al inicio: rango vacio, invisible siempre.
+        expect(pressRow.effective_to < START_FUTURO).toBe(true);
     });
 
-    test('añadido y quitado en la misma semana queda con rango vacío (invisible)', () => {
-        const { mesoId, routineId, remo } = seedPlan();
-        const añadido = Number(db.prepare(
+    test('el dia entero solo se borra si el plan no ha empezado', () => {
+        const futuro = seedPlan(START_FUTURO, FIN_FUTURO);
+        save({ id: futuro.mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO, editWeek: 1, routines: [] });
+        expect(db.prepare('SELECT id FROM routines WHERE id = ?').get(futuro.routineId)).toBeUndefined();
+
+        const enCurso = seedPlan(START_EN_CURSO, FIN_EN_CURSO);
+        save({ id: enCurso.mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 1, routines: [] });
+        expect(db.prepare('SELECT id FROM routines WHERE id = ?').get(enCurso.routineId)).toBeDefined();
+        expect(itemsOf(enCurso.routineId)).toHaveLength(2);
+    });
+
+    test('anadido y quitado en la misma semana queda con rango vacio (invisible)', () => {
+        const { mesoId, routineId, remo } = seedPlan(START_EN_CURSO, FIN_EN_CURSO);
+        const anadido = Number(db.prepare(
             `INSERT INTO routine_items (gym_id, routine_id, exercise_id, order_index, effective_from, effective_to)
              VALUES (?, ?, 99, 2, ?, NULL)`
-        ).run(GYM, routineId, WEEK3).lastInsertRowid);
+        ).run(GYM, routineId, HOY).lastInsertRowid);
 
         save({
-            id: mesoId, editWeek: 3,
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
             routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }],
         });
 
-        const row = itemsOf(routineId).find(i => i.id === añadido);
+        const row = itemsOf(routineId).find((i) => i.id === anadido);
         expect(row).toBeDefined();
-        // effective_to anterior a effective_from → nunca visible.
         expect(row.effective_to < row.effective_from).toBe(true);
     });
 
-    test('editando una semana no se borran días enteros', () => {
-        const { mesoId, routineId } = seedPlan();
+    test('sin fecha de inicio se mantiene el borrado clasico (no hay forma de fechar el corte)', () => {
+        const { mesoId, routineId, press, remo } = seedPlan(null, null);
 
-        save({ id: mesoId, editWeek: 3, routines: [] });
+        save({ id: mesoId, startDate: null, endDate: null,
+               routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }] });
 
-        expect(db.prepare('SELECT id FROM routines WHERE id = ?').get(routineId)).toBeDefined();
-        expect(itemsOf(routineId)).toHaveLength(2);
-    });
-
-    test('sin fecha de inicio se mantiene el borrado clásico (no hay forma de fechar el corte)', () => {
-        const mesoId = Number(db.prepare(
-            `INSERT INTO mesocycles (gym_id, customer_id, name, start_date, end_date, is_template, days_per_week)
-             VALUES (?, 1, 'Plan', NULL, NULL, 0, 1)`
-        ).run(GYM).lastInsertRowid);
-        const routineId = Number(db.prepare(
-            `INSERT INTO routines (gym_id, mesocycle_id, name) VALUES (?, ?, 'Día 1')`
-        ).run(GYM, mesoId).lastInsertRowid);
-        const press = Number(db.prepare(
-            `INSERT INTO routine_items (gym_id, routine_id, exercise_id, order_index) VALUES (?, ?, 10, 0)`
-        ).run(GYM, routineId).lastInsertRowid);
-
-        trainingService.saveMesocycle({
-            id: mesoId, customerId: 1, name: 'Plan',
-            startDate: null, endDate: null, allowOverlap: true,
-            routines: [{ id: routineId, name: 'Día 1', items: [] }],
-        });
-
-        expect(itemsOf(routineId).find(i => i.id === press)).toBeUndefined();
+        expect(itemsOf(routineId).find((i) => i.id === press)).toBeUndefined();
         expect(deletedItems()).toContain(press);
     });
 });

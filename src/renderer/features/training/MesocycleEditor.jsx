@@ -153,6 +153,18 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // sigue visible (con sus pesos) en lo ya entrenado. Lo que se añade
     // empieza ese día. Se compara por FECHA y no por número de semana para
     // que cambiar las fechas del plan no desplace los cortes ya hechos.
+    // Semana del programa en la que estamos HOY. Antes de empezar -> 1;
+    // despues de terminar -> la ultima. Es la que se abre por defecto, porque
+    // es donde el entrenador va a querer tocar.
+    const currentWeekOf = (startIso, totalWeeks) => {
+        const s0 = parseIso(startIso);
+        if (!s0) return 1;
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        if (today <= s0) return 1;
+        const days = Math.floor((today - s0) / 86400000);
+        return Math.min(Math.max(1, totalWeeks), Math.floor(days / 7) + 1);
+    };
+
     const [editWeek, setEditWeek] = useState(1);
 
     // Primer día de la semana w del programa.
@@ -201,14 +213,48 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
         })),
     })));
 
+    // Semana actual y situación del programa respecto a hoy.
+    const weekNow = currentWeekOf(startDate, weeks);
+    const planFuturo = (() => {
+        const s0 = parseIso(startDate);
+        if (!s0) return false;
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        return hoy < s0;
+    })();
+    const planTerminado = (() => {
+        const e0 = parseIso(endDate);
+        if (!e0) return false;
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        return hoy > e0;
+    })();
+
+    // Al abrir un plan ya guardado se arranca en la semana en curso, que es
+    // donde el entrenador va a querer tocar. Un plan que aún no ha empezado no
+    // tiene nada entrenado, así que se abre en la 1 (equivale a todo el plan).
+    React.useEffect(() => {
+        if (initialData?.id && !isTemplate && startDate) {
+            const w = planFuturo ? 1 : weekNow;
+            setEditWeek(w);
+            setDays(buildDays(initialData?.routines, w, startDate));
+        }
+        // Solo al abrir el editor.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Primera semana que se puede tocar. Lo ya entrenado no se edita: cambiar
+    // el pasado es justo lo que este sistema evita. Un plan que aun no ha
+    // empezado no tiene pasado, asi que se puede editar entero.
+    const primeraEditable = planFuturo ? 1 : weekNow;
+    // Un programa terminado no se toca: no hay ninguna semana por delante.
+    const soloLectura = planTerminado;
+
     const switchEditWeek = (w) => {
+        if (w < primeraEditable || soloLectura) return;
         if (w === editWeek) return;
         const pending = daysFingerprint(days)
             !== daysFingerprint(buildDays(initialData?.routines, editWeek, startDate));
         if (pending && !window.confirm(
-            `Tienes cambios sin guardar en ${editWeek === 1 ? "el plan completo" : "la semana " + editWeek}.
-
-` +
+            `Tienes cambios sin guardar en la semana ${editWeek}.\n\n` +
             `Si cambias de vista se perderán. ¿Continuar?`
         )) return;
         setEditWeek(w);
@@ -911,29 +957,67 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                         {/* SELECTOR DE SEMANA — solo en planes ya guardados con varias
                             semanas. Permite sustituir un ejercicio a partir de una
                             semana sin tocar lo ya entrenado. */}
-                        {!isTemplate && initialData?.id && weeks > 1 && startDate && (
+                        {!isTemplate && initialData?.id && soloLectura && (
+                            <div className="rounded-xl border border-orange-500/30 bg-orange-500/[0.07] p-3">
+                                <p className="text-xs font-bold text-orange-300">
+                                    Este programa terminó el {endDate}
+                                </p>
+                                <p className="mt-1 text-[11px] text-orange-200/80">
+                                    No se puede modificar: todas sus semanas están entrenadas y cambiarlas
+                                    reescribiría el historial del cliente. Crea un programa nuevo
+                                    {previousMesocycles.length > 0 ? ' (puedes copiar este como punto de partida)' : ''}.
+                                </p>
+                            </div>
+                        )}
+
+                        {!isTemplate && initialData?.id && !soloLectura && weeks > 1 && startDate && (
                             <div className="rounded-xl border border-white/5 bg-slate-800/40 p-3">
                                 <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
-                                        Editando
+                                        Aplicar desde
                                     </span>
-                                    {Array.from({ length: weeks }, (_, i) => i + 1).map(w => (
-                                        <button
-                                            key={w}
-                                            type="button"
-                                            onClick={() => switchEditWeek(w)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${editWeek === w
-                                                ? 'bg-amber-600 text-white border-amber-500'
-                                                : 'bg-slate-800 text-slate-400 border-white/5 hover:bg-slate-700'}`}
-                                        >
-                                            {w === 1 ? 'Todo el plan' : `Semana ${w}`}
-                                        </button>
-                                    ))}
+                                    {Array.from({ length: weeks }, (_, i) => i + 1).map(w => {
+                                        const esActual = w === weekNow;
+                                        const pasada = w < primeraEditable || soloLectura;
+                                        return (
+                                            <button
+                                                key={w}
+                                                type="button"
+                                                disabled={pasada}
+                                                onClick={() => switchEditWeek(w)}
+                                                title={pasada
+                                                    ? `Semana ya entrenada (${weekStartStr(w, startDate)}) — no se puede modificar`
+                                                    : `Empieza el ${weekStartStr(w, startDate)}`}
+                                                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${pasada
+                                                    ? 'bg-slate-900/60 text-slate-600 border-white/5 cursor-not-allowed line-through'
+                                                    : editWeek === w
+                                                        ? 'bg-amber-600 text-white border-amber-500'
+                                                    : esActual
+                                                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+                                                        : 'bg-slate-800 text-slate-400 border-white/5 hover:bg-slate-700'}`}
+                                            >
+                                                Semana {w}
+                                                {esActual && editWeek !== w && (
+                                                    <span className="absolute -top-1 -right-1 size-2 rounded-full bg-emerald-400" />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                                <p className="mt-2 text-[11px] text-slate-500">
-                                    {editWeek === 1
-                                        ? 'Los cambios afectan al programa completo, desde la primera semana.'
-                                        : `Los cambios se aplican desde el ${weekStartStr(editWeek, startDate)} en adelante. Lo que quites seguirá visible (con sus pesos) en las semanas anteriores ya entrenadas.`}
+                                <p className="mt-2 text-[11px] text-slate-400">
+                                    {planFuturo ? (
+                                        <>El programa aún no ha empezado (arranca el <span className="text-slate-200 font-semibold">{startDate}</span>), así que no hay nada entrenado: los cambios afectan a todo el plan.</>
+                                    ) : editWeek === 1 ? (
+                                        <>Los cambios afectan al <span className="text-slate-200 font-semibold">programa completo</span>, desde el principio. Si ya se ha entrenado, lo que quites dejará de verse en todas las semanas (sus pesos no se borran).</>
+                                    ) : (
+                                        <>Los cambios se aplican <span className="text-amber-300 font-semibold">a partir del {weekStartStr(editWeek, startDate)}</span> (semana {editWeek}). Las semanas 1{editWeek > 2 ? `–${editWeek - 1}` : ''}, ya entrenadas, no se tocan.</>
+                                    )}
+                                    {planTerminado && (
+                                        <> <span className="text-orange-300">Ojo: este programa ya terminó el {endDate}.</span></>
+                                    )}
+                                    {!planFuturo && !planTerminado && editWeek < weekNow && (
+                                        <> <span className="text-orange-300">Estás editando una semana ya pasada (hoy vas por la {weekNow}).</span></>
+                                    )}
                                 </p>
                             </div>
                         )}
@@ -1030,7 +1114,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 ) : (
                     <button
                         onClick={() => handleFinish(acceptedOverlap)}
-                        disabled={isSaving}
+                        // Un programa terminado no se guarda: cambiarlo reescribiria
+                        // el historial ya entrenado del cliente.
+                        disabled={isSaving || soloLectura}
+                        title={soloLectura ? 'Este programa ya terminó: crea uno nuevo' : undefined}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px] justify-center"
                     >
                         {isSaving ? (
