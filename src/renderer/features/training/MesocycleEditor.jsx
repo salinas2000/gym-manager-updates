@@ -248,19 +248,32 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // Un programa terminado no se toca: no hay ninguna semana por delante.
     const soloLectura = planTerminado;
 
-    const switchEditWeek = (w) => {
-        if (w < primeraEditable || soloLectura) return;
-        if (w === editWeek) return;
-        const pending = daysFingerprint(days)
-            !== daysFingerprint(buildDays(initialData?.routines, editWeek, startDate));
-        if (pending && !window.confirm(
-            `Tienes cambios sin guardar en la semana ${editWeek}.\n\n` +
-            `Si cambias de vista se perderán. ¿Continuar?`
-        )) return;
+    const applyEditWeek = (w) => {
         setEditWeek(w);
         const next = buildDays(initialData?.routines, w, startDate);
         setDays(next);
         if (!next.some(d => d.id === currentDayId)) setCurrentDayId(next[0].id);
+    };
+
+    const switchEditWeek = (w) => {
+        if (w < primeraEditable || soloLectura) return;
+        if (w === editWeek) return;
+        // Cambiar de semana recarga los días desde lo guardado, así que hay que
+        // avisar si hay ediciones a medias.
+        const pending = daysFingerprint(days)
+            !== daysFingerprint(buildDays(initialData?.routines, editWeek, startDate));
+        if (!pending) return applyEditWeek(w);
+        setConfirmModal({
+            isOpen: true,
+            title: 'Cambios sin guardar',
+            type: 'warning',
+            confirmText: 'Descartar y cambiar',
+            children: `Tienes cambios sin guardar en la semana ${editWeek}. Si pasas a la semana ${w} se perderán.`,
+            onConfirm: () => {
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                applyEditWeek(w);
+            },
+        });
     };
 
     // Day reordering (drag the tabs left/right). Auto-numbered names ("Día N")
