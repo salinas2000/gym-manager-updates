@@ -1137,6 +1137,8 @@ class CloudService {
             data: pendiente ? de(pendiente) : (vigente ? de(vigente) : []),
             vigente: vigente ? de(vigente) : [],
             vigenteDesde: vigente,
+            vigenteNombre: vigente ? (de(vigente)[0]?.template_name || null) : null,
+            pendienteNombre: pendiente ? (de(pendiente)[0]?.template_name || null) : null,
             pendienteDesde: pendiente,
             // Si aun no hay ninguna encuesta, la primera entra YA: no tiene
             // sentido que el entrenador la escriba y no sirva hasta el lunes.
@@ -1153,7 +1155,7 @@ class CloudService {
      * cada respuesta guarda su propio question_snapshot, asi que el historial
      * se sigue entendiendo aunque aqui desaparezcan.
      */
-    async saveSurveyQuestions(gymId, questions) {
+    async saveSurveyQuestions(gymId, questions, templateName) {
         const resolvedGymId = this._resolveGymId(gymId);
         if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
         if (!Array.isArray(questions)) return { success: false, error: 'Preguntas invalidas' };
@@ -1168,6 +1170,7 @@ class CloudService {
         const rows = questions.map((q, i) => ({
             local_id: Number(q.local_id) || (Date.now() + i),
             effective_from: desde,
+            template_name: String(templateName || '').trim() || null,
             order_index: i,
             label: String(q.label || '').trim(),
             type: q.type || 'text',
@@ -1229,6 +1232,52 @@ class CloudService {
             };
         }
         return { success: true, data: rows };
+    }
+
+    // ── Plantillas de encuesta ──────────────────────────────────────────
+    // Encuestas guardadas con nombre, para tenerlas precreadas y cargar la
+    // que toque. Solo las usa el escritorio; el cliente nunca las ve.
+
+    async getSurveyTemplates(gymId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.select('gym_survey_templates', {
+            gymId: resolvedGymId, order: 'updated_at', ascending: false,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        return { success: true, data: res.data || res.rows || [] };
+    }
+
+    /** Guarda (o renombra) una plantilla. Sin localId, crea una nueva. */
+    async saveSurveyTemplate(gymId, name, questions, localId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        const nombre = String(name || '').trim();
+        if (!nombre) return { success: false, error: 'La plantilla necesita un nombre' };
+        if (!Array.isArray(questions) || questions.length === 0) {
+            return { success: false, error: 'La plantilla no tiene preguntas' };
+        }
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.upsert('gym_survey_templates', [{
+            local_id: Number(localId) || Date.now(),
+            name: nombre,
+            questions,
+            updated_at: new Date().toISOString(),
+        }], { gymId: resolvedGymId, onConflict: 'gym_id,local_id' });
+        if (!res?.success) return { success: false, error: res?.error || 'Error' };
+        return { success: true };
+    }
+
+    async deleteSurveyTemplate(gymId, localId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.deleteMatch('gym_survey_templates', {
+            gymId: resolvedGymId, match: { local_id: localId },
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error' };
+        return { success: true };
     }
 
     /** Accept or reject an RM record (status: 'accepted' | 'rejected'). */

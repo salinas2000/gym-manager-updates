@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy , Wifi } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import { can } from '../lib/entitlements';
@@ -146,6 +146,15 @@ export default function Layout({ children, currentView, onNavigate }) {
                                 active={currentView === 'trainers'}
                                 onClick={() => onNavigate('trainers')}
                                 color="text-blue-400"
+                            />
+                        )}
+                        {has('mobile_app') && (
+                            <SidebarItem
+                                icon={Wifi}
+                                label="Online"
+                                active={currentView === 'online'}
+                                onClick={() => onNavigate('online')}
+                                color="text-violet-400"
                             />
                         )}
                         <SidebarItem

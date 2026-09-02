@@ -771,8 +771,17 @@ function registerHandlers() {
     handle('cloud:getSurveyQuestions', ({ gymId }) =>
         require('../services/cloud/cloud.service').getSurveyQuestions(gymId)
     );
-    handle('cloud:saveSurveyQuestions', ({ gymId, questions }) =>
-        require('../services/cloud/cloud.service').saveSurveyQuestions(gymId, questions)
+    handle('cloud:saveSurveyQuestions', ({ gymId, questions, templateName }) =>
+        require('../services/cloud/cloud.service').saveSurveyQuestions(gymId, questions, templateName)
+    );
+    handle('cloud:getSurveyTemplates', ({ gymId }) =>
+        require('../services/cloud/cloud.service').getSurveyTemplates(gymId)
+    );
+    handle('cloud:saveSurveyTemplate', ({ gymId, name, questions, localId }) =>
+        require('../services/cloud/cloud.service').saveSurveyTemplate(gymId, name, questions, localId)
+    );
+    handle('cloud:deleteSurveyTemplate', ({ gymId, localId }) =>
+        require('../services/cloud/cloud.service').deleteSurveyTemplate(gymId, localId)
     );
     handle('cloud:getSurveyAnswers', ({ gymId, customerLocalId, limit }) =>
         require('../services/cloud/cloud.service').getSurveyAnswers(gymId, customerLocalId, limit)

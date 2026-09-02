@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ClipboardList, Calendar } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { unwrapList } from '../../lib/ipc';
 
 /**
  * Respuestas de la encuesta semanal de un cliente.
@@ -41,7 +42,7 @@ export default function CustomerSurvey({ customerId }) {
         let cancelado = false;
         setCargando(true);
         window.api.cloud.getSurveyAnswers(null, customerId, 20)
-            .then(res => { if (!cancelado) setRespuestas(res?.data || []); })
+            .then(res => { if (!cancelado) setRespuestas(unwrapList(res)); })
             .catch(() => { if (!cancelado) setRespuestas([]); })
             .finally(() => { if (!cancelado) setCargando(false); });
         return () => { cancelado = true; };

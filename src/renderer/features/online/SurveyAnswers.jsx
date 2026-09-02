@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ClipboardList, ChevronDown, ChevronRight, Users } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { unwrapList } from '../../lib/ipc';
 
 /**
  * Respuestas de la encuesta de TODOS los clientes, agrupadas por semana.
@@ -46,7 +47,7 @@ export default function SurveyAnswers() {
     useEffect(() => {
         let cancelado = false;
         window.api.cloud.getSurveyAnswers(null, null, 200)
-            .then(res => { if (!cancelado) setRespuestas(res?.data || []); })
+            .then(res => { if (!cancelado) setRespuestas(unwrapList(res)); })
             .catch(() => { if (!cancelado) setRespuestas([]); })
             .finally(() => { if (!cancelado) setCargando(false); });
         return () => { cancelado = true; };
