@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { normalizeText } from '../../lib/text';
-import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload, CheckCircle2, Smartphone } from 'lucide-react';
+import { Search, Plus, Calendar, MoreHorizontal, Check, X, Filter, Users, UserCheck, UserX, Clock, Wallet, Dumbbell, Trash2, Send, Upload, CheckCircle2, Smartphone, Wifi } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { cn } from '../../lib/utils';
@@ -23,6 +23,8 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('all'); // Default to all
     const [tariffFilter, setTariffFilter] = useState('all'); // all, id...
+    // Modalidad: all | online | presencial
+    const [modalidadFilter, setModalidadFilter] = useState('all');
 
     // Modals State
     const [deactivateModalOpen, setDeactivateModalOpen] = useState(false);
@@ -57,7 +59,14 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
             tariffFilter === 'all' ||
             (c.tariff_id && c.tariff_id.toString() === tariffFilter);
 
-        return matchesSearch && matchesStatus && matchesTariff;
+        // Online / presencial. El cliente online (mobile_show_schedule = 0) no
+        // acude al gimnasio: en la app no ve el horario y responde la encuesta.
+        const matchesModalidad =
+            modalidadFilter === 'all' ||
+            (modalidadFilter === 'online' && c.mobile_show_schedule === 0) ||
+            (modalidadFilter === 'presencial' && c.mobile_show_schedule !== 0);
+
+        return matchesSearch && matchesStatus && matchesTariff && matchesModalidad;
     });
 
     const handleToggleClick = (customer) => {
@@ -376,6 +385,17 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                             <option key={t.id} value={t.id}>{t.name}</option>
                         ))}
                     </select>
+
+                    {/* Online / presencial */}
+                    <select
+                        className="bg-slate-900/80 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+                        value={modalidadFilter}
+                        onChange={(e) => setModalidadFilter(e.target.value)}
+                    >
+                        <option value="all">Online y presenciales</option>
+                        <option value="online">Solo online</option>
+                        <option value="presencial">Solo presenciales</option>
+                    </select>
                 </div>
             </div>
 
@@ -434,6 +454,15 @@ export default function CustomerTable({ onOpenHistory, onAddCustomer, onManageTa
                                                 <Smartphone size={9} className="text-amber-400" />
                                             </span>
                                         ) : null}
+                                        {customer.mobile_show_schedule === 0 && (
+                                            <span
+                                                title="Cliente online: no ve el horario y responde la encuesta semanal"
+                                                className="inline-flex items-center gap-1 px-1.5 h-4 rounded-full bg-violet-500/20 border border-violet-500/30"
+                                            >
+                                                <Wifi size={9} className="text-violet-400" />
+                                                <span className="text-[9px] font-bold text-violet-300 uppercase tracking-wide">Online</span>
+                                            </span>
+                                        )}
                                     </div>
                                     <p className="text-xs text-slate-500 font-mono">#{customer.id.toString().padStart(4, '0')}</p>
                                 </div>

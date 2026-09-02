@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Check, ChevronDown, ChevronUp, Wifi } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
@@ -328,19 +328,33 @@ export default function AddCustomerModal({ isOpen, onClose, customerToEdit = nul
                             </div>
                         )}
 
-                        {/* App móvil — feature toggles */}
-                        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/40 border border-white/5">
+                        {/* Cliente online.
+                            Se guarda en mobile_show_schedule (0 = online) para no
+                            migrar la base: el cliente online es exactamente el que
+                            no pisa el gimnasio y por tanto no necesita el horario.
+                            Pero se PRESENTA como lo que es —una marca de online—,
+                            porque de ahí cuelga todo lo demás. */}
+                        <div className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-colors ${formData.mobile_show_schedule === 0
+                            ? 'bg-violet-500/[0.08] border-violet-500/30'
+                            : 'bg-slate-950/40 border-white/5'}`}>
                             <div className="min-w-0">
-                                <p className="text-sm font-semibold text-white">Horario y clases en la app</p>
-                                <p className="text-[11px] text-slate-500">Desactívalo para clientes que solo quieren sus rutinas (no acuden al gimnasio).</p>
+                                <p className="text-sm font-semibold text-white flex items-center gap-2">
+                                    <Wifi size={15} className={formData.mobile_show_schedule === 0 ? 'text-violet-400' : 'text-slate-600'} />
+                                    Cliente online
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                    {formData.mobile_show_schedule === 0
+                                        ? 'Entrena por su cuenta: en la app no ve el horario y responde la encuesta semanal.'
+                                        : 'Acude al gimnasio: ve el horario y las clases en la app.'}
+                                </p>
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setFormData({ ...formData, mobile_show_schedule: formData.mobile_show_schedule ? 0 : 1 })}
-                                className={`shrink-0 relative w-12 h-7 rounded-full transition-all ${formData.mobile_show_schedule ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                                title={formData.mobile_show_schedule ? 'Visible para el cliente' : 'Oculto para el cliente'}
+                                onClick={() => setFormData({ ...formData, mobile_show_schedule: formData.mobile_show_schedule === 0 ? 1 : 0 })}
+                                className={`shrink-0 relative w-12 h-7 rounded-full transition-all ${formData.mobile_show_schedule === 0 ? 'bg-violet-500' : 'bg-slate-700'}`}
+                                title={formData.mobile_show_schedule === 0 ? 'Es cliente online' : 'Acude al gimnasio'}
                             >
-                                <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${formData.mobile_show_schedule ? 'translate-x-5' : ''}`} />
+                                <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${formData.mobile_show_schedule === 0 ? 'translate-x-5' : ''}`} />
                             </button>
                         </div>
 

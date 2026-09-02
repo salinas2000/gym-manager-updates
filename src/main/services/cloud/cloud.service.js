@@ -1083,6 +1083,83 @@ class CloudService {
         return { success: true, data };
     }
 
+    // ── Encuesta semanal ────────────────────────────────────────────────
+    // Preguntas y respuestas viven SOLO en la nube (como las marcas RM): no
+    // se sincronizan a la base local ni hacen falta tablas nuevas aqui.
+
+    /** Preguntas de la encuesta del gimnasio, en orden. */
+    async getSurveyQuestions(gymId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.select('gym_survey_questions', {
+            gymId: resolvedGymId,
+            order: 'order_index',
+            ascending: true,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        return { success: true, data: res.data || res.rows || [] };
+    }
+
+    /**
+     * Guarda la lista completa de preguntas: sube las que quedan y borra las
+     * que el entrenador haya quitado.
+     *
+     * Las preguntas NO se borran de verdad si ya se han respondido alguna vez:
+     * cada respuesta guarda su propio question_snapshot, asi que el historial
+     * se sigue entendiendo aunque aqui desaparezcan.
+     */
+    async saveSurveyQuestions(gymId, questions) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        if (!Array.isArray(questions)) return { success: false, error: 'Preguntas invalidas' };
+        const ownerData = require('./owner-data.client');
+
+        const rows = questions.map((q, i) => ({
+            local_id: Number(q.local_id) || (Date.now() + i),
+            order_index: i,
+            label: String(q.label || '').trim(),
+            type: q.type || 'text',
+            options: Array.isArray(q.options) && q.options.length ? q.options : null,
+            required: q.required ? 1 : 0,
+            active: 1,
+            updated_at: new Date().toISOString(),
+        })).filter(r => r.label !== '');
+
+        // Lo que ya no esta en la lista se retira.
+        const previas = await this.getSurveyQuestions(resolvedGymId);
+        const vivos = new Set(rows.map(r => r.local_id));
+        for (const vieja of (previas.data || [])) {
+            if (vivos.has(Number(vieja.local_id))) continue;
+            await ownerData.deleteMatch('gym_survey_questions', {
+                gymId: resolvedGymId, match: { local_id: vieja.local_id },
+            });
+        }
+
+        if (rows.length === 0) return { success: true, count: 0 };
+        const res = await ownerData.upsert('gym_survey_questions', rows, {
+            gymId: resolvedGymId, onConflict: 'gym_id,local_id',
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error' };
+        return { success: true, count: rows.length };
+    }
+
+    /** Respuestas de un cliente, de la mas reciente a la mas antigua. */
+    async getSurveyAnswers(gymId, customerLocalId, limit = 20) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.select('customer_survey_answers', {
+            gymId: resolvedGymId,
+            filters: customerLocalId ? { customer_local_id: customerLocalId } : undefined,
+            order: 'week_start',
+            ascending: false,
+            limit,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        return { success: true, data: res.data || res.rows || [] };
+    }
+
     /** Accept or reject an RM record (status: 'accepted' | 'rejected'). */
     async reviewRmRecord(id, status) {
         if (!id || !['accepted', 'rejected'].includes(status)) {
