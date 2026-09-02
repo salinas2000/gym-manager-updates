@@ -1157,7 +1157,29 @@ class CloudService {
             limit,
         });
         if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
-        return { success: true, data: res.data || res.rows || [] };
+        const rows = res.data || res.rows || [];
+
+        // Sin cliente concreto se piden TODAS las respuestas del gimnasio, asi
+        // que hace falta el nombre para poder leerlas. Se resuelve desde la base
+        // local, igual que en las marcas RM.
+        if (!customerLocalId) {
+            let nombrePorId = new Map();
+            try {
+                const db = dbManager.getInstance();
+                const clientes = db
+                    .prepare('SELECT id, first_name, last_name FROM customers WHERE gym_id = ?')
+                    .all(resolvedGymId);
+                nombrePorId = new Map(clientes.map(c => [c.id, `${c.first_name} ${c.last_name}`.trim()]));
+            } catch (_) { /* sin base local: se muestra el identificador */ }
+            return {
+                success: true,
+                data: rows.map(r => ({
+                    ...r,
+                    customer_name: nombrePorId.get(r.customer_local_id) || `Cliente #${r.customer_local_id}`,
+                })),
+            };
+        }
+        return { success: true, data: rows };
     }
 
     /** Accept or reject an RM record (status: 'accepted' | 'rejected'). */

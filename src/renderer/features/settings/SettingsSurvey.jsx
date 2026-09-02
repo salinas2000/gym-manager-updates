@@ -4,6 +4,7 @@ import { useGym } from '../../context/GymContext';
 import { useToast } from '../../context/ToastContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import SurveyAnswers from './SurveyAnswers';
 
 /**
  * Constructor de la encuesta semanal.
@@ -27,12 +28,32 @@ const TIPOS = [
 
 const conOpciones = (t) => t === 'single' || t === 'multi';
 
+function SubPestanas({ vista, setVista }) {
+    return (
+        <div className="flex gap-1 border-b border-white/10">
+            {[['preguntas', 'Preguntas'], ['respuestas', 'Respuestas']].map(([v, label]) => (
+                <button
+                    key={v}
+                    onClick={() => setVista(v)}
+                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold transition-colors ${vista === v
+                        ? 'border-blue-500 text-white'
+                        : 'border-transparent text-slate-500 hover:text-slate-300'}`}
+                >
+                    {label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 export default function SettingsSurvey() {
     const { settings } = useGym();
     const toast = useToast();
     const [preguntas, setPreguntas] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [guardando, setGuardando] = useState(false);
+    // 'preguntas' = escribir la encuesta | 'respuestas' = lo que han contestado
+    const [vista, setVista] = useState('preguntas');
 
     useEffect(() => {
         let cancelado = false;
@@ -110,8 +131,19 @@ export default function SettingsSurvey() {
         return <div className="flex justify-center py-10"><LoadingSpinner /></div>;
     }
 
+    if (vista === 'respuestas') {
+        return (
+            <div className="space-y-4">
+                <SubPestanas vista={vista} setVista={setVista} />
+                <SurveyAnswers />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-4">
+            <SubPestanas vista={vista} setVista={setVista} />
+
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.06] p-4 flex gap-3">
                 <Info size={18} className="text-blue-400 shrink-0 mt-0.5" />
                 <div className="text-sm text-slate-300">
