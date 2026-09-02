@@ -1087,7 +1087,27 @@ class CloudService {
     // Preguntas y respuestas viven SOLO en la nube (como las marcas RM): no
     // se sincronizan a la base local ni hacen falta tablas nuevas aqui.
 
-    /** Preguntas de la encuesta del gimnasio, en orden. */
+    /** Lunes de la semana de `d`, como 'YYYY-MM-DD' en hora local. */
+    _lunesDe(d = new Date()) {
+        const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const dia = x.getDay();                 // 0 = domingo
+        x.setDate(x.getDate() - (dia === 0 ? 6 : dia - 1));
+        return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    }
+
+    /** Lunes de la semana que viene. */
+    _lunesProximo() {
+        const x = new Date();
+        x.setDate(x.getDate() + 7);
+        return this._lunesDe(x);
+    }
+
+    /**
+     * Preguntas de la encuesta.
+     *
+     * Devuelve el juego VIGENTE esta semana y, si lo hay, el que entrara el
+     * lunes que viene (pendiente), para que el escritorio pueda enseñar ambos.
+     */
     async getSurveyQuestions(gymId) {
         const resolvedGymId = this._resolveGymId(gymId);
         if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
@@ -1098,7 +1118,31 @@ class CloudService {
             ascending: true,
         });
         if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
-        return { success: true, data: res.data || res.rows || [] };
+        const filas = res.data || res.rows || [];
+
+        const estaSemana = this._lunesDe();
+        const vigencias = [...new Set(filas.map(r => String(r.effective_from || '2000-01-01').slice(0, 10)))].sort();
+        // El juego en vigor es el mas reciente cuya fecha ya ha llegado.
+        const vigente = vigencias.filter(v => v <= estaSemana).pop() || null;
+        // Lo que este por delante es el cambio que aun no ha entrado.
+        const pendiente = vigencias.filter(v => v > estaSemana).pop() || null;
+
+        const de = (v) => filas
+            .filter(r => String(r.effective_from || '2000-01-01').slice(0, 10) === v)
+            .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+
+        return {
+            success: true,
+            // Lo que se edita es el ultimo juego: el pendiente si lo hay, si no el vigente.
+            data: pendiente ? de(pendiente) : (vigente ? de(vigente) : []),
+            vigente: vigente ? de(vigente) : [],
+            vigenteDesde: vigente,
+            pendienteDesde: pendiente,
+            // Si aun no hay ninguna encuesta, la primera entra YA: no tiene
+            // sentido que el entrenador la escriba y no sirva hasta el lunes.
+            esPrimera: vigente === null && pendiente === null,
+            aplicariaDesde: (vigente === null && pendiente === null) ? estaSemana : this._lunesProximo(),
+        };
     }
 
     /**
@@ -1115,8 +1159,15 @@ class CloudService {
         if (!Array.isArray(questions)) return { success: false, error: 'Preguntas invalidas' };
         const ownerData = require('./owner-data.client');
 
+        // ¿Desde cuando aplica? La primera encuesta entra ya; cualquier cambio
+        // posterior entra el lunes. Asi nadie responde media semana una version
+        // y media otra: todos los de una misma semana ven lo mismo.
+        const previas = await this.getSurveyQuestions(resolvedGymId);
+        const desde = previas.esPrimera ? this._lunesDe() : this._lunesProximo();
+
         const rows = questions.map((q, i) => ({
             local_id: Number(q.local_id) || (Date.now() + i),
+            effective_from: desde,
             order_index: i,
             label: String(q.label || '').trim(),
             type: q.type || 'text',
@@ -1126,22 +1177,20 @@ class CloudService {
             updated_at: new Date().toISOString(),
         })).filter(r => r.label !== '');
 
-        // Lo que ya no esta en la lista se retira.
-        const previas = await this.getSurveyQuestions(resolvedGymId);
-        const vivos = new Set(rows.map(r => r.local_id));
-        for (const vieja of (previas.data || [])) {
-            if (vivos.has(Number(vieja.local_id))) continue;
-            await ownerData.deleteMatch('gym_survey_questions', {
-                gymId: resolvedGymId, match: { local_id: vieja.local_id },
-            });
-        }
+        // Se reemplaza por completo el juego de ESA fecha (si vuelve a editar
+        // antes del lunes, sustituye el pendiente en vez de acumularse). Los
+        // juegos de semanas anteriores NO se tocan: son el historial que da
+        // sentido a las respuestas ya enviadas.
+        await ownerData.deleteMatch('gym_survey_questions', {
+            gymId: resolvedGymId, match: { effective_from: desde },
+        });
 
-        if (rows.length === 0) return { success: true, count: 0 };
+        if (rows.length === 0) return { success: true, count: 0, desde };
         const res = await ownerData.upsert('gym_survey_questions', rows, {
-            gymId: resolvedGymId, onConflict: 'gym_id,local_id',
+            gymId: resolvedGymId, onConflict: 'gym_id,effective_from,local_id',
         });
         if (!res?.success) return { success: false, error: res?.error || 'Error' };
-        return { success: true, count: rows.length };
+        return { success: true, count: rows.length, desde, esPrimera: previas.esPrimera };
     }
 
     /** Respuestas de un cliente, de la mas reciente a la mas antigua. */

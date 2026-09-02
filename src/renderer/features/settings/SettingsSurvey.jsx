@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardList, Plus, Trash2, Save, GripVertical, ArrowUp, ArrowDown, Info } from 'lucide-react';
+import { ClipboardList, Plus, Trash2, Save, GripVertical, ArrowUp, ArrowDown, Info, CalendarClock } from 'lucide-react';
 import { useGym } from '../../context/GymContext';
 import { useToast } from '../../context/ToastContext';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -28,6 +28,26 @@ const TIPOS = [
 
 const conOpciones = (t) => t === 'single' || t === 'multi';
 
+/** '2026-09-08' → '8 de septiembre'. */
+function fechaBonita(iso) {
+    if (!iso) return '';
+    const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+    if (!y) return iso;
+    return `${d} de ${MESES[m - 1]}`;
+}
+
+/**
+ * De jueves a domingo se recuerda que lo que se cambie ahora entra el lunes.
+ * Es el momento util: a principios de semana no toca, y el lunes ya es tarde
+ * para la semana que empieza.
+ */
+function esFinDeSemanaLaboral() {
+    const d = new Date().getDay();      // 0 = domingo, 4 = jueves
+    return d === 4 || d === 5 || d === 6 || d === 0;
+}
+
 function SubPestanas({ vista, setVista }) {
     return (
         <div className="flex gap-1 border-b border-white/10">
@@ -54,6 +74,9 @@ export default function SettingsSurvey() {
     const [guardando, setGuardando] = useState(false);
     // 'preguntas' = escribir la encuesta | 'respuestas' = lo que han contestado
     const [vista, setVista] = useState('preguntas');
+    // Desde que lunes aplicaria lo que se guarde ahora, y si hay un cambio
+    // pendiente de entrar.
+    const [vigencia, setVigencia] = useState({ aplicariaDesde: null, pendienteDesde: null, esPrimera: true });
 
     useEffect(() => {
         let cancelado = false;
@@ -68,6 +91,11 @@ export default function SettingsSurvey() {
                     required: !!q.required,
                 }));
                 setPreguntas(filas);
+                setVigencia({
+                    aplicariaDesde: res?.aplicariaDesde || null,
+                    pendienteDesde: res?.pendienteDesde || null,
+                    esPrimera: !!res?.esPrimera,
+                });
             })
             .catch(() => { if (!cancelado) setPreguntas([]); })
             .finally(() => { if (!cancelado) setCargando(false); });
@@ -123,7 +151,12 @@ export default function SettingsSurvey() {
             }))
         );
         setGuardando(false);
-        if (res?.success) toast.success('Encuesta guardada. Tus clientes online ya la verán.');
+        if (res?.success) {
+            toast.success(res.esPrimera
+                ? 'Encuesta guardada. Tus clientes online ya la ven.'
+                : `Guardada. Entrará en vigor el lunes ${fechaBonita(res.desde)}; esta semana siguen con la anterior.`);
+            setVigencia(v => ({ ...v, pendienteDesde: res.esPrimera ? null : res.desde, esPrimera: false }));
+        }
         else toast.error(res?.error || 'No se pudo guardar');
     };
 
@@ -144,15 +177,49 @@ export default function SettingsSurvey() {
         <div className="space-y-4">
             <SubPestanas vista={vista} setVista={setVista} />
 
+            {/* Cambio ya programado para el lunes. */}
+            {vigencia.pendienteDesde && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-4 flex gap-3">
+                    <CalendarClock size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                        <p className="font-bold text-amber-300">
+                            Cambio programado para el {fechaBonita(vigencia.pendienteDesde)}
+                        </p>
+                        <p className="text-amber-200/80 mt-0.5">
+                            Estás editando la encuesta que entrará ese lunes. Esta semana tus clientes
+                            siguen viendo la anterior, para que todos respondan lo mismo.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Recordatorio de jueves a domingo: es cuando toca prepararla. */}
+            {!vigencia.pendienteDesde && !vigencia.esPrimera && esFinDeSemanaLaboral() && (
+                <div className="rounded-xl border border-violet-500/30 bg-violet-500/[0.07] p-4 flex gap-3">
+                    <CalendarClock size={18} className="text-violet-400 shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                        <p className="font-bold text-violet-300">¿Cambias la encuesta para la semana que viene?</p>
+                        <p className="text-violet-200/80 mt-0.5">
+                            Lo que guardes ahora entrará el lunes {fechaBonita(vigencia.aplicariaDesde)}.
+                            Si no tocas nada, tus clientes seguirán con las mismas preguntas.
+                        </p>
+                    </div>
+                </div>
+            )}
+
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.06] p-4 flex gap-3">
                 <Info size={18} className="text-blue-400 shrink-0 mt-0.5" />
                 <div className="text-sm text-slate-300">
                     <p className="font-bold text-blue-300 mb-1">Encuesta semanal para clientes online</p>
                     <p className="text-slate-400">
-                        La ven <strong>solo los clientes con el horario oculto</strong> (los que no van al
-                        gimnasio), en el sitio donde los demás tienen las clases. La responden{' '}
-                        <strong>una vez por semana</strong>: al enviarla no les vuelve a aparecer hasta el
-                        lunes siguiente. Sus respuestas te salen en la ficha de cada cliente.
+                        La ven <strong>solo tus clientes online</strong>, en el sitio donde los demás tienen
+                        el horario. La responden <strong>una vez por semana</strong>: al enviarla no les
+                        vuelve a aparecer hasta el lunes. Sus respuestas están en la pestaña{' '}
+                        <strong>Respuestas</strong> y en la ficha de cada cliente.
+                        {!vigencia.esPrimera && (
+                            <> Los cambios que hagas <strong>entran en vigor el lunes</strong>, nunca a mitad
+                            de semana.</>
+                        )}
                     </p>
                 </div>
             </div>
