@@ -4,17 +4,11 @@ import { ArrowLeft, Save, Calendar, AlertTriangle, GripHorizontal, Users } from 
 import RoutineBuilder from './RoutineBuilder';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+// Vigencia por fechas (espejo de la regla de corte de saveMesocycle) y parseo
+// de fechas sin desfase UTC (nada de new Date('2026-07-01')).
+import { ymdLocal, parseIso, weekStartStr, cutDayStr, itemAppliesOn } from './vigencia';
 
 // ── Helpers de semanas completas (lunes → domingo) ──────────────────────
-// Parseo/format sin desfase UTC (nada de new Date('2026-07-01')).
-function pad2(n) { return String(n).padStart(2, '0'); }
-function ymdLocal(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
-function parseIso(iso) {
-  if (!iso) return null;
-  const [y, m, d] = iso.split('T')[0].split('-').map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d);
-}
 // Lunes de la semana en curso si hoy es lunes; si no, el próximo lunes.
 function nextMonday(from) {
   const d = from ? new Date(from) : new Date();
@@ -167,21 +161,14 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
 
     const [editWeek, setEditWeek] = useState(1);
 
-    // Primer día de la semana w del programa.
-    const weekStartStr = (w, startIso) => {
-        const d = parseIso(startIso);
-        if (!d) return null;
-        d.setDate(d.getDate() + (w - 1) * 7);
-        return ymdLocal(d);
-    };
-
-    const itemAppliesOn = (i, day) =>
-        !day ||
-        ((!i.effective_from || i.effective_from <= day) &&
-         (!i.effective_to || i.effective_to >= day));
-
+    // La vista de la semana w enseña lo VIGENTE el día en que entrarían los
+    // cambios al guardar esa semana (cutDayStr), no su primer día. A mitad de
+    // la semana en curso son días distintos: el backend empuja el corte a hoy
+    // (lo ya entrenado no se reescribe), así que lo recién añadido entra hoy y
+    // lo recién quitado se cerró ayer. Mirando el lunes no se vería ni lo uno
+    // ni lo otro y parecería que no se ha guardado nada.
     const buildDays = (routines, w, startIso) => {
-        const day = weekStartStr(w, startIso);
+        const day = cutDayStr(w, startIso);
         return (routines && routines.length > 0)
             ? routines.map(r => ({
                 id: r.id || Date.now() + Math.random(),
@@ -197,6 +184,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     const [days, setDays] = useState(() =>
         buildDays(initialData?.routines, 1, initialData?.start_date)
     );
+    // Día para el que se construyó la vista actual (el que usa buildDays). Se
+    // manda al guardar para que el backend detecte una vista desfasada (editor
+    // abierto desde ayer, por ejemplo) y no pise cambios que no se han visto.
+    const [viewDay, setViewDay] = useState(() => cutDayStr(1, initialData?.start_date));
     const [currentDayId, setCurrentDayId] = useState(days[0].id);
     const [daysPerWeek, setDaysPerWeek] = useState(initialData?.days_per_week || days.length);
 
@@ -235,6 +226,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
         if (initialData?.id && !isTemplate && startDate) {
             const w = planFuturo ? 1 : weekNow;
             setEditWeek(w);
+            setViewDay(cutDayStr(w, startDate));
             setDays(buildDays(initialData?.routines, w, startDate));
         }
         // Solo al abrir el editor.
@@ -247,9 +239,16 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     const primeraEditable = planFuturo ? 1 : weekNow;
     // Un programa terminado no se toca: no hay ninguna semana por delante.
     const soloLectura = planTerminado;
+    // Programa guardado y ya en marcha: tiene semanas entrenadas que proteger.
+    const planEnMarcha = !isTemplate && !!initialData?.id && !!startDate && !planFuturo;
+    // Fecha real desde la que entra lo que se guarde ahora (misma regla que el
+    // backend) y si cae a mitad de la semana editada (semana en curso).
+    const desdeStr = cutDayStr(editWeek, startDate);
+    const aMitadDeSemana = !!desdeStr && desdeStr !== weekStartStr(editWeek, startDate);
 
     const applyEditWeek = (w) => {
         setEditWeek(w);
+        setViewDay(cutDayStr(w, startDate));
         const next = buildDays(initialData?.routines, w, startDate);
         setDays(next);
         if (!next.some(d => d.id === currentDayId)) setCurrentDayId(next[0].id);
@@ -443,6 +442,11 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 // hayan quitado (sin borrarlos, para no perder el historial) y
                 // hace empezar en esa fecha los añadidos.
                 editWeek,
+                // Día para el que se construyó la vista de la que sale este
+                // payload. Si el backend ve que entre ese día y el corte real
+                // cambió lo vigente, rechaza el guardado en vez de deshacer
+                // cambios que aquí no se han visto.
+                viewDay,
                 // Pass `id` for each day. For days loaded from the DB this is
                 // the real routine id (integer assigned by SQLite); for days
                 // added fresh in the editor it's a Date.now() float that won't
@@ -992,6 +996,8 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                     {Array.from({ length: weeks }, (_, i) => i + 1).map(w => {
                                         const esActual = w === weekNow;
                                         const pasada = w < primeraEditable || soloLectura;
+                                        const inicioSemana = weekStartStr(w, startDate);
+                                        const corte = cutDayStr(w, startDate);
                                         return (
                                             <button
                                                 key={w}
@@ -999,8 +1005,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                                 disabled={pasada}
                                                 onClick={() => switchEditWeek(w)}
                                                 title={pasada
-                                                    ? `Semana ya entrenada (${weekStartStr(w, startDate)}) — no se puede modificar`
-                                                    : `Empieza el ${weekStartStr(w, startDate)}`}
+                                                    ? `Semana ya entrenada (${inicioSemana}) — no se puede modificar`
+                                                    : corte !== inicioSemana
+                                                        ? `En curso desde el ${inicioSemana} — los cambios entran hoy (${corte})`
+                                                        : `Empieza el ${inicioSemana}`}
                                                 className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${pasada
                                                     ? 'bg-slate-900/60 text-slate-600 border-white/5 cursor-not-allowed line-through'
                                                     : editWeek === w
@@ -1020,10 +1028,17 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                 <p className="mt-2 text-[11px] text-slate-400">
                                     {planFuturo ? (
                                         <>El programa aún no ha empezado (arranca el <span className="text-slate-200 font-semibold">{startDate}</span>), así que no hay nada entrenado: los cambios afectan a todo el plan.</>
-                                    ) : editWeek === 1 ? (
-                                        <>Los cambios afectan al <span className="text-slate-200 font-semibold">programa completo</span>, desde el principio. Si ya se ha entrenado, lo que quites dejará de verse en todas las semanas (sus pesos no se borran).</>
                                     ) : (
-                                        <>Los cambios se aplican <span className="text-amber-300 font-semibold">a partir del {weekStartStr(editWeek, startDate)}</span> (semana {editWeek}). Las semanas 1{editWeek > 2 ? `–${editWeek - 1}` : ''}, ya entrenadas, no se tocan.</>
+                                        <>
+                                            Los cambios se aplican <span className="text-amber-300 font-semibold">a partir del {desdeStr}</span>
+                                            {editWeek > 1
+                                                ? <> (semana {editWeek}). Las semanas 1{editWeek > 2 ? `–${editWeek - 1}` : ''}, ya entrenadas, no se tocan.</>
+                                                : <> (semana 1).</>}
+                                            {aMitadDeSemana && (
+                                                <> La semana {editWeek} ya está empezada: lo entrenado antes de hoy se conserva tal cual.</>
+                                            )}
+                                            {' '}Lo que quites seguirá visible (con sus pesos) en lo ya entrenado.
+                                        </>
                                     )}
                                     {planTerminado && (
                                         <> <span className="text-orange-300">Ojo: este programa ya terminó el {endDate}.</span></>
@@ -1063,6 +1078,23 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
+                                                // Con el programa en marcha el backend NO borra días
+                                                // (se llevaría el historial del cliente): el día
+                                                // volvería a aparecer al reabrir y parecería que no
+                                                // se guardó. Mejor decirlo aquí y ofrecer la
+                                                // alternativa real: retirar sus ejercicios.
+                                                if (planEnMarcha) {
+                                                    setConfirmModal({
+                                                        isOpen: true,
+                                                        title: 'No se puede quitar el día',
+                                                        type: 'warning',
+                                                        confirmText: 'Entendido',
+                                                        showCancel: false,
+                                                        children: `El programa ya está en marcha y "${day.name}" tiene semanas entrenadas: quitarlo se llevaría su historial. Quita sus ejercicios en su lugar; se retirarán a partir del ${desdeStr} sin borrar lo ya hecho.`,
+                                                        onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false })),
+                                                    });
+                                                    return;
+                                                }
                                                 setConfirmModal({
                                                     isOpen: true,
                                                     title: 'Eliminar Día',
@@ -1152,6 +1184,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 onConfirm={confirmModal.onConfirm}
                 type={confirmModal.type}
                 confirmText={confirmModal.confirmText || 'Confirmar'}
+                showCancel={confirmModal.showCancel !== false}
             >
                 {confirmModal.children}
             </ConfirmationModal>

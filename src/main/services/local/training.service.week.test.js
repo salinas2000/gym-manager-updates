@@ -249,3 +249,82 @@ describe('saveMesocycle — vigencia por fechas', () => {
         expect(items.find((i) => i.exercise_id === 12).effective_from).toBe(HOY);
     });
 });
+
+describe('saveMesocycle — vista desfasada (el payload solo vale para el dia en que se construyo)', () => {
+    // Plan de 4 semanas que empezo hace 16 dias: la semana 3 empezo ANTEAYER.
+    // Hoy estamos a mitad de semana, asi que el corte real se empuja a hoy,
+    // mientras que un cliente anterior a 2.3.12 sigue mirando el primer dia de
+    // la semana. Es exactamente el caso de Ivan Fernandez del 2026-09-08.
+    const START_A_MITAD = shift(-16);
+    const FIN_A_MITAD = shift(11);
+
+    // Primer cambio de la semana: se quita Press (10) y entra Fondos (12).
+    // Sin nada fechado todavia, lo vigente el primer dia y hoy coincide, asi
+    // que entra igual venga de un cliente nuevo (viewDay) o antiguo (sin el).
+    const sustituirHoy = (plan, viewDay) => save({
+        id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3, viewDay,
+        routines: [{ id: plan.routineId, name: 'Día 1',
+            items: [{ id: plan.remo, exerciseId: 11 }, { exerciseId: 12 }] }],
+    });
+
+    test('un cliente antiguo (mira el primer dia de la semana) no puede pisar lo guardado hoy', () => {
+        const plan = seedPlan(START_A_MITAD, FIN_A_MITAD);
+        sustituirHoy(plan, undefined);               // cliente antiguo: sin viewDay
+        const antes = itemsOf(plan.routineId);
+        expect(antes.find((i) => i.id === plan.press).effective_to).toBe(AYER);
+        expect(antes.find((i) => i.exercise_id === 12).effective_from).toBe(HOY);
+
+        // Reabre: su vista (primer dia de la semana) aun ensena Press y no ve
+        // Fondos. Reguarda "sin cambios" desde esa vista. Sin la guardia esto
+        // cerraria Fondos y reinsertaria Press: desharia el cambio en silencio.
+        expect(() => save({
+            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3,
+            routines: [{ id: plan.routineId, name: 'Día 1',
+                items: [{ id: plan.press, exerciseId: 10 }, { id: plan.remo, exerciseId: 11 }] }],
+        })).toThrow(/vuelve a abrir/);
+
+        // La transaccion se deshace entera: nada cambia.
+        expect(itemsOf(plan.routineId)).toEqual(antes);
+        expect(deletedItems()).toHaveLength(0);
+    });
+
+    test('el cliente nuevo manda el dia de su vista (hoy) y reguarda sin cambios', () => {
+        const plan = seedPlan(START_A_MITAD, FIN_A_MITAD);
+        sustituirHoy(plan, HOY);
+        const antes = itemsOf(plan.routineId);
+        const fondos = antes.find((i) => i.exercise_id === 12);
+
+        // Reabre con la vista correcta (ve Remo y Fondos) y reguarda igual.
+        save({
+            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3, viewDay: HOY,
+            routines: [{ id: plan.routineId, name: 'Día 1',
+                items: [{ id: plan.remo, exerciseId: 11 }, { id: fondos.id, exerciseId: 12 }] }],
+        });
+
+        expect(itemsOf(plan.routineId)).toEqual(antes);
+        expect(deletedItems()).toHaveLength(0);
+    });
+
+    test('editor abierto desde ayer: si entre medias entro algo, se pide reabrir', () => {
+        const plan = seedPlan(START_A_MITAD, FIN_A_MITAD);
+        sustituirHoy(plan, HOY);
+        // Vista construida ayer: aun veia Press y no veia Fondos.
+        expect(() => save({
+            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3, viewDay: AYER,
+            routines: [{ id: plan.routineId, name: 'Día 1',
+                items: [{ id: plan.press, exerciseId: 10 }, { id: plan.remo, exerciseId: 11 }] }],
+        })).toThrow(/vuelve a abrir/);
+    });
+
+    test('el primer cambio de la semana entra aunque venga de un cliente antiguo', () => {
+        const plan = seedPlan(START_A_MITAD, FIN_A_MITAD);
+        // Nada fechado: lo vigente el primer dia de la semana y hoy es lo mismo,
+        // asi que no hay vista que pueda estar desfasada.
+        expect(() => save({
+            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3,
+            routines: [{ id: plan.routineId, name: 'Día 1',
+                items: [{ id: plan.remo, exerciseId: 11 }] }],
+        })).not.toThrow();
+        expect(itemsOf(plan.routineId).find((i) => i.id === plan.press).effective_to).toBe(AYER);
+    });
+});

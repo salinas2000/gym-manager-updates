@@ -53,7 +53,12 @@ const mesocycleSchema = z.object({
     // Con editWeek > 1, quitar un ejercicio no lo borra: lo cierra en la semana
     // anterior, y los que se añaden empiezan en esa semana. Así sustituir un
     // ejercicio a mitad de programa no reescribe ni destruye lo ya entrenado.
-    editWeek: z.number().int().min(1).optional()
+    editWeek: z.number().int().min(1).optional(),
+    // Día (YYYY-MM-DD) para el que el cliente construyó la vista que el
+    // entrenador ha estado editando. Permite detectar una vista desfasada
+    // (cliente anterior a 2.3.12, editor abierto desde ayer) y no pisar lo
+    // guardado después. Los clientes anteriores a 2.3.12 no lo mandan.
+    viewDay: z.string().optional().nullable()
 });
 
 class TrainingService extends BaseService {
@@ -559,7 +564,8 @@ class TrainingService extends BaseService {
             routines: data.routines,
             // Semana editada. Sin ella la reconciliación por semanas no se
             // activaría nunca (quedaría siempre en 1 = programa completo).
-            editWeek: data.editWeek
+            editWeek: data.editWeek,
+            viewDay: data.viewDay
         };
 
         const isTemplate = normalizedData.isTemplate;
@@ -673,8 +679,11 @@ class TrainingService extends BaseService {
          *        se edita el plan completo (no hay pasado que preservar).
          * @param {string|null} mesoStartDate Inicio del programa, para poder
          *        fechar el cierre cuando se edita el plan completo.
+         * @param {string|null} viewDay Día para el que el cliente construyó la
+         *        vista de la que sale el payload. Si difiere del corte y entre
+         *        ambos días cambia lo vigente, el payload no es fiable.
          */
-        const reconcileItems = (routineId, payloadItems, cutFrom = null, mesoStartDate = null) => {
+        const reconcileItems = (routineId, payloadItems, cutFrom = null, mesoStartDate = null, viewDay = null) => {
             const allExisting = getExistingItems.all(routineId);
             // Editando una semana concreta solo se reconcilia contra lo VIGENTE
             // ese día; lo de otras fechas ni se toca ni se retira.
@@ -684,6 +693,30 @@ class TrainingService extends BaseService {
             const inScope = cutFrom
                 ? allExisting.filter(i => appliesOn(i, cutFrom))
                 : allExisting;
+
+            // GUARDIA CONTRA VISTA DESFASADA. El payload es "lo que el entrenador
+            // ha visto y ha dejado". Si su vista se construyó para un día
+            // distinto del corte (cliente anterior a 2.3.12, que mira el primer
+            // día de la semana aunque el corte sea hoy; editor abierto desde
+            // ayer) y entre ambos días cambia lo vigente, reconciliar sería
+            // tomar por decisiones suyas cosas que ni ha visto: cerraría lo
+            // añadido hoy y reinsertaría lo retirado, deshaciendo el cambio en
+            // silencio. Antes que eso, se rechaza el guardado con un aviso claro.
+            // Solo se rechaza si de verdad hay diferencia: el primer cambio de
+            // la semana (nada fechado aún) entra igual desde cualquier cliente.
+            if (cutFrom && viewDay && viewDay !== cutFrom) {
+                const firma = (rows) => rows.map(i => i.id).sort((a, b) => a - b).join(',');
+                const vistos = allExisting.filter(i => appliesOn(i, viewDay));
+                if (firma(vistos) !== firma(inScope)) {
+                    throw new Error(
+                        'Este programa tiene cambios posteriores a la vista que estás editando ' +
+                        `(ejercicios que entran o salen entre el ${viewDay} y el ${cutFrom}). ` +
+                        'Cierra y vuelve a abrir el programa para verlos antes de guardar. ' +
+                        'Si el aviso se repite, actualiza la aplicación.'
+                    );
+                }
+            }
+
             const existingItemIds = new Set(inScope.map(i => i.id));
             const keptItemIds = new Set();
 
@@ -808,6 +841,12 @@ class TrainingService extends BaseService {
             const cutSafe = (cutFrom && cutFrom < hoyStr && mesoData.startDate && mesoData.startDate < hoyStr)
                 ? hoyStr
                 : cutFrom;
+            // Día para el que el cliente construyó su vista. Un cliente anterior
+            // a 2.3.12 no lo manda: su vista era el primer día de la semana SIN
+            // empujar a hoy (por eso a mitad de semana veía el programa viejo).
+            const viewDay = (typeof mesoData.viewDay === 'string' && /^\d{4}-\d{2}-\d{2}/.test(mesoData.viewDay))
+                ? mesoData.viewDay.slice(0, 10)
+                : cutFrom;
             // Eliminar un DIA entero se lleva por delante todo su historial, asi
             // que solo se permite mientras el programa no haya empezado: ahi no
             // hay nada entrenado que perder. Una vez en marcha, los ejercicios se
@@ -873,7 +912,7 @@ class TrainingService extends BaseService {
                         keptRoutineIds.add(routineId);
                         // Reconcile items in place — preserves item local_ids
                         // so customer_workout_logs stay attached to their slots.
-                        reconcileItems(routineId, routine.items, cutSafe, mesoData.startDate);
+                        reconcileItems(routineId, routine.items, cutSafe, mesoData.startDate, viewDay);
                     } else {
                         console.log('[saveMesocycle v2.2.0] INSERT new routine (payload id=', routine.id, 'not in existing set)');
                         // INSERT a new routine row
