@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy, Lock, DoorOpen } from 'lucide-react';
+import { Users, Settings, Globe, LayoutDashboard, Cloud, Dumbbell, Clock, CreditCard, Palette, ListTodo, Package, CalendarDays, UserCog, HelpCircle, Trophy, Lock, DoorOpen, Wifi } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useGym } from '../context/GymContext';
 import NotificationBell from './ui/NotificationBell';
@@ -156,6 +156,14 @@ export default function Layout({ children, currentView, onNavigate }) {
                             onClick={() => onNavigate('trainers')}
                             color="text-blue-400"
                             locked={!has('trainers')}
+                        />
+                        <SidebarItem
+                            icon={Wifi}
+                            label="Online"
+                            active={currentView === 'online'}
+                            onClick={() => onNavigate('online')}
+                            color="text-violet-400"
+                            locked={!has('mobile_app')}
                         />
                         <SidebarItem
                             icon={Package}

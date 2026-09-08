@@ -28,6 +28,8 @@ import ClassManager from './features/classes/ClassManager';
 import TrainerManager from './features/trainers/TrainerManager';
 import HelpPage from './features/help/HelpPage';
 import RmReviewPage from './features/rm/RmReviewPage';
+import OnlinePage from './features/online/OnlinePage';
+import AvisoEncuesta from './features/online/AvisoEncuesta';
 // TrainerAccessPage moved inside TrainerManager as a tab (cleaner UX, less sidebar clutter).
 
 function Dashboard() {
@@ -54,6 +56,8 @@ function Dashboard() {
                 return <ModuleGuard module="inventory"><InventoryPage /></ModuleGuard>;
             case 'classes':
                 return <ModuleGuard module="classes"><ClassManager /></ModuleGuard>;
+            case 'online':
+                return <ModuleGuard module="mobile_app"><OnlinePage /></ModuleGuard>;
             case 'trainers':
                 return <ModuleGuard module="trainers"><TrainerManager /></ModuleGuard>;
             case 'finance':
@@ -93,6 +97,7 @@ function Dashboard() {
             </ErrorBoundary>
             <ToastContainer />
             <NotificationCenter onNavigate={handleNavigate} />
+            <AvisoEncuesta onNavigate={handleNavigate} />
         </Layout>
     );
 }

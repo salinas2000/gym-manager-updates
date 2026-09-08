@@ -860,6 +860,16 @@ class DBManager {
         // superset_rounds: nº de veces (rondas) que se repite la superserie.
         // Igual para todos los ejercicios del mismo grupo. NULL = no aplica.
         this.safeAddColumn('routine_items', 'superset_rounds', 'INTEGER');
+        // Vigencia por FECHAS de cada ejercicio de una rutina. Permite sustituir
+        // un ejercicio a partir de una semana sin reescribir el pasado: el hueco
+        // antiguo se cierra el dia anterior al cambio y nace uno nuevo desde ese
+        // dia. Como los registros de entrenamiento cuelgan de su routine_item_id,
+        // el historico de lo ya entrenado queda intacto.
+        // Se guardan fechas y no numeros de semana porque la semana se deriva de
+        // start_date/end_date: si cambian las fechas del plan, un corte por
+        // numero de semana se desplazaria solo.
+        this.safeAddColumn('routine_items', 'effective_from', 'TEXT');
+        this.safeAddColumn('routine_items', 'effective_to', 'TEXT');
 
         // 20b4. Multi-gym migration for exercise_field_config.
         // MUST run BEFORE the catalog seed (21a) so the ON CONFLICT clause

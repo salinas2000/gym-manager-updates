@@ -881,6 +881,25 @@ function registerHandlers() {
         require('../services/cloud/cloud.service').getCustomerWorkoutLogs(gymId, customerId)
     );
     // RM records (client-submitted, trainer-approved)
+    // Encuesta semanal: preguntas (escritorio) y respuestas (movil).
+    handle('cloud:getSurveyQuestions', ({ gymId }) =>
+        require('../services/cloud/cloud.service').getSurveyQuestions(gymId)
+    );
+    handle('cloud:saveSurveyQuestions', ({ gymId, questions, templateName }) =>
+        require('../services/cloud/cloud.service').saveSurveyQuestions(gymId, questions, templateName)
+    );
+    handle('cloud:getSurveyTemplates', ({ gymId }) =>
+        require('../services/cloud/cloud.service').getSurveyTemplates(gymId)
+    );
+    handle('cloud:saveSurveyTemplate', ({ gymId, name, questions, localId }) =>
+        require('../services/cloud/cloud.service').saveSurveyTemplate(gymId, name, questions, localId)
+    );
+    handle('cloud:deleteSurveyTemplate', ({ gymId, localId }) =>
+        require('../services/cloud/cloud.service').deleteSurveyTemplate(gymId, localId)
+    );
+    handle('cloud:getSurveyAnswers', ({ gymId, customerLocalId, limit }) =>
+        require('../services/cloud/cloud.service').getSurveyAnswers(gymId, customerLocalId, limit)
+    );
     handle('cloud:getRmRecords', ({ gymId, status }) =>
         require('../services/cloud/cloud.service').getRmRecords(gymId, status)
     );

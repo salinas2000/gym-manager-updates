@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Bell, Info, AlertCircle, Download, CheckCircle, RefreshCw, Cloud, ShieldCheck, Trash2 } from 'lucide-react';
+import { X, Bell, Info, AlertCircle, Download, CheckCircle, RefreshCw, Cloud, ShieldCheck, Trash2, ArrowRight } from 'lucide-react';
 import { useNotifications } from '../../context/NotificationContext';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -101,12 +101,17 @@ export default function NotificationCenter({ onNavigate }) {
 
                                         {/* Action Buttons */}
                                         <div className="flex gap-2">
-                                            {notif.type === 'update' && !notif.readyToInstall && !notif.progress && (
+                                            {/* Solo el actualizador manda a descargar, y solo si trae
+                                                version. El tipo 'update' lo usan tambien avisos que no
+                                                tienen nada que descargar (cargas remotas, datasets,
+                                                resincronizar, encuesta): sin este filtro les salia un
+                                                boton "Descargar v" que lanzaba una descarga fantasma. */}
+                                            {notif.type === 'update' && notif.info?.version && !notif.readyToInstall && !notif.progress && (
                                                 <button
                                                     onClick={() => handleUpdateAction('download')}
                                                     className="text-[10px] items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-500 transition-colors inline-flex"
                                                 >
-                                                    <Download size={12} /> Descargar v{notif.info?.version}
+                                                    <Download size={12} /> Descargar v{notif.info.version}
                                                 </button>
                                             )}
                                             {notif.readyToInstall && (
@@ -138,7 +143,9 @@ export default function NotificationCenter({ onNavigate }) {
                                                     }}
                                                     className="text-[10px] items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-500 transition-colors inline-flex"
                                                 >
-                                                    {notif.loading ? <RefreshCw size={12} className="animate-spin" /> : <Download size={12} />}
+                                                    {notif.loading ? <RefreshCw size={12} className="animate-spin" />
+                                                        : notif.info?.version ? <Download size={12} />
+                                                            : <ArrowRight size={12} />}
                                                     {notif.actionLabel || 'Confirmar'}
                                                 </button>
                                             )}

@@ -338,6 +338,7 @@ export default function SettingsPage({ initialTab = 'general' }) {
 
             {/* TAB CONTENT: SCREENS */}
             {activeTab === 'screens' && <SettingsScreens />}
+            
 
             {/* TAB CONTENT: LICENSE */}
             {activeTab === 'license' && (

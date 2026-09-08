@@ -1083,6 +1083,203 @@ class CloudService {
         return { success: true, data };
     }
 
+    // ── Encuesta semanal ────────────────────────────────────────────────
+    // Preguntas y respuestas viven SOLO en la nube (como las marcas RM): no
+    // se sincronizan a la base local ni hacen falta tablas nuevas aqui.
+
+    /** Lunes de la semana de `d`, como 'YYYY-MM-DD' en hora local. */
+    _lunesDe(d = new Date()) {
+        const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const dia = x.getDay();                 // 0 = domingo
+        x.setDate(x.getDate() - (dia === 0 ? 6 : dia - 1));
+        return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    }
+
+    /** Lunes de la semana que viene. */
+    _lunesProximo() {
+        const x = new Date();
+        x.setDate(x.getDate() + 7);
+        return this._lunesDe(x);
+    }
+
+    /**
+     * Preguntas de la encuesta.
+     *
+     * Devuelve el juego VIGENTE esta semana y, si lo hay, el que entrara el
+     * lunes que viene (pendiente), para que el escritorio pueda enseñar ambos.
+     */
+    async getSurveyQuestions(gymId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.select('gym_survey_questions', {
+            gymId: resolvedGymId,
+            order: 'order_index',
+            ascending: true,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        const filas = res.data || res.rows || [];
+
+        const estaSemana = this._lunesDe();
+        const vigencias = [...new Set(filas.map(r => String(r.effective_from || '2000-01-01').slice(0, 10)))].sort();
+        // El juego en vigor es el mas reciente cuya fecha ya ha llegado.
+        const vigente = vigencias.filter(v => v <= estaSemana).pop() || null;
+        // Lo que este por delante es el cambio que aun no ha entrado.
+        const pendiente = vigencias.filter(v => v > estaSemana).pop() || null;
+
+        const de = (v) => filas
+            .filter(r => String(r.effective_from || '2000-01-01').slice(0, 10) === v)
+            .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+
+        return {
+            success: true,
+            // Lo que se edita es el ultimo juego: el pendiente si lo hay, si no el vigente.
+            data: pendiente ? de(pendiente) : (vigente ? de(vigente) : []),
+            vigente: vigente ? de(vigente) : [],
+            vigenteDesde: vigente,
+            vigenteNombre: vigente ? (de(vigente)[0]?.template_name || null) : null,
+            pendienteNombre: pendiente ? (de(pendiente)[0]?.template_name || null) : null,
+            pendienteDesde: pendiente,
+            // Si aun no hay ninguna encuesta, la primera entra YA: no tiene
+            // sentido que el entrenador la escriba y no sirva hasta el lunes.
+            esPrimera: vigente === null && pendiente === null,
+            aplicariaDesde: (vigente === null && pendiente === null) ? estaSemana : this._lunesProximo(),
+        };
+    }
+
+    /**
+     * Guarda la lista completa de preguntas: sube las que quedan y borra las
+     * que el entrenador haya quitado.
+     *
+     * Las preguntas NO se borran de verdad si ya se han respondido alguna vez:
+     * cada respuesta guarda su propio question_snapshot, asi que el historial
+     * se sigue entendiendo aunque aqui desaparezcan.
+     */
+    async saveSurveyQuestions(gymId, questions, templateName) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        if (!Array.isArray(questions)) return { success: false, error: 'Preguntas invalidas' };
+        const ownerData = require('./owner-data.client');
+
+        // ¿Desde cuando aplica? La primera encuesta entra ya; cualquier cambio
+        // posterior entra el lunes. Asi nadie responde media semana una version
+        // y media otra: todos los de una misma semana ven lo mismo.
+        const previas = await this.getSurveyQuestions(resolvedGymId);
+        const desde = previas.esPrimera ? this._lunesDe() : this._lunesProximo();
+
+        const rows = questions.map((q, i) => ({
+            local_id: Number(q.local_id) || (Date.now() + i),
+            effective_from: desde,
+            template_name: String(templateName || '').trim() || null,
+            order_index: i,
+            label: String(q.label || '').trim(),
+            type: q.type || 'text',
+            options: Array.isArray(q.options) && q.options.length ? q.options : null,
+            required: q.required ? 1 : 0,
+            active: 1,
+            updated_at: new Date().toISOString(),
+        })).filter(r => r.label !== '');
+
+        // Se reemplaza por completo el juego de ESA fecha (si vuelve a editar
+        // antes del lunes, sustituye el pendiente en vez de acumularse). Los
+        // juegos de semanas anteriores NO se tocan: son el historial que da
+        // sentido a las respuestas ya enviadas.
+        await ownerData.deleteMatch('gym_survey_questions', {
+            gymId: resolvedGymId, match: { effective_from: desde },
+        });
+
+        if (rows.length === 0) return { success: true, count: 0, desde };
+        const res = await ownerData.upsert('gym_survey_questions', rows, {
+            gymId: resolvedGymId, onConflict: 'gym_id,effective_from,local_id',
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error' };
+        return { success: true, count: rows.length, desde, esPrimera: previas.esPrimera };
+    }
+
+    /** Respuestas de un cliente, de la mas reciente a la mas antigua. */
+    async getSurveyAnswers(gymId, customerLocalId, limit = 20) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.select('customer_survey_answers', {
+            gymId: resolvedGymId,
+            filters: customerLocalId ? { customer_local_id: customerLocalId } : undefined,
+            order: 'week_start',
+            ascending: false,
+            limit,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        const rows = res.data || res.rows || [];
+
+        // Sin cliente concreto se piden TODAS las respuestas del gimnasio, asi
+        // que hace falta el nombre para poder leerlas. Se resuelve desde la base
+        // local, igual que en las marcas RM.
+        if (!customerLocalId) {
+            let nombrePorId = new Map();
+            try {
+                const db = dbManager.getInstance();
+                const clientes = db
+                    .prepare('SELECT id, first_name, last_name FROM customers WHERE gym_id = ?')
+                    .all(resolvedGymId);
+                nombrePorId = new Map(clientes.map(c => [c.id, `${c.first_name} ${c.last_name}`.trim()]));
+            } catch (_) { /* sin base local: se muestra el identificador */ }
+            return {
+                success: true,
+                data: rows.map(r => ({
+                    ...r,
+                    customer_name: nombrePorId.get(r.customer_local_id) || `Cliente #${r.customer_local_id}`,
+                })),
+            };
+        }
+        return { success: true, data: rows };
+    }
+
+    // ── Plantillas de encuesta ──────────────────────────────────────────
+    // Encuestas guardadas con nombre, para tenerlas precreadas y cargar la
+    // que toque. Solo las usa el escritorio; el cliente nunca las ve.
+
+    async getSurveyTemplates(gymId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto', data: [] };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.select('gym_survey_templates', {
+            gymId: resolvedGymId, order: 'updated_at', ascending: false,
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error', data: [] };
+        return { success: true, data: res.data || res.rows || [] };
+    }
+
+    /** Guarda (o renombra) una plantilla. Sin localId, crea una nueva. */
+    async saveSurveyTemplate(gymId, name, questions, localId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        const nombre = String(name || '').trim();
+        if (!nombre) return { success: false, error: 'La plantilla necesita un nombre' };
+        if (!Array.isArray(questions) || questions.length === 0) {
+            return { success: false, error: 'La plantilla no tiene preguntas' };
+        }
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.upsert('gym_survey_templates', [{
+            local_id: Number(localId) || Date.now(),
+            name: nombre,
+            questions,
+            updated_at: new Date().toISOString(),
+        }], { gymId: resolvedGymId, onConflict: 'gym_id,local_id' });
+        if (!res?.success) return { success: false, error: res?.error || 'Error' };
+        return { success: true };
+    }
+
+    async deleteSurveyTemplate(gymId, localId) {
+        const resolvedGymId = this._resolveGymId(gymId);
+        if (!resolvedGymId) return { success: false, error: 'Gym ID no resuelto' };
+        const ownerData = require('./owner-data.client');
+        const res = await ownerData.deleteMatch('gym_survey_templates', {
+            gymId: resolvedGymId, match: { local_id: localId },
+        });
+        if (!res?.success) return { success: false, error: res?.error || 'Error' };
+        return { success: true };
+    }
+
     /** Accept or reject an RM record (status: 'accepted' | 'rejected'). */
     async reviewRmRecord(id, status) {
         if (!id || !['accepted', 'rejected'].includes(status)) {

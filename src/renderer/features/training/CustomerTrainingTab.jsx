@@ -4,6 +4,7 @@ import { Calendar, ChevronRight, Plus, AlertCircle, CheckCircle, Clock, Trash2, 
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useGym } from '../../context/GymContext';
 import CustomerProgress from './CustomerProgress';
+import CustomerSurvey from './CustomerSurvey';
 
 export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSelectMesocycle, readOnly = false }) {
 
@@ -141,7 +142,7 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
         <div className="flex flex-col h-full relative">
             {/* Pestañas: Tablas / Progreso */}
             <div className="mb-4 flex gap-1 border-b border-white/10">
-                {[['tablas', 'Tablas'], ['progreso', 'Progreso']].map(([v, label]) => (
+                {[['tablas', 'Tablas'], ['progreso', 'Progreso'], ['encuesta', 'Encuesta']].map(([v, label]) => (
                     <button
                         key={v}
                         onClick={() => setView(v)}
@@ -152,7 +153,11 @@ export default function CustomerTrainingTab({ customerId, onNewMesocycle, onSele
                 ))}
             </div>
 
-            {view === 'progreso' ? (
+            {view === 'encuesta' ? (
+                <div className="flex-1 overflow-y-auto pr-2">
+                    <CustomerSurvey customerId={customerId} />
+                </div>
+            ) : view === 'progreso' ? (
                 <div className="flex-1 overflow-y-auto pr-2">
                     <CustomerProgress customerId={customerId} />
                 </div>
