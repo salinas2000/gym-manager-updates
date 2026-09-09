@@ -110,15 +110,13 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 primerEntreno: nube?.primerEntreno || null,
                 ultimoEntreno: nube?.ultimoEntreno || null,
             };
-            // 1) Cerrar el actual la víspera, conservando su contenido y su historial.
-            const cierre = await window.api.training.saveMesocycle({
-                ...comunes, id: initialData.id, name, startDate, endDate: vispera,
-                viewDay, daysPerWeek: days.length,
-                routines: days.map((d, i) => ({ id: d.id, name: d.name, dayGroup: i, items: d.items })),
-            });
-            if (!(cierre?.success || cierre?.id)) throw new Error(cierre?.error || 'No se pudo cerrar el programa actual');
+            // ORDEN IMPORTANTE: primero se CREA el nuevo y después se cierra el
+            // viejo. Son dos guardados y no hay forma de hacerlos atómicos, así
+            // que si falla el segundo hay que quedarse en el mal menor: dos
+            // programas solapados (recuperable, y el solape está permitido) en
+            // vez de un programa cerrado y ningún sustituto.
 
-            // 2) Crear el siguiente con el mismo contenido, pero filas nuevas:
+            // 1) Crear el siguiente con el mismo contenido, pero filas nuevas:
             //    sin ids, para que nazca independiente del anterior.
             const nuevo = await window.api.training.saveMesocycle({
                 ...comunes, verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [],
@@ -139,6 +137,21 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 })),
             });
             if (!(nuevo?.success || nuevo?.id)) throw new Error(nuevo?.error || 'No se pudo crear el programa nuevo');
+
+            // 2) Cerrar el actual la víspera, conservando su contenido y su historial.
+            const cierre = await window.api.training.saveMesocycle({
+                ...comunes, id: initialData.id, name, startDate, endDate: vispera,
+                viewDay, daysPerWeek: days.length,
+                routines: days.map((d, i) => ({ id: d.id, name: d.name, dayGroup: i, items: d.items })),
+            });
+            if (!(cierre?.success || cierre?.id)) {
+                // El nuevo ya existe: se avisa de lo único que falta, en vez de
+                // dejarlo a medias en silencio.
+                setCrearSiguiente(false);
+                setError(`Se creó el programa nuevo, pero no se pudo cerrar el anterior: ${cierre?.error || 'error desconocido'}. Ponle tú la fecha de fin del ${vispera}.`);
+                setIsSaving(false);
+                return;
+            }
 
             setCrearSiguiente(false);
             onSave();
