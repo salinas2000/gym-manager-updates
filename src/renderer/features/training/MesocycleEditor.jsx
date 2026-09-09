@@ -476,6 +476,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 const errorMsg = result.error || 'Error desconocido';
                 if (errorMsg.includes('solapan') || errorMsg.includes('overlap')) {
                     setError('⚠️ Las fechas se solapan con otro mesociclo activo. Por favor, ajusta las fechas de inicio y fin para que no coincidan con otro plan activo.');
+                } else if (errorMsg.includes('vuelve a abrir')) {
+                    // Vista desfasada: no es un fallo, es el guardián. No se ha
+                    // tocado nada, así que se dice qué hacer sin alarmar.
+                    setError('⚠️ ' + errorMsg + ' No se ha modificado nada.');
                 } else {
                     setError('Error al guardar: ' + errorMsg);
                 }
@@ -958,6 +962,25 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                 </div>
                             )}
 
+                            {/* Las fechas de un programa en marcha no son un dato
+                                cualquiera: de ellas salen las semanas, y los cambios
+                                hechos "a partir de la semana N" están anclados a
+                                fechas reales. Moverlas no borra nada, pero recoloca
+                                las semanas bajo los cambios ya hechos. */}
+                            {planEnMarcha && (
+                                <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-3">
+                                    <p className="text-xs font-bold text-amber-300">
+                                        Este programa ya está en marcha (empezó el {startDate})
+                                    </p>
+                                    <p className="mt-1 text-[11px] text-amber-200/80">
+                                        Si cambias las fechas, las semanas se recolocan. Lo ya entrenado y sus
+                                        pesos no se tocan, pero un cambio que hiciste “a partir de la semana 6”
+                                        pasará a caer en otra semana. Cambia las fechas solo si te equivocaste
+                                        al crearlo.
+                                    </p>
+                                </div>
+                            )}
+
                             <div className="pt-4 border-t border-white/5 flex items-center justify-between">
                                 {!isTemplate && (
                                     <p className="text-xs text-slate-500">
@@ -1043,6 +1066,17 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                             {' '}Lo que quites seguirá visible (con sus pesos) en lo ya entrenado.
                                         </>
                                     )}
+                                    {/* Lo que la fecha NO cubre. Quitar y poner
+                                        ejercicios se aplica desde el corte, pero
+                                        editar los datos de uno que ya estaba es un
+                                        cambio sobre la misma fila y vale para todo
+                                        el programa. Decirlo evita que el entrenador
+                                        crea que ha cambiado solo de aquí en adelante. */}
+                                    {!planFuturo && (
+                                        <> <span className="text-slate-300">Cambiar series, repeticiones o notas de un ejercicio que ya estaba
+                                            afecta a todo el programa, también a las semanas ya entrenadas.</span> Solo quitar
+                                            y poner ejercicios se aplica desde la fecha.</>
+                                    )}
                                     {planTerminado && (
                                         <> <span className="text-orange-300">Ojo: este programa ya terminó el {endDate}.</span></>
                                     )}
@@ -1121,14 +1155,41 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                             <button
                                 onClick={() => {
                                     const newId = Date.now();
-                                    setDays([...days, { id: newId, name: `Día ${days.length + 1}`, items: [] }]);
+                                    const nuevos = [...days, { id: newId, name: `Día ${days.length + 1}`, items: [] }];
+                                    setDays(nuevos);
                                     setCurrentDayId(newId);
+                                    // En un programa en marcha el día nuevo no vale
+                                    // hacia atrás: el cliente no lo entrenó. Se dice
+                                    // aquí para que no sorprenda al ver su historial.
+                                    if (planEnMarcha) {
+                                        setConfirmModal({
+                                            isOpen: true,
+                                            title: 'Día añadido',
+                                            type: 'info',
+                                            confirmText: 'Entendido',
+                                            showCancel: false,
+                                            children: `El programa ya está en marcha, así que este día empieza a contar el ${desdeStr}. En las semanas anteriores no aparecerá, porque el cliente no lo entrenó.`,
+                                            onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false })),
+                                        });
+                                    }
                                 }}
                                 className="px-3 py-2 rounded-lg bg-slate-800/50 border border-dashed border-white/10 text-slate-400 hover:text-white transition-all"
                             >
                                 +
                             </button>
                         </div>
+
+                        {/* Arrastrar días renumera los nombres automáticos, y ese
+                            nombre es el que ve el cliente también en las semanas
+                            que ya entrenó. No se pierde nada, pero conviene saberlo
+                            antes de reordenar un programa en marcha. */}
+                        {planEnMarcha && days.length > 1 && (
+                            <p className="text-[11px] text-slate-500">
+                                Puedes arrastrar los días para cambiar su orden. Los que se llaman
+                                “Día 1”, “Día 2”… se renumeran por su posición, y ese nombre es el que
+                                ve el cliente también en las semanas ya entrenadas. Sus pesos no se tocan.
+                            </p>
+                        )}
 
                         {/* REUSE SPLIT VIEW COMPONENT */}
                         <RoutineBuilder
