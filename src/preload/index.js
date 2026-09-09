@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld('api', {
         getTemplates: (daysFilter) => ipcRenderer.invoke('training:getTemplates', daysFilter),
         getPriorities: () => ipcRenderer.invoke('training:getPriorities'),
         checkOverlap: (customerId, startDate, endDate, excludeId) => ipcRenderer.invoke('training:checkOverlap', customerId, startDate, endDate, excludeId),
+        getEstadoEdicion: (mesocycleId) => ipcRenderer.invoke('training:getEstadoEdicion', mesocycleId),
         saveMesocycle: (data) => ipcRenderer.invoke('training:saveMesocycle', data),
         deleteMesocycle: (id) => ipcRenderer.invoke('training:deleteMesocycle', id),
         exportRoutine: (data) => ipcRenderer.invoke('training:exportRoutine', data),

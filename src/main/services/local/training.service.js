@@ -1063,6 +1063,77 @@ class TrainingService extends BaseService {
         return transaction(normalizedData);
     }
 
+    /**
+     * Qué necesita el editor saber ANTES de guardar un programa.
+     *
+     * Los entrenamientos del cliente viven solo en la nube, así que esto se
+     * consulta ahí. Con ello se decide: qué días ya se entrenaron esta semana
+     * (para que sus cambios esperen y no le descuadren la sesión) y hasta dónde
+     * se pueden mover las fechas sin dejar entrenamientos fuera.
+     *
+     * Si no hay conexión devuelve `verificado: false`, y entonces el guardado
+     * va a lo seguro: no borra nada y hace esperar todos los cambios.
+     */
+    async getEstadoEdicion(mesocycleId) {
+        const vacio = {
+            verificado: false, sinEntrenamientos: false,
+            primerEntreno: null, ultimoEntreno: null,
+            diasEntrenadosEstaSemana: [], semanaActual: null, totalEntrenos: 0,
+        };
+        const meso = this.db.prepare('SELECT id, customer_id, start_date, end_date FROM mesocycles WHERE id = ?').get(mesocycleId);
+        if (!meso || !meso.customer_id) return { ...vacio, verificado: true, sinEntrenamientos: true };
+
+        // Qué ejercicio pertenece a qué día, según el escritorio.
+        const diaDeItem = new Map();
+        for (const fila of this.db.prepare(`
+            SELECT i.id AS item_id, r.id AS routine_id
+            FROM routine_items i JOIN routines r ON r.id = i.routine_id
+            WHERE r.mesocycle_id = ?`).all(mesocycleId)) {
+            diaDeItem.set(Number(fila.item_id), Number(fila.routine_id));
+        }
+
+        let registros;
+        try {
+            const res = await require('../cloud/cloud.service')
+                .getCustomerWorkoutLogs(this.getGymId(), meso.customer_id);
+            if (!res || res.success !== true) return vacio;
+            registros = (res.data || []).filter(l => diaDeItem.has(Number(l.routine_item_id)));
+        } catch (err) {
+            console.warn('[getEstadoEdicion] sin conexión:', err.message);
+            return vacio;
+        }
+
+        if (registros.length === 0) {
+            return { ...vacio, verificado: true, sinEntrenamientos: true };
+        }
+
+        const fechas = registros.map(l => String(l.workout_date).slice(0, 10)).sort();
+        const hoy = ymdLocal(new Date());
+        const semana = meso.start_date
+            ? require('./cortes').semanaDelPrograma(String(meso.start_date).slice(0, 10), hoy)
+            : null;
+
+        const entrenadosEstaSemana = new Set();
+        if (semana) {
+            for (const l of registros) {
+                const d = String(l.workout_date).slice(0, 10);
+                if (d >= semana.start && d <= semana.end) {
+                    entrenadosEstaSemana.add(diaDeItem.get(Number(l.routine_item_id)));
+                }
+            }
+        }
+
+        return {
+            verificado: true,
+            sinEntrenamientos: false,
+            primerEntreno: fechas[0],
+            ultimoEntreno: fechas[fechas.length - 1],
+            diasEntrenadosEstaSemana: [...entrenadosEstaSemana],
+            semanaActual: semana,
+            totalEntrenos: registros.length,
+        };
+    }
+
     saveFileHistory(customerId, fileName, publicUrl) {
         if (!customerId || !fileName) return;
         const db = require('../../db/database').getInstance();

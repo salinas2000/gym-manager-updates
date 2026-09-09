@@ -441,6 +441,10 @@ function registerHandlers() {
     handle('training:getTemplates', (daysFilter) => trainingService.getTemplates(daysFilter));
     handle('training:getPriorities', () => trainingService.getTrainingPriorities());
     handle('training:checkOverlap', (customerId, startDate, endDate, excludeId) => trainingService.checkMesocycleOverlap(customerId, startDate, endDate, excludeId));
+    // Lo que el editor necesita saber antes de guardar: qué días ya entrenó el
+    // cliente esta semana y hasta dónde se pueden mover las fechas. Consulta la
+    // nube, porque los entrenamientos solo viven allí.
+    handle('training:getEstadoEdicion', (mesocycleId) => trainingService.getEstadoEdicion(mesocycleId));
     handle('training:saveMesocycle', (data) => trainingService.saveMesocycle(data));
     handle('training:deleteMesocycle', (id) => trainingService.deleteMesocycle(id));
     // Dataset import/export

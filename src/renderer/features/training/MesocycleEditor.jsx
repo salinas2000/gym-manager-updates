@@ -193,6 +193,25 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     const [currentDayId, setCurrentDayId] = useState(days[0].id);
     const [daysPerWeek, setDaysPerWeek] = useState(initialData?.days_per_week || days.length);
 
+    // ── Lo que dice la nube sobre este programa ─────────────────────────
+    // Qué días ya entrenó el cliente esta semana (sus cambios esperan a la
+    // semana siguiente para no descuadrarle la sesión) y hasta dónde se pueden
+    // mover las fechas. Se consulta al abrir y OTRA VEZ al guardar: si el
+    // cliente entrena mientras el editor está abierto, lo de la apertura ya no
+    // vale.
+    const [nube, setNube] = useState(null);
+    React.useEffect(() => {
+        if (!initialData?.id || isTemplate) { setNube({ verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [] }); return; }
+        let vivo = true;
+        window.api.training.getEstadoEdicion(initialData.id)
+            .then(res => { if (vivo) setNube(res?.success ? res.data : res); })
+            .catch(() => { if (vivo) setNube({ verificado: false }); });
+        return () => { vivo = false; };
+    }, [initialData?.id, isTemplate]);
+
+    const diasEntrenados = new Set((nube?.diasEntrenadosEstaSemana || []).map(Number));
+    const finDeSuSemana = nube?.semanaActual?.end || null;
+
     // Situación del programa respecto a hoy.
     const planFuturo = (() => {
         const s0 = parseIso(startDate);
@@ -365,6 +384,18 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
         setIsSaving(true);
         setError(null);
         try {
+            // Se vuelve a preguntar JUSTO ahora: el cliente puede haber
+            // entrenado mientras el editor estaba abierto, y entonces lo que se
+            // cargó al abrir ya no vale.
+            let estado = nube;
+            if (initialData?.id && !isTemplate) {
+                try {
+                    const res = await window.api.training.getEstadoEdicion(initialData.id);
+                    estado = res?.success ? res.data : res;
+                    setNube(estado);
+                } catch { estado = { verificado: false }; }
+            }
+
             const finalData = {
                 id: initialData?.id, // If editing
                 customerId, // Might be null/dummy for templates
@@ -383,6 +414,13 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 // cambió lo vigente, rechaza el guardado en vez de deshacer
                 // cambios que aquí no se han visto.
                 viewDay,
+                // Lo que dice la nube, para que el guardado decida con datos y
+                // no a ciegas. Sin conexión llega en false y se va a lo seguro.
+                verificado: estado?.verificado === true,
+                sinEntrenamientos: estado?.sinEntrenamientos === true,
+                diasEntrenadosEstaSemana: estado?.diasEntrenadosEstaSemana || [],
+                primerEntreno: estado?.primerEntreno || null,
+                ultimoEntreno: estado?.ultimoEntreno || null,
                 // Pass `id` for each day. For days loaded from the DB this is
                 // the real routine id (integer assigned by SQLite); for days
                 // added fresh in the editor it's a Date.now() float that won't
@@ -987,13 +1025,30 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                             </div>
                         )}
 
+                        {/* Sin conexión no se puede saber qué días entrenó el
+                            cliente, así que todo espera a la semana siguiente. */}
+                        {planEnMarcha && !soloLectura && nube && nube.verificado === false && (
+                            <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2">
+                                <p className="text-[11px] text-amber-200/90">
+                                    Sin conexión no se puede comprobar qué días ha entrenado el cliente,
+                                    así que los cambios entrarán la semana que viene y no se podrá quitar
+                                    ningún ejercicio de forma definitiva. Con conexión entran hoy.
+                                </p>
+                            </div>
+                        )}
+
                         {/* Una sola línea, sin selector: la regla es que lo que
                             se guarda entra hoy y lo ya entrenado no se toca. */}
-                        {planEnMarcha && !soloLectura && (
+                        {planEnMarcha && !soloLectura && nube?.verificado !== false && (
                             <div className="rounded-xl border border-white/5 bg-slate-800/40 px-3 py-2">
                                 <p className="text-[11px] text-slate-400">
                                     Los cambios entran <span className="text-amber-300 font-semibold">hoy, {desdeStr}</span>.
-                                    Lo que quites seguirá visible, con sus pesos, en lo que el cliente ya entrenó.
+                                    {diasEntrenados.size > 0 && finDeSuSemana && (
+                                        <> Salvo en los días que el cliente ya ha entrenado esta semana, marcados abajo:
+                                        esos entran el <span className="text-amber-300 font-semibold">{finDeSuSemana}</span> para
+                                        no descuadrarle la sesión que ya hizo.</>
+                                    )}
+                                    {' '}Lo que quites seguirá visible, con sus pesos, en lo que el cliente ya entrenó.
                                     {' '}<span className="text-slate-300">Cambiar series, repeticiones o notas de un ejercicio
                                     que ya estaba afecta a todo el programa</span>, también a lo entrenado.
                                 </p>
@@ -1018,10 +1073,19 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                             ? 'bg-blue-600 text-white border-blue-500'
                                             : 'bg-slate-800 text-slate-400 border-white/5 hover:bg-slate-700'
                                             }`}
-                                        title="Arrastra para reordenar los días"
+                                        title={diasEntrenados.has(Number(day.id))
+                                            ? `El cliente ya entrenó este día esta semana. Lo que cambies aquí entra el ${finDeSuSemana || 'lunes'}.`
+                                            : 'Arrastra para reordenar los días'}
                                     >
                                         <GripHorizontal size={13} className="opacity-40 flex-shrink-0" />
                                         <span>{day.name}</span>
+                                        {/* Día ya entrenado esta semana: su cambio espera a la
+                                            semana siguiente para no pisarle la sesión hecha. */}
+                                        {diasEntrenados.has(Number(day.id)) && (
+                                            <span className="ml-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-300">
+                                                entrenado
+                                            </span>
+                                        )}
                                     </button>
 
                                     {days.length > 1 && (
