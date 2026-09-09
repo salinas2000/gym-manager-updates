@@ -7,6 +7,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 // Vigencia por fechas (espejo de la regla de corte de saveMesocycle) y parseo
 // de fechas sin desfase UTC (nada de new Date('2026-07-01')).
 import { ymdLocal, parseIso, diaDeCorte, diaDeVista, fechaPropuesta, solapeYaExistia, itemAppliesOn } from './vigencia';
+import { historialDeCambios } from './historial-cambios';
 
 // ── Helpers de semanas completas (lunes → domingo) ──────────────────────
 // Lunes de la semana en curso si hoy es lunes; si no, el próximo lunes.
@@ -78,6 +79,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     const [acceptedOverlap, setAcceptedOverlap] = useState(false);
     const [previousMesocycles, setPreviousMesocycles] = useState([]);
     const [showCopyPrevious, setShowCopyPrevious] = useState(false);
+    // Los cambios que se han hecho en este programa, sacados de las fechas de
+    // vigencia de cada ejercicio. No se guarda nada aparte para esto.
+    const [verHistorial, setVerHistorial] = useState(false);
+    const cambios = React.useMemo(() => historialDeCambios(initialData?.routines), [initialData]);
 
     React.useEffect(() => {
         if (customerId && !templateMode && !initialData) {
@@ -169,6 +174,17 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // estorbaba. La protección del historial se conserva entera.
 
     const hoyStr = () => ymdLocal(new Date());
+    // Los dos lunes que se ofrecen al crear: el de esta semana (si no ha
+    // pasado) y el siguiente. Nunca uno anterior a hoy.
+    const lunesDeEstaSemana = (() => {
+        const d = new Date(); d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+        return ymdLocal(d);
+    })();
+    const lunesSiguiente = (() => {
+        const d = parseIso(lunesDeEstaSemana); d.setDate(d.getDate() + 7);
+        return ymdLocal(d);
+    })();
 
     const buildDays = (routines, dia) =>
         (routines && routines.length > 0)
@@ -249,6 +265,30 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // Errors
     const [error, setError] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
+
+    // ── Hasta dónde se pueden mover las fechas ──────────────────────────────
+    // Única condición: que los entrenamientos que el cliente ya tiene sigan
+    // cayendo dentro del programa. Mover el inicio no descoloca nada por sí
+    // solo (cada entrenamiento está clavado a su fecha real y la rejilla de
+    // semanas se desplaza por encima); lo que hace daño es dejar alguno fuera.
+    const tieneEntrenos = !!nube && nube.verificado === true && nube.sinEntrenamientos === false;
+    const inicioMaximo = tieneEntrenos ? nube.primerEntreno : null;
+    const finMinimo = tieneEntrenos ? nube.ultimoEntreno : null;
+    const fechasFueraDeSitio = (() => {
+        if (!tieneEntrenos) return null;
+        if (inicioMaximo && startDate && startDate > inicioMaximo) {
+            return `El cliente entrenó el ${inicioMaximo}. Con ese inicio, ese entrenamiento y los anteriores quedarían fuera del programa.`;
+        }
+        if (finMinimo && endDate && endDate < finMinimo) {
+            return `El cliente entrenó hasta el ${finMinimo}. Con ese fin, esos entrenamientos quedarían fuera del programa.`;
+        }
+        return null;
+    })();
+    // Un programa en marcha no se puede tocar de fechas sin poder comprobarlo.
+    const fechasBloqueadasSinConexion = !!initialData?.id && !isTemplate
+        && !!nube && nube.verificado === false
+        && (startDate !== String(initialData.start_date || '').slice(0, 10)
+            || endDate !== String(initialData.end_date || '').slice(0, 10));
 
     // Templates
     const [showTemplates, setShowTemplates] = useState(false);
@@ -873,6 +913,31 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                             className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 font-medium"
                                         />
 
+                                        {/* Elegir lunes con un clic. Los programas van por
+                                            semanas completas, así que escribir la fecha a mano
+                                            solo sirve para equivocarse: así se acierta a la
+                                            primera y nunca se pone una fecha ya pasada. */}
+                                        {!initialData?.id && (
+                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                {[
+                                                    { etiqueta: 'Este lunes', fecha: lunesDeEstaSemana },
+                                                    { etiqueta: 'El lunes que viene', fecha: lunesSiguiente },
+                                                ].filter(o => o.fecha >= hoyStr()).map(o => (
+                                                    <button
+                                                        key={o.fecha}
+                                                        type="button"
+                                                        onClick={() => { setStartDate(o.fecha); setEndDate(endFromWeeks(o.fecha, weeks)); }}
+                                                        className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-all ${startDate === o.fecha
+                                                            ? 'border-blue-500 bg-blue-600 text-white'
+                                                            : 'border-white/5 bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                                                    >
+                                                        {o.etiqueta}
+                                                        <span className="ml-1.5 font-medium opacity-70">{o.fecha.slice(8)}/{o.fecha.slice(5, 7)}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+
                                         {/* MONDAY HINT — semanas completas */}
                                         {startDate && !isMondayStr(startDate) && (
                                             <div className="mt-2 flex items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
@@ -943,6 +1008,40 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                 que proteger) y cómo numera las semanas la app del
                                 cliente. Si se pone sin querer una fecha pasada, el
                                 programa nace "ya empezado". De ahí el aviso. */}
+                            {/* Lo que la nube dice de este programa, con números
+                                reales: hasta dónde se pueden mover las fechas sin
+                                dejar fuera lo que el cliente ya entrenó. */}
+                            {tieneEntrenos && (
+                                <div className={`rounded-xl border p-3 ${fechasFueraDeSitio
+                                    ? 'border-red-500/40 bg-red-500/10'
+                                    : 'border-white/5 bg-slate-800/40'}`}>
+                                    <p className="text-xs font-bold text-slate-200">
+                                        Este programa tiene {nube.totalEntrenos} entrenamiento{nube.totalEntrenos === 1 ? '' : 's'} registrado{nube.totalEntrenos === 1 ? '' : 's'},
+                                        del {nube.primerEntreno} al {nube.ultimoEntreno}
+                                    </p>
+                                    {fechasFueraDeSitio ? (
+                                        <p className="mt-1 text-[11px] text-red-300">{fechasFueraDeSitio}</p>
+                                    ) : (
+                                        <p className="mt-1 text-[11px] text-slate-400">
+                                            Puedes mover el inicio como mucho hasta el <span className="text-slate-200 font-semibold">{inicioMaximo}</span>,
+                                            y el fin no puede quedar antes del <span className="text-slate-200 font-semibold">{finMinimo}</span>.
+                                            Alargarlo, siempre. Si lo que quieres es empezar otra etapa,
+                                            crea un programa nuevo copiando este en vez de mover las fechas.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {fechasBloqueadasSinConexion && (
+                                <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3">
+                                    <p className="text-[11px] text-amber-200/90">
+                                        Sin conexión no se puede comprobar qué ha entrenado el cliente, así que
+                                        las fechas de un programa en marcha no se pueden cambiar. Vuelve a
+                                        dejarlas como estaban o inténtalo con conexión.
+                                    </p>
+                                </div>
+                            )}
+
                             {planEnMarcha && (
                                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-3">
                                     <p className="text-xs font-bold text-amber-300">
@@ -1052,6 +1151,43 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                     {' '}<span className="text-slate-300">Cambiar series, repeticiones o notas de un ejercicio
                                     que ya estaba afecta a todo el programa</span>, también a lo entrenado.
                                 </p>
+                            </div>
+                        )}
+
+                        {/* Qué se ha cambiado en este programa y cuándo. Sale de
+                            las propias fechas de vigencia, no hay nada guardado
+                            aparte. Plegado, para no estorbar. */}
+                        {cambios.length > 0 && (
+                            <div className="rounded-xl border border-white/5 bg-slate-800/40">
+                                <button
+                                    type="button"
+                                    onClick={() => setVerHistorial(v => !v)}
+                                    className="flex w-full items-center justify-between px-3 py-2 text-left"
+                                >
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                        Cambios hechos en este programa ({cambios.length})
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">{verHistorial ? 'Ocultar' : 'Ver'}</span>
+                                </button>
+                                {verHistorial && (
+                                    <div className="max-h-48 space-y-2 overflow-y-auto border-t border-white/5 px-3 py-2">
+                                        {cambios.map(c => (
+                                            <div key={c.fecha} className="text-[11px]">
+                                                <p className="font-bold text-slate-300">{c.fecha}</p>
+                                                {c.quitados.map((q, i) => (
+                                                    <p key={`q${i}`} className="text-slate-500">
+                                                        <span className="text-red-400">Quitaste</span> {q.nombre} del {q.dia}
+                                                    </p>
+                                                ))}
+                                                {c.anadidos.map((a, i) => (
+                                                    <p key={`a${i}`} className="text-slate-500">
+                                                        <span className="text-emerald-400">Añadiste</span> {a.nombre} al {a.dia}
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -1192,7 +1328,11 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 {step === 1 ? (
                     <button
                         onClick={handleNext}
-                        className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2"
+                        // No se puede seguir con unas fechas que dejarían fuera
+                        // entrenamientos del cliente, ni tocarlas sin conexión.
+                        disabled={!!fechasFueraDeSitio || fechasBloqueadasSinConexion}
+                        title={fechasFueraDeSitio || (fechasBloqueadasSinConexion ? 'Hace falta conexión para cambiar las fechas' : undefined)}
+                        className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         Siguiente Paso
                         <ArrowLeft size={18} className="rotate-180" />
@@ -1202,8 +1342,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                         onClick={() => handleFinish(acceptedOverlap)}
                         // Un programa terminado no se guarda: cambiarlo reescribiria
                         // el historial ya entrenado del cliente.
-                        disabled={isSaving || soloLectura}
-                        title={soloLectura ? 'Este programa ya terminó: crea uno nuevo' : undefined}
+                        disabled={isSaving || soloLectura || !!fechasFueraDeSitio || fechasBloqueadasSinConexion}
+                        title={fechasFueraDeSitio
+                            || (fechasBloqueadasSinConexion ? 'Hace falta conexión para cambiar las fechas' : undefined)
+                            || (soloLectura ? 'Este programa ya terminó: crea uno nuevo' : undefined)}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px] justify-center"
                     >
                         {isSaving ? (
