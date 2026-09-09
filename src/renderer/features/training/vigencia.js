@@ -1,18 +1,21 @@
 /**
  * Vigencia por fechas de los ejercicios de un programa.
  *
- * Cada ejercicio de una rutina tiene effective_from / effective_to (NULL =
- * siempre). Al editar la semana N y guardar, el backend (saveMesocycle) cierra
- * lo que se quita el día anterior al corte y hace empezar en el corte lo que
- * se añade. El corte es el primer día de la semana N... salvo que ese día ya
- * haya pasado: lo ya entrenado no se reescribe, así que el corte se empuja a
- * HOY.
+ * UNA SOLA REGLA: lo que se guarda entra HOY.
  *
- * Este módulo replica esa regla en el renderer para que la vista del editor
- * mire exactamente el mismo día que va a usar el backend. Si la vista mirase
- * el lunes mientras el backend corta hoy (martes), lo recién añadido (entra
- * hoy) no aparecería y lo recién quitado (cerrado ayer) seguiría saliendo:
- * parecería que no se ha guardado nada.
+ * Cada ejercicio de una rutina tiene effective_from / effective_to (NULL =
+ * siempre). Al guardar un programa YA EMPEZADO, lo que se quita no se borra:
+ * se cierra el día anterior, y lo que se añade empieza hoy. Así el historial
+ * del cliente queda intacto, porque sus pesos cuelgan de esa misma fila.
+ *
+ * Un programa que aún no ha empezado no tiene pasado que proteger: se edita
+ * entero y sus ejercicios no llevan fecha.
+ *
+ * Antes esto se elegía semana a semana, con un selector de "Semana N". Se
+ * retiró en la 2.3.14: en un gimnasio real todos los programas duran de 12 a
+ * 16 semanas y están empezados, así que el selector aparecía siempre con diez
+ * u once semanas tachadas y no aportaba nada. La protección del historial, que
+ * era el motivo de todo esto, se conserva entera.
  *
  * Funciones puras: `hoy` entra por parámetro para poder probarlas.
  */
@@ -32,27 +35,21 @@ export function parseIso(iso) {
     return new Date(y, m - 1, d);
 }
 
-/** Primer día de la semana w (1..N) de un programa que empieza en startIso. */
-export function weekStartStr(w, startIso) {
-    const d = parseIso(startIso);
-    if (!d) return null;
-    d.setDate(d.getDate() + (w - 1) * 7);
-    return ymdLocal(d);
-}
-
 /**
- * Día real desde el que entra lo que se guarde editando la semana w.
+ * Día desde el que entra lo que se guarde ahora.
  *
- * Misma regla que saveMesocycle: el primer día de la semana, empujado a hoy si
- * ya ha pasado y el programa ya está en marcha. Un programa que aún no ha
- * empezado no tiene pasado que proteger, así que ahí el corte es siempre el
- * primer día de la semana.
+ * Devuelve hoy si el programa ya empezó, y null si todavía no (no hay pasado
+ * que proteger: se edita entero). Tiene que decidir exactamente lo mismo que
+ * saveMesocycle en el proceso principal; si divergen, el editor enseñaría una
+ * cosa y se guardaría otra.
+ *
+ * @param {string|null} startIso Fecha de inicio del programa.
+ * @param {string} hoy Día de referencia, 'YYYY-MM-DD'.
+ * @returns {string|null}
  */
-export function cutDayStr(w, startIso, hoy = ymdLocal(new Date())) {
-    const first = weekStartStr(w, startIso);
-    if (!first) return null;
-    const inicio = String(startIso).slice(0, 10);
-    return (first < hoy && inicio < hoy) ? hoy : first;
+export function diaDeCorte(startIso, hoy = ymdLocal(new Date())) {
+    if (!startIso) return null;
+    return String(startIso).slice(0, 10) < hoy ? hoy : null;
 }
 
 /** ¿Está el ejercicio vigente ese día? Sin día → se muestra todo. */

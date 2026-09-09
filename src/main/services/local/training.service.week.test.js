@@ -127,7 +127,7 @@ describe('saveMesocycle — vigencia por fechas', () => {
 
         // La semana 3 arranca justo hoy.
         save({
-            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, 
             routines: [{
                 id: routineId, name: 'Día 1',
                 items: [{ id: remo, exerciseId: 11 }, { exerciseId: 12 }],
@@ -152,7 +152,7 @@ describe('saveMesocycle — vigencia por fechas', () => {
         // editWeek 1 pediria cortar en el inicio (hace 2 semanas). Eso borraria
         // de la vista lo ya entrenado, asi que se fuerza a hoy.
         save({
-            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 1,
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, 
             routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }],
         });
 
@@ -166,7 +166,7 @@ describe('saveMesocycle — vigencia por fechas', () => {
         const { mesoId, routineId, press, remo } = seedPlan(START_FUTURO, FIN_FUTURO);
 
         save({
-            id: mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO, editWeek: 1,
+            id: mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO, 
             routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }],
         });
 
@@ -177,11 +177,11 @@ describe('saveMesocycle — vigencia por fechas', () => {
 
     test('el dia entero solo se borra si el plan no ha empezado', () => {
         const futuro = seedPlan(START_FUTURO, FIN_FUTURO);
-        save({ id: futuro.mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO, editWeek: 1, routines: [] });
+        save({ id: futuro.mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO,  routines: [] });
         expect(db.prepare('SELECT id FROM routines WHERE id = ?').get(futuro.routineId)).toBeUndefined();
 
         const enCurso = seedPlan(START_EN_CURSO, FIN_EN_CURSO);
-        save({ id: enCurso.mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 1, routines: [] });
+        save({ id: enCurso.mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO,  routines: [] });
         expect(db.prepare('SELECT id FROM routines WHERE id = ?').get(enCurso.routineId)).toBeDefined();
         expect(itemsOf(enCurso.routineId)).toHaveLength(2);
     });
@@ -194,7 +194,7 @@ describe('saveMesocycle — vigencia por fechas', () => {
         ).run(GYM, routineId, HOY).lastInsertRowid);
 
         save({
-            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, 
             routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }],
         });
 
@@ -219,7 +219,7 @@ describe('saveMesocycle — vigencia por fechas', () => {
         // El entrenador quita Press Banca (10) y lo vuelve a anadir en el mismo
         // guardado: solo lo ha recolocado, no es una sustitucion.
         save({
-            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, 
             routines: [{ id: routineId, name: 'Día 1',
                 items: [{ id: remo, exerciseId: 11 }, { exerciseId: 10 }] }],
         });
@@ -240,7 +240,7 @@ describe('saveMesocycle — vigencia por fechas', () => {
 
         // Se quita Press Banca (10) y entra Fondos (12): esto si es sustitucion.
         save({
-            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, editWeek: 3,
+            id: mesoId, startDate: START_EN_CURSO, endDate: FIN_EN_CURSO, 
             routines: [{ id: routineId, name: 'Día 1', items: [{ exerciseId: 12 }] }],
         });
 
@@ -262,21 +262,22 @@ describe('saveMesocycle — vista desfasada (el payload solo vale para el dia en
     // Sin nada fechado todavia, lo vigente el primer dia y hoy coincide, asi
     // que entra igual venga de un cliente nuevo (viewDay) o antiguo (sin el).
     const sustituirHoy = (plan, viewDay) => save({
-        id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3, viewDay,
+        id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD,  viewDay,
         routines: [{ id: plan.routineId, name: 'Día 1',
             items: [{ id: plan.remo, exerciseId: 11 }, { exerciseId: 12 }] }],
     });
 
-    test('un cliente antiguo (mira el primer dia de la semana) no puede pisar lo guardado hoy', () => {
+    test('un cliente ANTERIOR a la 2.3.14 (manda editWeek) no puede pisar lo guardado hoy', () => {
         const plan = seedPlan(START_A_MITAD, FIN_A_MITAD);
-        sustituirHoy(plan, undefined);               // cliente antiguo: sin viewDay
+        sustituirHoy(plan, undefined);
         const antes = itemsOf(plan.routineId);
         expect(antes.find((i) => i.id === plan.press).effective_to).toBe(AYER);
         expect(antes.find((i) => i.exercise_id === 12).effective_from).toBe(HOY);
 
-        // Reabre: su vista (primer dia de la semana) aun ensena Press y no ve
-        // Fondos. Reguarda "sin cambios" desde esa vista. Sin la guardia esto
-        // cerraria Fondos y reinsertaria Press: desharia el cambio en silencio.
+        // Un cliente viejo sigue mandando editWeek y su vista era el primer dia
+        // de esa semana: ahi aun se ve Press y no se ve Fondos. Reguarda "sin
+        // cambios" desde esa vista. Sin la guardia esto cerraria Fondos y
+        // reinsertaria Press: desharia el cambio en silencio.
         expect(() => save({
             id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3,
             routines: [{ id: plan.routineId, name: 'Día 1',
@@ -296,7 +297,7 @@ describe('saveMesocycle — vista desfasada (el payload solo vale para el dia en
 
         // Reabre con la vista correcta (ve Remo y Fondos) y reguarda igual.
         save({
-            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3, viewDay: HOY,
+            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD,  viewDay: HOY,
             routines: [{ id: plan.routineId, name: 'Día 1',
                 items: [{ id: plan.remo, exerciseId: 11 }, { id: fondos.id, exerciseId: 12 }] }],
         });
@@ -310,7 +311,7 @@ describe('saveMesocycle — vista desfasada (el payload solo vale para el dia en
         sustituirHoy(plan, HOY);
         // Vista construida ayer: aun veia Press y no veia Fondos.
         expect(() => save({
-            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3, viewDay: AYER,
+            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD,  viewDay: AYER,
             routines: [{ id: plan.routineId, name: 'Día 1',
                 items: [{ id: plan.press, exerciseId: 10 }, { id: plan.remo, exerciseId: 11 }] }],
         })).toThrow(/vuelve a abrir/);
@@ -321,7 +322,7 @@ describe('saveMesocycle — vista desfasada (el payload solo vale para el dia en
         // Nada fechado: lo vigente el primer dia de la semana y hoy es lo mismo,
         // asi que no hay vista que pueda estar desfasada.
         expect(() => save({
-            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, editWeek: 3,
+            id: plan.mesoId, startDate: START_A_MITAD, endDate: FIN_A_MITAD, 
             routines: [{ id: plan.routineId, name: 'Día 1',
                 items: [{ id: plan.remo, exerciseId: 11 }] }],
         })).not.toThrow();

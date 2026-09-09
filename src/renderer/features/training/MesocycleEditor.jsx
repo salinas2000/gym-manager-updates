@@ -6,7 +6,7 @@ import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 // Vigencia por fechas (espejo de la regla de corte de saveMesocycle) y parseo
 // de fechas sin desfase UTC (nada de new Date('2026-07-01')).
-import { ymdLocal, parseIso, weekStartStr, cutDayStr, itemAppliesOn } from './vigencia';
+import { ymdLocal, parseIso, diaDeCorte, itemAppliesOn } from './vigencia';
 
 // ── Helpers de semanas completas (lunes → domingo) ──────────────────────
 // Lunes de la semana en curso si hoy es lunes; si no, el próximo lunes.
@@ -141,71 +141,43 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
         setShowCopyPrevious(false);
     };
 
-    // ── Edición por semanas ─────────────────────────────────────────────
-    // Un ejercicio puede sustituirse A PARTIR de una semana. Editando la
-    // semana N, quitar un ejercicio no lo borra: se cierra el día anterior y
-    // sigue visible (con sus pesos) en lo ya entrenado. Lo que se añade
-    // empieza ese día. Se compara por FECHA y no por número de semana para
-    // que cambiar las fechas del plan no desplace los cortes ya hechos.
-    // Semana del programa en la que estamos HOY. Antes de empezar -> 1;
-    // despues de terminar -> la ultima. Es la que se abre por defecto, porque
-    // es donde el entrenador va a querer tocar.
-    const currentWeekOf = (startIso, totalWeeks) => {
-        const s0 = parseIso(startIso);
-        if (!s0) return 1;
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        if (today <= s0) return 1;
-        const days = Math.floor((today - s0) / 86400000);
-        return Math.min(Math.max(1, totalWeeks), Math.floor(days / 7) + 1);
-    };
+    // ── Vigencia: una sola regla ────────────────────────────────────────
+    // Lo que se guarda entra HOY. Quitar un ejercicio de un programa ya
+    // empezado no lo borra: se cierra ayer y sigue visible, con sus pesos, en
+    // lo que el cliente ya entrenó. Lo que se añade empieza hoy. Un programa
+    // que aún no ha arrancado no tiene pasado que proteger: se edita entero.
+    //
+    // Antes esto se elegía semana a semana. Se retiró en la 2.3.14: todos los
+    // programas del gimnasio duran de 12 a 16 semanas y están empezados, así
+    // que el selector salía siempre con diez u once semanas tachadas y solo
+    // estorbaba. La protección del historial se conserva entera.
 
-    const [editWeek, setEditWeek] = useState(1);
+    const hoyStr = () => ymdLocal(new Date());
 
-    // La vista de la semana w enseña lo VIGENTE el día en que entrarían los
-    // cambios al guardar esa semana (cutDayStr), no su primer día. A mitad de
-    // la semana en curso son días distintos: el backend empuja el corte a hoy
-    // (lo ya entrenado no se reescribe), así que lo recién añadido entra hoy y
-    // lo recién quitado se cerró ayer. Mirando el lunes no se vería ni lo uno
-    // ni lo otro y parecería que no se ha guardado nada.
-    const buildDays = (routines, w, startIso) => {
-        const day = cutDayStr(w, startIso);
-        return (routines && routines.length > 0)
+    const buildDays = (routines, dia) =>
+        (routines && routines.length > 0)
             ? routines.map(r => ({
                 id: r.id || Date.now() + Math.random(),
                 name: r.name,
                 items: (r.items || [])
-                    .filter(i => itemAppliesOn(i, day))
+                    .filter(i => itemAppliesOn(i, dia))
                     .map(i => ({ ...i, _guiId: i.id || crypto.randomUUID() }))
             }))
             : [{ id: 1, name: 'Día 1', items: [] }];
-    };
 
     // Routine State (must be before daysPerWeek)
     const [days, setDays] = useState(() =>
-        buildDays(initialData?.routines, 1, initialData?.start_date)
+        buildDays(initialData?.routines, diaDeCorte(initialData?.start_date))
     );
-    // Día para el que se construyó la vista actual (el que usa buildDays). Se
-    // manda al guardar para que el backend detecte una vista desfasada (editor
-    // abierto desde ayer, por ejemplo) y no pise cambios que no se han visto.
-    const [viewDay, setViewDay] = useState(() => cutDayStr(1, initialData?.start_date));
+    // Día para el que se construyó esta vista. Se manda al guardar para que el
+    // proceso principal detecte una vista desfasada (el editor abierto desde
+    // ayer, u otro equipo tocando lo mismo) y no pise cambios que no se han
+    // visto en pantalla.
+    const [viewDay] = useState(() => diaDeCorte(initialData?.start_date));
     const [currentDayId, setCurrentDayId] = useState(days[0].id);
     const [daysPerWeek, setDaysPerWeek] = useState(initialData?.days_per_week || days.length);
 
-    // Huella de los días para detectar cambios sin guardar (ignora ids de GUI).
-    const daysFingerprint = (ds) => JSON.stringify(ds.map(d => ({
-        n: d.name,
-        it: d.items.map(i => ({
-            id: i.id ?? null,
-            ex: i.exerciseId ?? i.exercise_id ?? null,
-            nt: i.notes || '',
-            cf: i.custom_fields || {},
-            sg: i.superset_group ?? null,
-            sr: i.superset_rounds ?? null,
-        })),
-    })));
-
-    // Semana actual y situación del programa respecto a hoy.
-    const weekNow = currentWeekOf(startDate, weeks);
+    // Situación del programa respecto a hoy.
     const planFuturo = (() => {
         const s0 = parseIso(startDate);
         if (!s0) return false;
@@ -218,62 +190,12 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
         return hoy > e0;
     })();
-
-    // Al abrir un plan ya guardado se arranca en la semana en curso, que es
-    // donde el entrenador va a querer tocar. Un plan que aún no ha empezado no
-    // tiene nada entrenado, así que se abre en la 1 (equivale a todo el plan).
-    React.useEffect(() => {
-        if (initialData?.id && !isTemplate && startDate) {
-            const w = planFuturo ? 1 : weekNow;
-            setEditWeek(w);
-            setViewDay(cutDayStr(w, startDate));
-            setDays(buildDays(initialData?.routines, w, startDate));
-        }
-        // Solo al abrir el editor.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // Primera semana que se puede tocar. Lo ya entrenado no se edita: cambiar
-    // el pasado es justo lo que este sistema evita. Un plan que aun no ha
-    // empezado no tiene pasado, asi que se puede editar entero.
-    const primeraEditable = planFuturo ? 1 : weekNow;
-    // Un programa terminado no se toca: no hay ninguna semana por delante.
+    // Un programa terminado no se toca: cambiarlo solo reescribiría historial.
     const soloLectura = planTerminado;
-    // Programa guardado y ya en marcha: tiene semanas entrenadas que proteger.
+    // Programa guardado y ya en marcha: tiene entrenamientos que proteger.
     const planEnMarcha = !isTemplate && !!initialData?.id && !!startDate && !planFuturo;
-    // Fecha real desde la que entra lo que se guarde ahora (misma regla que el
-    // backend) y si cae a mitad de la semana editada (semana en curso).
-    const desdeStr = cutDayStr(editWeek, startDate);
-    const aMitadDeSemana = !!desdeStr && desdeStr !== weekStartStr(editWeek, startDate);
-
-    const applyEditWeek = (w) => {
-        setEditWeek(w);
-        setViewDay(cutDayStr(w, startDate));
-        const next = buildDays(initialData?.routines, w, startDate);
-        setDays(next);
-        if (!next.some(d => d.id === currentDayId)) setCurrentDayId(next[0].id);
-    };
-
-    const switchEditWeek = (w) => {
-        if (w < primeraEditable || soloLectura) return;
-        if (w === editWeek) return;
-        // Cambiar de semana recarga los días desde lo guardado, así que hay que
-        // avisar si hay ediciones a medias.
-        const pending = daysFingerprint(days)
-            !== daysFingerprint(buildDays(initialData?.routines, editWeek, startDate));
-        if (!pending) return applyEditWeek(w);
-        setConfirmModal({
-            isOpen: true,
-            title: 'Cambios sin guardar',
-            type: 'warning',
-            confirmText: 'Descartar y cambiar',
-            children: `Tienes cambios sin guardar en la semana ${editWeek}. Si pasas a la semana ${w} se perderán.`,
-            onConfirm: () => {
-                setConfirmModal(prev => ({ ...prev, isOpen: false }));
-                applyEditWeek(w);
-            },
-        });
-    };
+    // Día desde el que entran los cambios. null = el programa no ha empezado.
+    const desdeStr = planEnMarcha ? hoyStr() : null;
 
     // Day reordering (drag the tabs left/right). Auto-numbered names ("Día N")
     // are re-numbered by position; custom names (e.g. "Push") are kept.
@@ -437,11 +359,6 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 isTemplate,
                 allowOverlap,
                 daysPerWeek: days.length, // Auto-calculate from number of routines
-                // Semana editada. Con editWeek > 1, `days` contiene solo los
-                // ejercicios vigentes esa semana: el backend cierra los que se
-                // hayan quitado (sin borrarlos, para no perder el historial) y
-                // hace empezar en esa fecha los añadidos.
-                editWeek,
                 // Día para el que se construyó la vista de la que sale este
                 // payload. Si el backend ve que entre ese día y el corte real
                 // cambió lo vigente, rechaza el guardado en vez de deshacer
@@ -962,21 +879,20 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                 </div>
                             )}
 
-                            {/* Las fechas de un programa en marcha no son un dato
-                                cualquiera: de ellas salen las semanas, y los cambios
-                                hechos "a partir de la semana N" están anclados a
-                                fechas reales. Moverlas no borra nada, pero recoloca
-                                las semanas bajo los cambios ya hechos. */}
+                            {/* La fecha de inicio decide dos cosas: si el programa
+                                cuenta como empezado (y por tanto si hay historial
+                                que proteger) y cómo numera las semanas la app del
+                                cliente. Si se pone sin querer una fecha pasada, el
+                                programa nace "ya empezado". De ahí el aviso. */}
                             {planEnMarcha && (
                                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-3">
                                     <p className="text-xs font-bold text-amber-300">
-                                        Este programa ya está en marcha (empezó el {startDate})
+                                        Este programa consta empezado el {startDate}
                                     </p>
                                     <p className="mt-1 text-[11px] text-amber-200/80">
-                                        Si cambias las fechas, las semanas se recolocan. Lo ya entrenado y sus
-                                        pesos no se tocan, pero un cambio que hiciste “a partir de la semana 6”
-                                        pasará a caer en otra semana. Cambia las fechas solo si te equivocaste
-                                        al crearlo.
+                                        Si en realidad empieza más adelante, corrige la fecha ahora. Mientras
+                                        conste empezado, lo que quites de él no se borra: se conserva para no
+                                        perder los pesos que el cliente ya haya registrado.
                                     </p>
                                 </div>
                             )}
@@ -997,92 +913,28 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 {/* STEP 2: BUILDER */}
                 {step === 2 && (
                     <div className="flex flex-col h-full gap-4">
-                        {/* SELECTOR DE SEMANA — solo en planes ya guardados con varias
-                            semanas. Permite sustituir un ejercicio a partir de una
-                            semana sin tocar lo ya entrenado. */}
                         {!isTemplate && initialData?.id && soloLectura && (
                             <div className="rounded-xl border border-orange-500/30 bg-orange-500/[0.07] p-3">
                                 <p className="text-xs font-bold text-orange-300">
                                     Este programa terminó el {endDate}
                                 </p>
                                 <p className="mt-1 text-[11px] text-orange-200/80">
-                                    No se puede modificar: todas sus semanas están entrenadas y cambiarlas
-                                    reescribiría el historial del cliente. Crea un programa nuevo
+                                    No se puede modificar: ya está entrenado entero y cambiarlo reescribiría
+                                    el historial del cliente. Crea un programa nuevo
                                     {previousMesocycles.length > 0 ? ' (puedes copiar este como punto de partida)' : ''}.
                                 </p>
                             </div>
                         )}
 
-                        {!isTemplate && initialData?.id && !soloLectura && weeks > 1 && startDate && (
-                            <div className="rounded-xl border border-white/5 bg-slate-800/40 p-3">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
-                                        Aplicar desde
-                                    </span>
-                                    {Array.from({ length: weeks }, (_, i) => i + 1).map(w => {
-                                        const esActual = w === weekNow;
-                                        const pasada = w < primeraEditable || soloLectura;
-                                        const inicioSemana = weekStartStr(w, startDate);
-                                        const corte = cutDayStr(w, startDate);
-                                        return (
-                                            <button
-                                                key={w}
-                                                type="button"
-                                                disabled={pasada}
-                                                onClick={() => switchEditWeek(w)}
-                                                title={pasada
-                                                    ? `Semana ya entrenada (${inicioSemana}) — no se puede modificar`
-                                                    : corte !== inicioSemana
-                                                        ? `En curso desde el ${inicioSemana} — los cambios entran hoy (${corte})`
-                                                        : `Empieza el ${inicioSemana}`}
-                                                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${pasada
-                                                    ? 'bg-slate-900/60 text-slate-600 border-white/5 cursor-not-allowed line-through'
-                                                    : editWeek === w
-                                                        ? 'bg-amber-600 text-white border-amber-500'
-                                                    : esActual
-                                                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
-                                                        : 'bg-slate-800 text-slate-400 border-white/5 hover:bg-slate-700'}`}
-                                            >
-                                                Semana {w}
-                                                {esActual && editWeek !== w && (
-                                                    <span className="absolute -top-1 -right-1 size-2 rounded-full bg-emerald-400" />
-                                                )}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <p className="mt-2 text-[11px] text-slate-400">
-                                    {planFuturo ? (
-                                        <>El programa aún no ha empezado (arranca el <span className="text-slate-200 font-semibold">{startDate}</span>), así que no hay nada entrenado: los cambios afectan a todo el plan.</>
-                                    ) : (
-                                        <>
-                                            Los cambios se aplican <span className="text-amber-300 font-semibold">a partir del {desdeStr}</span>
-                                            {editWeek > 1
-                                                ? <> (semana {editWeek}). Las semanas 1{editWeek > 2 ? `–${editWeek - 1}` : ''}, ya entrenadas, no se tocan.</>
-                                                : <> (semana 1).</>}
-                                            {aMitadDeSemana && (
-                                                <> La semana {editWeek} ya está empezada: lo entrenado antes de hoy se conserva tal cual.</>
-                                            )}
-                                            {' '}Lo que quites seguirá visible (con sus pesos) en lo ya entrenado.
-                                        </>
-                                    )}
-                                    {/* Lo que la fecha NO cubre. Quitar y poner
-                                        ejercicios se aplica desde el corte, pero
-                                        editar los datos de uno que ya estaba es un
-                                        cambio sobre la misma fila y vale para todo
-                                        el programa. Decirlo evita que el entrenador
-                                        crea que ha cambiado solo de aquí en adelante. */}
-                                    {!planFuturo && (
-                                        <> <span className="text-slate-300">Cambiar series, repeticiones o notas de un ejercicio que ya estaba
-                                            afecta a todo el programa, también a las semanas ya entrenadas.</span> Solo quitar
-                                            y poner ejercicios se aplica desde la fecha.</>
-                                    )}
-                                    {planTerminado && (
-                                        <> <span className="text-orange-300">Ojo: este programa ya terminó el {endDate}.</span></>
-                                    )}
-                                    {!planFuturo && !planTerminado && editWeek < weekNow && (
-                                        <> <span className="text-orange-300">Estás editando una semana ya pasada (hoy vas por la {weekNow}).</span></>
-                                    )}
+                        {/* Una sola línea, sin selector: la regla es que lo que
+                            se guarda entra hoy y lo ya entrenado no se toca. */}
+                        {planEnMarcha && !soloLectura && (
+                            <div className="rounded-xl border border-white/5 bg-slate-800/40 px-3 py-2">
+                                <p className="text-[11px] text-slate-400">
+                                    Los cambios entran <span className="text-amber-300 font-semibold">hoy, {desdeStr}</span>.
+                                    Lo que quites seguirá visible, con sus pesos, en lo que el cliente ya entrenó.
+                                    {' '}<span className="text-slate-300">Cambiar series, repeticiones o notas de un ejercicio
+                                    que ya estaba afecta a todo el programa</span>, también a lo entrenado.
                                 </p>
                             </div>
                         )}
@@ -1127,7 +979,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                                         type: 'warning',
                                                         confirmText: 'Entendido',
                                                         showCancel: false,
-                                                        children: `El programa ya está en marcha y "${day.name}" tiene semanas entrenadas: quitarlo se llevaría su historial. Quita sus ejercicios en su lugar; se retirarán a partir del ${desdeStr} sin borrar lo ya hecho.`,
+                                                        children: `El programa ya está en marcha y "${day.name}" tiene entrenamientos hechos: quitarlo se llevaría su historial por delante. Quita sus ejercicios en su lugar; dejarán de verse de hoy en adelante sin borrar lo ya hecho.`,
                                                         onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false })),
                                                     });
                                                     return;
@@ -1168,7 +1020,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                             type: 'info',
                                             confirmText: 'Entendido',
                                             showCancel: false,
-                                            children: `El programa ya está en marcha, así que este día empieza a contar el ${desdeStr}. En las semanas anteriores no aparecerá, porque el cliente no lo entrenó.`,
+                                            children: `El programa ya está en marcha, así que este día empieza a contar hoy. En lo anterior no aparecerá, porque el cliente no lo entrenó.`,
                                             onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false })),
                                         });
                                     }

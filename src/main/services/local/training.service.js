@@ -49,10 +49,9 @@ const mesocycleSchema = z.object({
     isTemplate: z.union([z.boolean(), z.number(), z.string()]).optional(),
     daysPerWeek: z.number().int().min(0).optional(),
     routines: z.array(z.any()).optional(),
-    // Semana del mesociclo que se está editando (1 = todo el programa).
-    // Con editWeek > 1, quitar un ejercicio no lo borra: lo cierra en la semana
-    // anterior, y los que se añaden empiezan en esa semana. Así sustituir un
-    // ejercicio a mitad de programa no reescribe ni destruye lo ya entrenado.
+    // RETIRADO en la 2.3.14: el corte ya no lo elige el entrenador, es siempre
+    // hoy. Se sigue aceptando porque las versiones anteriores lo mandan, y con
+    // él se reconstruye qué vista tenían para no pisarles nada.
     editWeek: z.number().int().min(1).optional(),
     // Día (YYYY-MM-DD) para el que el cliente construyó la vista que el
     // entrenador ha estado editando. Permite detectar una vista desfasada
@@ -573,8 +572,8 @@ class TrainingService extends BaseService {
             isTemplate: (data.isTemplate === true || data.isTemplate === 'true' || data.is_template === 1) ? 1 : 0,
             daysPerWeek: data.daysPerWeek || data.days_per_week,
             routines: data.routines,
-            // Semana editada. Sin ella la reconciliación por semanas no se
-            // activaría nunca (quedaría siempre en 1 = programa completo).
+            // Solo la mandan las versiones anteriores a la 2.3.14; sirve para
+            // reconstruir qué vista tenían.
             editWeek: data.editWeek,
             viewDay: data.viewDay
         };
@@ -833,37 +832,35 @@ class TrainingService extends BaseService {
 
         // EXECUTE TRANSACTION
         const transaction = this.db.transaction((mesoData) => {
-            // Semana del programa que se está editando. 1 (o ausente) = se edita
-            // el programa entero.
-            const editWeek = Math.max(1, Number(mesoData.editWeek) || 1);
-            // Se traduce YA a fecha real y es lo que se persiste: un corte por
-            // número de semana se desplazaría si luego cambian las fechas del
-            // plan; una fecha queda anclada al calendario.
-            const cutFrom = mesoData.startDate
-                ? shiftDate(mesoData.startDate, (editWeek - 1) * 7)
-                : null;
-            // El corte NUNCA puede caer en el pasado: lo ya entrenado no se
-            // reescribe. Si llega una semana anterior a hoy (interfaz vieja,
-            // llamada directa o el reloj movido), se empuja al dia de hoy.
-            // Aqui es donde de verdad queda garantizado: la interfaz se puede
-            // saltar, esto no.
+            // ── UNA SOLA REGLA: lo que se guarda entra HOY ──────────────────
+            // Un programa YA EMPEZADO tiene entrenamientos que proteger, así que
+            // lo que se quita se cierra ayer (nunca se borra: los pesos del
+            // cliente cuelgan de esa fila) y lo que se añade empieza hoy.
+            // Un programa que aún no ha arrancado no tiene pasado: se edita
+            // entero, sin fechas, como antes de todo esto.
+            //
+            // Hasta la 2.3.13 el corte lo elegía el entrenador semana a semana.
+            // Se retiró: en un gimnasio real los programas duran de 12 a 16
+            // semanas y están todos empezados, así que el selector aparecía
+            // siempre con diez u once semanas tachadas y solo estorbaba. La
+            // protección del historial, que era el motivo, se conserva entera.
             const hoy = new Date();
             const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
-            const cutSafe = (cutFrom && cutFrom < hoyStr && mesoData.startDate && mesoData.startDate < hoyStr)
-                ? hoyStr
-                : cutFrom;
-            // Día para el que el cliente construyó su vista. Un cliente anterior
-            // a 2.3.12 no lo manda: su vista era el primer día de la semana SIN
-            // empujar a hoy (por eso a mitad de semana veía el programa viejo).
+            const planNoEmpezado = !mesoData.startDate || mesoData.startDate >= hoyStr;
+            const cutSafe = planNoEmpezado ? null : hoyStr;
+            // Día para el que el cliente construyó su vista. Los clientes
+            // anteriores a la 2.3.14 mandaban `editWeek` y miraban el primer día
+            // de esa semana: se reconstruye para que la guardia de vista
+            // desfasada siga protegiendo si alguno sigue instalado.
             const viewDay = (typeof mesoData.viewDay === 'string' && /^\d{4}-\d{2}-\d{2}/.test(mesoData.viewDay))
                 ? mesoData.viewDay.slice(0, 10)
-                : cutFrom;
-            // Eliminar un DIA entero se lleva por delante todo su historial, asi
-            // que solo se permite mientras el programa no haya empezado: ahi no
-            // hay nada entrenado que perder. Una vez en marcha, los ejercicios se
-            // retiran (se cierran) pero los dias se quedan.
-            const planNoEmpezado = !mesoData.startDate || mesoData.startDate >= hoyStr;
-            const wholePlan = editWeek <= 1 && planNoEmpezado;
+                : (mesoData.editWeek && mesoData.startDate)
+                    ? shiftDate(mesoData.startDate, (Math.max(1, Number(mesoData.editWeek) || 1) - 1) * 7)
+                    : cutSafe;
+            // Eliminar un DÍA entero se lleva por delante todo su historial, así
+            // que solo se permite mientras el programa no haya empezado. Una vez
+            // en marcha, los ejercicios se retiran pero los días se quedan.
+            const wholePlan = planNoEmpezado;
             // Desde cuándo vale un DÍA nuevo añadido en este guardado. Con el
             // programa en marcha, desde el corte: el cliente no entrenó ese día
             // en las semanas ya pasadas. Si aún no ha empezado, sin fecha.
