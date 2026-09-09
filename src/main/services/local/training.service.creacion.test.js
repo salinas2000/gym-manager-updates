@@ -379,3 +379,79 @@ describe('mover la fecha de inicio', () => {
         expect(alReabrir(r.id, FUTURO)).toEqual([{ dia: 'Día 1', ejercicios: [10] }]);
     });
 });
+
+describe('crear el siguiente copiando este (la salida al mover fechas)', () => {
+    // Es lo que el entrenador hacía a mano moviendo las fechas del programa
+    // viejo, que dejaba los entrenamientos del cliente fuera. Ahora son dos
+    // guardados: cerrar el actual la víspera y crear el nuevo con el mismo
+    // contenido pero filas propias.
+    const INICIO = shift(-40);
+    const FIN = shift(44);
+    const ULTIMO_ENTRENO = shift(-3);
+    const NUEVO_INICIO = shift(4);
+
+    const conHistorial = {
+        verificado: true, sinEntrenamientos: false,
+        primerEntreno: shift(-38), ultimoEntreno: ULTIMO_ENTRENO,
+    };
+
+    test('el viejo conserva todo y el nuevo nace independiente', () => {
+        const viejo = guardar({
+            startDate: INICIO, endDate: FIN,
+            routines: dias([
+                { id: 1e12, name: 'Día 1', ejercicios: [10, 11] },
+                { id: 1e12 + 1, name: 'Día 2', ejercicios: [12] },
+            ]),
+        });
+        const contenido = trainingService.getRoutinesByMesocycle(viejo.id);
+        const comoEstan = contenido.map((r, i) => ({
+            id: r.id, name: r.name, dayGroup: i,
+            items: r.items.map(it => ({ id: it.id, exerciseId: it.exercise_id })),
+        }));
+        const filasViejas = filasDe(viejo.id).map(f => f.id);
+
+        // 1) Cerrar el actual la víspera del nuevo.
+        const vispera = shift(3);
+        guardar({ ...conHistorial, id: viejo.id, startDate: INICIO, endDate: vispera, routines: comoEstan });
+
+        // 2) Crear el siguiente, copiando: mismos ejercicios, sin ids.
+        const nuevo = guardar({
+            startDate: NUEVO_INICIO, endDate: shift(88),
+            routines: contenido.map((r, i) => ({
+                id: Date.now() + i, name: r.name, dayGroup: i,
+                items: r.items.map(it => ({ exerciseId: it.exercise_id })),
+            })),
+        });
+
+        // El viejo: mismas filas, ninguna borrada, y con su fin nuevo.
+        expect(filasDe(viejo.id).map(f => f.id)).toEqual(filasViejas);
+        expect(borrados()).toHaveLength(0);
+        expect(db.prepare('SELECT end_date FROM mesocycles WHERE id = ?').get(viejo.id).end_date).toBe(vispera);
+
+        // El nuevo: filas PROPIAS, ninguna compartida con el viejo.
+        const filasNuevas = filasDe(nuevo.id).map(f => f.id);
+        expect(filasNuevas).toHaveLength(3);
+        expect(filasNuevas.some(id => filasViejas.includes(id))).toBe(false);
+
+        // Y sin fechas de vigencia: empieza limpio.
+        expect(filasDe(nuevo.id).every(f => !f.effective_from && !f.effective_to)).toBe(true);
+        expect(alReabrir(nuevo.id, NUEVO_INICIO)).toEqual([
+            { dia: 'Día 1', ejercicios: [10, 11] },
+            { dia: 'Día 2', ejercicios: [12] },
+        ]);
+    });
+
+    test('no se puede cerrar el viejo antes del último entrenamiento del cliente', () => {
+        const viejo = guardar({
+            startDate: INICIO, endDate: FIN,
+            routines: dias([{ id: 1e12, name: 'Día 1', ejercicios: [10] }]),
+        });
+        const comoEstan = trainingService.getRoutinesByMesocycle(viejo.id).map((r, i) => ({
+            id: r.id, name: r.name, dayGroup: i,
+            items: r.items.map(it => ({ id: it.id, exerciseId: it.exercise_id })),
+        }));
+        expect(() => guardar({
+            ...conHistorial, id: viejo.id, startDate: INICIO, endDate: shift(-5), routines: comoEstan,
+        })).toThrow(/quedarían fuera/);
+    });
+});

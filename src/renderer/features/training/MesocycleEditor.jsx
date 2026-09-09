@@ -82,6 +82,73 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // Los cambios que se han hecho en este programa, sacados de las fechas de
     // vigencia de cada ejercicio. No se guarda nada aparte para esto.
     const [verHistorial, setVerHistorial] = useState(false);
+    // "Crear el siguiente copiando este": cierra el programa actual la víspera y
+    // abre otro con el mismo contenido desde el lunes elegido. Es lo que el
+    // entrenador venía haciendo a mano moviendo las fechas, que dejaba los
+    // entrenamientos del cliente fuera de su programa.
+    const [crearSiguiente, setCrearSiguiente] = useState(false);
+
+    /** Nombre del siguiente, con el mes de arranque. */
+    const nombreParaFecha = (iso) => {
+        const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        const d = parseIso(iso);
+        const base = (customerName || name || 'Programa').trim();
+        return d ? `${base} - ${MESES[d.getMonth()]} ${d.getFullYear()}` : base;
+    };
+
+    const ejecutarCrearSiguiente = async (inicioNuevo) => {
+        setIsSaving(true);
+        setError(null);
+        try {
+            const vispera = ymdLocal((() => { const d = parseIso(inicioNuevo); d.setDate(d.getDate() - 1); return d; })());
+            const comunes = {
+                customerId, isTemplate: false, allowOverlap: true,
+                verificado: nube?.verificado === true,
+                sinEntrenamientos: nube?.sinEntrenamientos === true,
+                diasEntrenadosEstaSemana: nube?.diasEntrenadosEstaSemana || [],
+                primerEntreno: nube?.primerEntreno || null,
+                ultimoEntreno: nube?.ultimoEntreno || null,
+            };
+            // 1) Cerrar el actual la víspera, conservando su contenido y su historial.
+            const cierre = await window.api.training.saveMesocycle({
+                ...comunes, id: initialData.id, name, startDate, endDate: vispera,
+                viewDay, daysPerWeek: days.length,
+                routines: days.map((d, i) => ({ id: d.id, name: d.name, dayGroup: i, items: d.items })),
+            });
+            if (!(cierre?.success || cierre?.id)) throw new Error(cierre?.error || 'No se pudo cerrar el programa actual');
+
+            // 2) Crear el siguiente con el mismo contenido, pero filas nuevas:
+            //    sin ids, para que nazca independiente del anterior.
+            const nuevo = await window.api.training.saveMesocycle({
+                ...comunes, verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [],
+                primerEntreno: null, ultimoEntreno: null,
+                name: nombreParaFecha(inicioNuevo),
+                startDate: inicioNuevo, endDate: endFromWeeks(inicioNuevo, weeks),
+                daysPerWeek: days.length,
+                routines: days.map((d, i) => ({
+                    id: Date.now() + i, name: d.name, dayGroup: i,
+                    items: (d.items || []).map(it => ({
+                        exerciseId: it.exerciseId ?? it.exercise_id,
+                        series: it.series ?? null, reps: it.reps ?? null, rpe: it.rpe ?? null,
+                        notes: it.notes || '', intensity: it.intensity || '',
+                        custom_fields: it.custom_fields || {},
+                        superset_group: it.superset_group ?? null,
+                        superset_rounds: it.superset_rounds ?? null,
+                    })),
+                })),
+            });
+            if (!(nuevo?.success || nuevo?.id)) throw new Error(nuevo?.error || 'No se pudo crear el programa nuevo');
+
+            setCrearSiguiente(false);
+            onSave();
+        } catch (err) {
+            setCrearSiguiente(false);
+            setError('No se pudo crear el siguiente: ' + (err.message || 'error desconocido'));
+        } finally {
+            setIsSaving(false);
+        }
+    };
     const cambios = React.useMemo(() => historialDeCambios(initialData?.routines), [initialData]);
 
     React.useEffect(() => {
@@ -1025,10 +1092,59 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                         <p className="mt-1 text-[11px] text-slate-400">
                                             Puedes mover el inicio como mucho hasta el <span className="text-slate-200 font-semibold">{inicioMaximo}</span>,
                                             y el fin no puede quedar antes del <span className="text-slate-200 font-semibold">{finMinimo}</span>.
-                                            Alargarlo, siempre. Si lo que quieres es empezar otra etapa,
-                                            crea un programa nuevo copiando este en vez de mover las fechas.
+                                            Alargarlo, siempre.
                                         </p>
                                     )}
+                                    {/* La salida: es lo que de verdad quiere hacer
+                                        cuando mueve las fechas de un programa con
+                                        historial. Aquí sale hecho y sin perder nada. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setCrearSiguiente(true)}
+                                        className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                                    >
+                                        Crear el siguiente copiando este
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Elegir desde qué lunes arranca el siguiente. */}
+                            {crearSiguiente && (
+                                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.07] p-3">
+                                    <p className="text-xs font-bold text-emerald-300">¿Desde cuándo empieza el siguiente?</p>
+                                    <p className="mt-1 text-[11px] text-emerald-200/80">
+                                        Este programa se cerrará la víspera, con sus {nube?.totalEntrenos} entrenamientos
+                                        intactos, y se creará uno nuevo con los mismos ejercicios y las semanas limpias.
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        {[
+                                            { etiqueta: 'Este lunes', fecha: lunesDeEstaSemana },
+                                            { etiqueta: 'El lunes que viene', fecha: lunesSiguiente },
+                                        ].map(o => {
+                                            // No se puede cerrar el actual antes del último
+                                            // entrenamiento del cliente: se quedaría fuera.
+                                            const invalido = !!finMinimo && o.fecha <= finMinimo;
+                                            return (
+                                                <button
+                                                    key={o.fecha}
+                                                    type="button"
+                                                    disabled={invalido || isSaving}
+                                                    onClick={() => ejecutarCrearSiguiente(o.fecha)}
+                                                    title={invalido ? `El cliente entrenó el ${finMinimo}: el nuevo tiene que empezar después` : undefined}
+                                                    className="rounded-lg border border-emerald-500/30 bg-emerald-600/80 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                    {o.etiqueta} <span className="font-medium opacity-80">({o.fecha})</span>
+                                                </button>
+                                            );
+                                        })}
+                                        <button
+                                            type="button"
+                                            onClick={() => setCrearSiguiente(false)}
+                                            className="rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-700"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
