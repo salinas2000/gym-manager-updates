@@ -425,7 +425,18 @@ class TrainingService extends BaseService {
         // FIX: Use cached deleted keys to prevent N+1 query
         const deletedKeys = this.getDeletedFieldKeys();
 
-        const routines = this.db.prepare('SELECT * FROM routines WHERE mesocycle_id = ? ORDER BY id ASC').all(mesocycleId);
+        // El orden de los días es el que dejó el entrenador, guardado en
+        // day_group como posición (0, 1, 2...). Antes se leía por id, así que
+        // mover un día de sitio no se conservaba: al reabrir salían revueltos.
+        // Las filas viejas no tienen posición: van al final y entre ellas por
+        // id, que es exactamente el comportamiento de siempre.
+        const routines = this.db.prepare(`
+            SELECT * FROM routines
+            WHERE mesocycle_id = ?
+            ORDER BY CASE WHEN day_group IS NULL OR day_group = '' THEN 1 ELSE 0 END ASC,
+                     CAST(day_group AS INTEGER) ASC,
+                     id ASC
+        `).all(mesocycleId);
         return routines.map(r => ({
             ...r,
             items: this.db.prepare(`
@@ -853,6 +864,10 @@ class TrainingService extends BaseService {
             // retiran (se cierran) pero los dias se quedan.
             const planNoEmpezado = !mesoData.startDate || mesoData.startDate >= hoyStr;
             const wholePlan = editWeek <= 1 && planNoEmpezado;
+            // Desde cuándo vale un DÍA nuevo añadido en este guardado. Con el
+            // programa en marcha, desde el corte: el cliente no entrenó ese día
+            // en las semanas ya pasadas. Si aún no ha empezado, sin fecha.
+            const nuevoDiaDesde = planNoEmpezado ? null : cutSafe;
             let mesoId = mesoData.id;
             let existingRoutineIds = new Set();
 
@@ -905,7 +920,9 @@ class TrainingService extends BaseService {
                         updateRoutine.run({
                             id: routine.id,
                             name: routine.name,
-                            dayGroup: routine.dayGroup || '',
+                            // Posición del día. `?? ''` y no `|| ''`: el primer
+                            // día es la posición 0, que con `||` se perdería.
+                            dayGroup: String(routine.dayGroup ?? ''),
                             notes: ''
                         });
                         routineId = routine.id;
@@ -920,7 +937,7 @@ class TrainingService extends BaseService {
                             gymId,
                             mesocycleId: mesoId,
                             name: routine.name,
-                            dayGroup: routine.dayGroup || '',
+                            dayGroup: String(routine.dayGroup ?? ''),
                             notes: ''
                         });
                         routineId = rInfo.lastInsertRowid;
@@ -928,10 +945,13 @@ class TrainingService extends BaseService {
                         // No existing items on a brand-new routine — just insert
                         // the payload items. reconcileItems handles this correctly
                         // (existingItemIds is empty, so everything is INSERT).
-                        // Un día nuevo no tiene pasado que preservar aunque se
-                        // esté editando otra semana: sus ejercicios nacen sin
-                        // fecha de inicio (vigentes desde siempre).
-                        reconcileItems(routineId, routine.items, null, mesoData.startDate);
+                        // Un día NUEVO en un programa ya en marcha empieza el día
+                        // del corte, no antes: el cliente no entrenó ese día en
+                        // las semanas ya pasadas, y sin fecha aparecería en su
+                        // historial como si lo hubiera hecho.
+                        // En un plan que aún no ha empezado no hay pasado que
+                        // proteger: nacen sin fecha (vigentes desde siempre).
+                        reconcileItems(routineId, routine.items, nuevoDiaDesde, mesoData.startDate);
                     }
                 }
             }

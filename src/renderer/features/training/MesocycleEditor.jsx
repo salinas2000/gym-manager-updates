@@ -454,10 +454,13 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 // (does this id appear in routines WHERE mesocycle_id = ?) to
                 // decide UPDATE vs INSERT — so passing a non-DB id here is
                 // safe and simply triggers INSERT.
-                routines: days.map(d => ({
+                routines: days.map((d, idx) => ({
                     id: d.id,
                     name: d.name,
-                    dayGroup: '',
+                    // Posición del día. Sin esto el orden se leía por id, así
+                    // que mover un día de sitio no se conservaba: al reabrir
+                    // salían revueltos.
+                    dayGroup: idx,
                     items: d.items
                 }))
             };
