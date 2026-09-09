@@ -15,6 +15,7 @@
 
 const dbManager = require('../../db/database');
 const BaseService = require('../BaseService');
+const { posicionParaNube } = require('../../db/migrations/day-order');
 
 // Batch size for upsert operations (Supabase recommends ≤1000 per call)
 const BATCH_SIZE = 500;
@@ -210,7 +211,10 @@ class SyncService extends BaseService {
                     local_id: r.id,
                     mesocycle_id: r.mesocycle_id,
                     name: r.name,
-                    day_group: emptyToNull(r.day_group),
+                    // Posición del día. Va como número: la columna de la nube
+                    // lo es, y un resto antiguo no numérico tumbaría el lote
+                    // entero de rutinas.
+                    day_group: posicionParaNube(r.day_group),
                     notes: emptyToNull(r.notes),
                     synced_at: new Date().toISOString(),
                 }),

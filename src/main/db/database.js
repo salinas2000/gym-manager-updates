@@ -1166,6 +1166,26 @@ class DBManager {
             console.error('[MIGRATION] Routine dedupe failed:', err.message);
         }
 
+        // 20d. ORDEN DE LOS DÍAS — recupera el orden que se perdía antes de la
+        // 2.3.13. Hasta entonces el orden no se guardaba: al arrastrar un día
+        // solo cambiaban los nombres y al leer se ordenaba por id, así que al
+        // reabrir salían revueltos. El orden sigue estando escrito en los
+        // nombres automáticos ("Día 1".."Día N"), y de ahí se recupera.
+        // Detalle en migrations/day-order.js. Inofensiva a partir del primer
+        // arranque: solo mira programas sin ninguna posición guardada.
+        try {
+            const { rellenarPosicionesDeDias } = require('./migrations/day-order');
+            const r = rellenarPosicionesDeDias(this.db);
+            if (r.programas > 0) {
+                console.log(
+                    `[MIGRATION] 📅 Orden de días: ${r.dias} día(s) en ${r.programas} programa(s); ` +
+                    `${r.porNombre} recuperado(s) del nombre, el resto se deja como estaba.`
+                );
+            }
+        } catch (err) {
+            console.error('[MIGRATION] Orden de días falló:', err.message);
+        }
+
         // 22. Customer Medical/Personal Profile Fields
         this.safeAddColumn('customers', 'dni', 'TEXT');
         this.safeAddColumn('customers', 'address', 'TEXT');

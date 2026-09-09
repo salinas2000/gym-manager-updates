@@ -433,8 +433,8 @@ class TrainingService extends BaseService {
         const routines = this.db.prepare(`
             SELECT * FROM routines
             WHERE mesocycle_id = ?
-            ORDER BY CASE WHEN day_group IS NULL OR day_group = '' THEN 1 ELSE 0 END ASC,
-                     CAST(day_group AS INTEGER) ASC,
+            ORDER BY CASE WHEN day_group GLOB '[0-9]*' THEN 0 ELSE 1 END ASC,
+                     CASE WHEN day_group GLOB '[0-9]*' THEN CAST(day_group AS INTEGER) END ASC,
                      id ASC
         `).all(mesocycleId);
         return routines.map(r => ({
