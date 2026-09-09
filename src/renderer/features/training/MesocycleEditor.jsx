@@ -6,7 +6,7 @@ import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 // Vigencia por fechas (espejo de la regla de corte de saveMesocycle) y parseo
 // de fechas sin desfase UTC (nada de new Date('2026-07-01')).
-import { ymdLocal, parseIso, diaDeCorte, diaDeVista, fechaPropuesta, itemAppliesOn } from './vigencia';
+import { ymdLocal, parseIso, diaDeCorte, diaDeVista, fechaPropuesta, solapeYaExistia, itemAppliesOn } from './vigencia';
 
 // ── Helpers de semanas completas (lunes → domingo) ──────────────────────
 // Lunes de la semana en curso si hoy es lunes; si no, el próximo lunes.
@@ -373,7 +373,10 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 endDate,
                 notes: 'Creado desde App',
                 isTemplate,
-                allowOverlap,
+                // Un solape que YA estaba (no se han tocado las fechas) no se
+                // vuelve a avisar: el aviso es para cuando lo estás creando, y
+                // al editar deja el guardado bloqueado sin salida.
+                allowOverlap: allowOverlap || solapeYaExistia(initialData, startDate, endDate),
                 daysPerWeek: days.length, // Auto-calculate from number of routines
                 // Día para el que se construyó la vista de la que sale este
                 // payload. Si el backend ve que entre ese día y el corte real
@@ -408,7 +411,9 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 // Check if it's an overlap error
                 const errorMsg = result.error || 'Error desconocido';
                 if (errorMsg.includes('solapan') || errorMsg.includes('overlap')) {
-                    setError('⚠️ Las fechas se solapan con otro mesociclo activo. Por favor, ajusta las fechas de inicio y fin para que no coincidan con otro plan activo.');
+                    // Con salida: el entrenador decide. Sin esto, el aviso deja
+                    // el programa sin poder guardarse.
+                    setError('solape-al-guardar');
                 } else if (errorMsg.includes('vuelve a abrir')) {
                     // Vista desfasada: no es un fallo, es el guardián. No se ha
                     // tocado nada, así que se dice qué hacer sin alarmar.
@@ -422,7 +427,7 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
             console.error(err);
             const errorMsg = err.message || 'Error inesperado';
             if (errorMsg.includes('solapan') || errorMsg.includes('overlap')) {
-                setError('⚠️ Las fechas se solapan con otro mesociclo activo. Por favor, ajusta las fechas de inicio y fin para que no coincidan con otro plan activo.');
+                setError('solape-al-guardar');
             } else {
                 setError('Error inesperado al guardar: ' + errorMsg);
             }
@@ -929,6 +934,46 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                 {/* STEP 2: BUILDER */}
                 {step === 2 && (
                     <div className="flex flex-col h-full gap-4">
+                        {/* Los errores del guardado se pintan AQUÍ. Antes solo
+                            existían en la pantalla de fechas, así que al fallar
+                            el guardado desde aquí no salía ningún mensaje: el
+                            entrenador pulsaba Guardar y no pasaba nada. */}
+                        {error && (
+                            error === 'solape-al-guardar' ? (
+                                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 space-y-3">
+                                    <div className="flex items-start gap-2 text-red-400">
+                                        <AlertTriangle size={20} className="mt-0.5 shrink-0" />
+                                        <div>
+                                            <p className="text-sm font-bold">Este cliente tiene otro programa activo en estas fechas</p>
+                                            <p className="mt-1 text-xs text-red-300">
+                                                Puedes guardarlo igualmente y que convivan, o volver a la configuración
+                                                para ajustar las fechas.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            onClick={() => { setError(null); handleFinish(true); }}
+                                            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-500"
+                                        >
+                                            Guardar de todas formas
+                                        </button>
+                                        <button
+                                            onClick={() => { setError(null); setStep(1); }}
+                                            className="rounded-lg border border-white/10 bg-slate-800 px-4 py-2 text-sm font-bold text-slate-300 transition-colors hover:bg-slate-700"
+                                        >
+                                            Revisar las fechas
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+                                    <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                                    <span>{error}</span>
+                                </div>
+                            )
+                        )}
+
                         {!isTemplate && initialData?.id && soloLectura && (
                             <div className="rounded-xl border border-orange-500/30 bg-orange-500/[0.07] p-3">
                                 <p className="text-xs font-bold text-orange-300">

@@ -1,4 +1,4 @@
-const { diaDeCorte, diaDeVista, fechaPropuesta, itemAppliesOn, parseIso, ymdLocal } = require('./vigencia');
+const { diaDeCorte, diaDeVista, fechaPropuesta, solapeYaExistia, itemAppliesOn, parseIso, ymdLocal } = require('./vigencia');
 
 /**
  * La regla es una sola: lo que se guarda entra HOY, y solo si el programa ya
@@ -136,5 +136,28 @@ describe('fechaPropuesta — al crear un programa nuevo', () => {
 
     test('si hoy es lunes, se puede empezar hoy mismo', () => {
         expect(fechaPropuesta(new Date(2026, 8, 7), lunesDe, '2026-09-07')).toBe('2026-09-07');
+    });
+});
+
+describe('solapeYaExistia — por qué no se podía guardar al editar', () => {
+    const guardado = { id: 153, start_date: '2026-08-31', end_date: '2026-12-20' };
+
+    test('editando sin tocar las fechas, el solape ya estaba', () => {
+        expect(solapeYaExistia(guardado, '2026-08-31', '2026-12-20')).toBe(true);
+    });
+
+    test('acepta las fechas guardadas con hora', () => {
+        const conHora = { id: 153, start_date: '2026-08-31T00:00:00Z', end_date: '2026-12-20T00:00:00Z' };
+        expect(solapeYaExistia(conHora, '2026-08-31', '2026-12-20')).toBe(true);
+    });
+
+    test('si cambia alguna fecha, sí hay que avisar', () => {
+        expect(solapeYaExistia(guardado, '2026-09-07', '2026-12-20')).toBe(false);
+        expect(solapeYaExistia(guardado, '2026-08-31', '2027-01-10')).toBe(false);
+    });
+
+    test('un programa nuevo siempre avisa', () => {
+        expect(solapeYaExistia(null, '2026-08-31', '2026-12-20')).toBe(false);
+        expect(solapeYaExistia({ start_date: '2026-08-31', end_date: '2026-12-20' }, '2026-08-31', '2026-12-20')).toBe(false);
     });
 });

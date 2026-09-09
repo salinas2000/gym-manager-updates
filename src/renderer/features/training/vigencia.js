@@ -94,6 +94,33 @@ export function fechaPropuesta(preferida, lunesDe, hoy = ymdLocal(new Date())) {
     return candidata < hoy ? lunesDe(new Date()) : candidata;
 }
 
+/**
+ * ¿El solape de fechas ya existía antes de esta edición?
+ *
+ * La app avisa cuando dos programas activos de un mismo cliente se pisan. Ese
+ * aviso tiene sentido al CREAR: te está diciendo que revises las fechas antes
+ * de seguir. Pero al EDITAR un programa que ya existía con ese solape, el aviso
+ * bloquea el guardado sin ofrecer salida: el editor entra directo a la pantalla
+ * de ejercicios, y el botón de "continuar de todas formas" solo aparece en el
+ * paso de fechas, por el que no se pasa.
+ *
+ * Resultado: doce clientes del gimnasio con programas solapados no se podían
+ * editar. Se guardaba el aviso y no había manera de pasar de él.
+ *
+ * Si el entrenador no ha tocado las fechas, no está creando ningún solape: ya
+ * estaba ahí y lo aceptó en su día. No hay nada que avisar.
+ *
+ * @param {object|null} initialData Programa tal y como se abrió.
+ * @param {string} inicio Fecha de inicio en pantalla.
+ * @param {string} fin Fecha de fin en pantalla.
+ */
+export function solapeYaExistia(initialData, inicio, fin) {
+    if (!initialData?.id) return false;             // programa nuevo: sí hay que avisar
+    const iniGuardado = String(initialData.start_date || '').slice(0, 10);
+    const finGuardado = String(initialData.end_date || '').slice(0, 10);
+    return inicio === iniGuardado && fin === finGuardado;
+}
+
 /** ¿Está el ejercicio vigente ese día? Sin día → se muestra todo. */
 export function itemAppliesOn(item, day) {
     if (!day) return true;
