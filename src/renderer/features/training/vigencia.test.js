@@ -1,4 +1,4 @@
-const { diaDeCorte, diaDeVista, itemAppliesOn, parseIso, ymdLocal } = require('./vigencia');
+const { diaDeCorte, diaDeVista, fechaPropuesta, itemAppliesOn, parseIso, ymdLocal } = require('./vigencia');
 
 /**
  * La regla es una sola: lo que se guarda entra HOY, y solo si el programa ya
@@ -110,5 +110,31 @@ describe('diaDeVista — lo que se ENSEÑA en el editor', () => {
         const dia = diaDeVista(INICIO, '2026-08-20');
         const retirado = { effective_from: null, effective_to: '2026-08-23' }; // víspera
         expect(itemAppliesOn(retirado, dia)).toBe(false);
+    });
+});
+
+describe('fechaPropuesta — al crear un programa nuevo', () => {
+    // Alineador a lunes, igual que el del editor.
+    const lunesDe = (from) => {
+        const d = from ? new Date(from) : new Date();
+        d.setHours(0, 0, 0, 0);
+        const dia = d.getDay();
+        d.setDate(d.getDate() + (dia === 1 ? 0 : (dia === 0 ? 1 : 8 - dia)));
+        return ymdLocal(d);
+    };
+
+    test('un arranque futuro se respeta', () => {
+        expect(fechaPropuesta(new Date(2026, 8, 14), lunesDe, '2026-09-09')).toBe('2026-09-14');
+    });
+
+    test('NO propone una fecha pasada', () => {
+        // El caso real: el programa anterior terminó hace meses, así que se
+        // parte del día 1 de este mes. Alineado a lunes da el 7, y hoy es 9.
+        const propuesta = fechaPropuesta(new Date(2026, 8, 1), lunesDe, '2026-09-09');
+        expect(propuesta >= '2026-09-09').toBe(true);
+    });
+
+    test('si hoy es lunes, se puede empezar hoy mismo', () => {
+        expect(fechaPropuesta(new Date(2026, 8, 7), lunesDe, '2026-09-07')).toBe('2026-09-07');
     });
 });

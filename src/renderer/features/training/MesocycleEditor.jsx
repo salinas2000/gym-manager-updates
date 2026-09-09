@@ -6,7 +6,7 @@ import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 // Vigencia por fechas (espejo de la regla de corte de saveMesocycle) y parseo
 // de fechas sin desfase UTC (nada de new Date('2026-07-01')).
-import { ymdLocal, parseIso, diaDeCorte, diaDeVista, itemAppliesOn } from './vigencia';
+import { ymdLocal, parseIso, diaDeCorte, diaDeVista, fechaPropuesta, itemAppliesOn } from './vigencia';
 
 // ── Helpers de semanas completas (lunes → domingo) ──────────────────────
 // Lunes de la semana en curso si hoy es lunes; si no, el próximo lunes.
@@ -116,9 +116,11 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
                                 nextStart = firstOfMonth;
                             }
 
-                            // Semanas completas: alinear el arranque al lunes (el
-                            // mismo día si ya cae en lunes, o el siguiente).
-                            const nextStartStr = nextMondayStr(nextStart);
+                            // Semanas completas: alinear al lunes. Y nunca una
+                            // fecha pasada: si el lunes calculado ya pasó, el
+                            // programa nacería "ya empezado" sin que el
+                            // entrenador haya hecho nada raro.
+                            const nextStartStr = fechaPropuesta(nextStart, nextMondayStr);
                             setSuggestedDate(nextStartStr);
                             setStartDate(nextStartStr);
                             // Fin en domingo (inicio + semanas completas − 1 día).

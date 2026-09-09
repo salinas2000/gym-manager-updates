@@ -72,6 +72,28 @@ export function diaDeVista(startIso, hoy = ymdLocal(new Date())) {
     return diaDeCorte(startIso, hoy) || String(startIso).slice(0, 10);
 }
 
+/**
+ * Fecha que se propone al crear un programa nuevo.
+ *
+ * Se parte de cuando debería arrancar (el día siguiente al fin del anterior, o
+ * el día 1 de este mes si aquel terminó hace tiempo) y se alinea al lunes,
+ * porque los programas van por semanas completas.
+ *
+ * La regla que faltaba: NUNCA proponer una fecha pasada. Con el programa
+ * anterior terminado hace meses se proponía el día 1 del mes actual alineado a
+ * lunes, que un día 9 cae en el pasado. El programa nacía "ya empezado" y el
+ * entrenador se encontraba con que no podía tocarlo entero, sin haber hecho
+ * nada raro. Si el lunes calculado ya pasó, se propone el siguiente.
+ *
+ * @param {Date} preferida Fecha desde la que debería arrancar.
+ * @param {(from?: Date) => string} lunesDe Alineador a lunes (nextMondayStr).
+ * @param {string} hoy 'YYYY-MM-DD'.
+ */
+export function fechaPropuesta(preferida, lunesDe, hoy = ymdLocal(new Date())) {
+    const candidata = lunesDe(preferida);
+    return candidata < hoy ? lunesDe(new Date()) : candidata;
+}
+
 /** ¿Está el ejercicio vigente ese día? Sin día → se muestra todo. */
 export function itemAppliesOn(item, day) {
     if (!day) return true;
