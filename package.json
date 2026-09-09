@@ -46,6 +46,7 @@
         "repo": "gym-manager-updates"
       }
     ],
+    "beforePack": "scripts/check-no-secrets.js",
     "extraResources": [
       {
         "from": "src/main/db/seeds",
