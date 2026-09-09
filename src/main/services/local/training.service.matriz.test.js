@@ -120,6 +120,7 @@ const contenido = () => db.prepare(`
 function crear(estado, dias = [[1, 2, 3], [4, 5]]) {
     const r = training.saveMesocycle({
         customerId: 1, name: 'Plan', allowOverlap: true,
+        verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [],
         startDate: estado.inicio, endDate: estado.fin, daysPerWeek: dias.length,
         routines: dias.map((ejs, i) => ({
             id: Date.now() + i, name: `Día ${i + 1}`, dayGroup: i,
@@ -130,10 +131,11 @@ function crear(estado, dias = [[1, 2, 3], [4, 5]]) {
 }
 
 /** Guarda lo que el editor tiene en pantalla. */
-const guardar = (mesoId, estado, routines) => training.saveMesocycle({
+const guardar = (mesoId, estado, routines, extra = {}) => training.saveMesocycle({
     id: mesoId, customerId: 1, name: 'Plan', allowOverlap: true,
+    verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [],
     startDate: estado.inicio, endDate: estado.fin, viewDay: diaDeVista(estado.inicio),
-    daysPerWeek: routines.length, routines,
+    daysPerWeek: routines.length, routines, ...extra,
 });
 
 // ── La matriz ───────────────────────────────────────────────────────────────
@@ -378,3 +380,112 @@ describe('en marcha: el pasado del cliente nunca se toca', () => {
 });
 
 function VISTA_EN_MARCHA() { return HOY; }
+
+// ── Lo nuevo: el cambio espera si el cliente ya entrenó ese día ─────────────
+
+describe('un día ya entrenado esta semana no se toca hasta la siguiente', () => {
+    const estado = ESTADOS[2];          // empezó hace 30 días
+    const finDeSuSemana = () => {
+        // Las semanas van desde el inicio del programa, no desde el lunes.
+        const dias = Math.round((new Date(HOY) - new Date(estado.inicio)) / DAY);
+        const n = Math.floor(dias / 7);
+        const ini = new Date(estado.inicio); ini.setDate(ini.getDate() + n * 7 + 7);
+        return ymd(ini);
+    };
+
+    test('quitar un ejercicio de un día entrenado lo cierra la víspera de su próxima semana', () => {
+        const m = crear(estado);
+        const r = editable(m, HOY);
+        const diaEntrenado = r[0].id;
+        const quitado = r[0].items[1].id;
+        r[0].items.splice(1, 1);
+        guardar(m, estado, r, { diasEntrenadosEstaSemana: [diaEntrenado] });
+
+        const fila = db.prepare('SELECT effective_to FROM routine_items WHERE id = ?').get(quitado);
+        const proximaSemana = finDeSuSemana();
+        const vispera = ymd(new Date(new Date(proximaSemana).getTime() - DAY));
+        expect(fila.effective_to).toBe(vispera);
+        // Sigue viéndose HOY: su sesión de esta semana no se toca.
+        expect(ver(m, HOY)[0].ejercicios).toEqual([1, 2, 3]);
+        // Y desaparece al empezar la semana siguiente.
+        expect(ver(m, proximaSemana)[0].ejercicios).toEqual([1, 3]);
+    });
+
+    test('lo añadido a un día entrenado empieza en su próxima semana', () => {
+        const m = crear(estado);
+        const r = editable(m, HOY);
+        r[0].items.push({ exerciseId: 4 });
+        guardar(m, estado, r, { diasEntrenadosEstaSemana: [r[0].id] });
+
+        expect(ver(m, HOY)[0].ejercicios).toEqual([1, 2, 3]);
+        expect(ver(m, finDeSuSemana())[0].ejercicios).toEqual([1, 2, 3, 4]);
+    });
+
+    test('el OTRO día, que no se entrenó, sí cambia hoy', () => {
+        const m = crear(estado);
+        const r = editable(m, HOY);
+        r[0].items.push({ exerciseId: 4 });     // día entrenado
+        r[1].items.push({ exerciseId: 1 });     // día sin entrenar
+        guardar(m, estado, r, { diasEntrenadosEstaSemana: [r[0].id] });
+
+        expect(ver(m, HOY)).toEqual([
+            { dia: 'Día 1', ejercicios: [1, 2, 3] },
+            { dia: 'Día 2', ejercicios: [4, 5, 1] },
+        ]);
+    });
+});
+
+describe('sin conexión: no se puede comprobar, así que se va a lo seguro', () => {
+    const estado = ESTADOS[2];
+
+    test('los cambios esperan a la semana siguiente', () => {
+        const m = crear(estado);
+        const r = editable(m, HOY);
+        r[0].items.push({ exerciseId: 4 });
+        guardar(m, estado, r, { verificado: false, sinEntrenamientos: false });
+
+        expect(ver(m, HOY)[0].ejercicios).toEqual([1, 2, 3]);   // hoy no cambia nada
+    });
+
+    test('y NO se borra nada, ni en un programa sin empezar', () => {
+        const sinEmpezar = ESTADOS[0];
+        const m = crear(sinEmpezar);
+        const r = editable(m, diaDeVista(sinEmpezar.inicio));
+        const quitado = r[0].items[0].id;
+        r[0].items.splice(0, 1);
+        guardar(m, sinEmpezar, r, { verificado: false, sinEntrenamientos: false });
+
+        const fila = db.prepare('SELECT effective_from, effective_to FROM routine_items WHERE id = ?').get(quitado);
+        expect(fila).toBeDefined();                       // no se ha destruido
+        expect(fila.effective_from > fila.effective_to).toBe(true);   // pero no se ve nunca
+        expect(borrados()).toBe(0);
+    });
+});
+
+describe('las fechas no pueden dejar fuera lo ya entrenado', () => {
+    const estado = ESTADOS[2];
+    const conEntrenos = { verificado: true, sinEntrenamientos: false,
+        primerEntreno: shift(-20), ultimoEntreno: shift(-2) };
+
+    test('mover el inicio hasta el primer entrenamiento vale', () => {
+        const m = crear(estado);
+        expect(() => guardar(m, { ...estado, inicio: shift(-20) }, editable(m, HOY), conEntrenos)).not.toThrow();
+    });
+
+    test('un día más allá se rechaza', () => {
+        const m = crear(estado);
+        expect(() => guardar(m, { ...estado, inicio: shift(-19) }, editable(m, HOY), conEntrenos))
+            .toThrow(/quedarían fuera/);
+    });
+
+    test('acortar el fin por debajo del último entrenamiento se rechaza', () => {
+        const m = crear(estado);
+        expect(() => guardar(m, { ...estado, fin: shift(-3) }, editable(m, HOY), conEntrenos))
+            .toThrow(/quedarían fuera/);
+    });
+
+    test('alargar el fin siempre vale', () => {
+        const m = crear(estado);
+        expect(() => guardar(m, { ...estado, fin: shift(200) }, editable(m, HOY), conEntrenos)).not.toThrow();
+    });
+});

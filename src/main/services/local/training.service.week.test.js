@@ -102,8 +102,12 @@ const deletedItems = () =>
     db.prepare("SELECT local_id FROM sync_deleted_log WHERE table_name = 'routine_items'")
         .all().map((r) => r.local_id);
 
+// Salvo que el test diga otra cosa, se simula lo normal: el editor pudo
+// consultar la nube y el programa no tiene entrenamientos registrados.
 const save = (extra) => trainingService.saveMesocycle({
-    customerId: 1, name: 'Plan', allowOverlap: true, ...extra,
+    customerId: 1, name: 'Plan', allowOverlap: true,
+    verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [],
+    ...extra,
 });
 
 beforeEach(() => {

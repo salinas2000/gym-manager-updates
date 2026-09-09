@@ -76,7 +76,9 @@ function createSchema(d) {
 
 /** Guardar tal y como lo manda el editor. */
 const guardar = (extra) => trainingService.saveMesocycle({
-    customerId: 1, name: 'Plan', allowOverlap: true, notes: 'Creado desde App', ...extra,
+    customerId: 1, name: 'Plan', allowOverlap: true, notes: 'Creado desde App',
+    verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [],
+    ...extra,
 });
 
 /** Lo que el editor ENSEÑA al reabrir: día → ejercicios vigentes ese día. */

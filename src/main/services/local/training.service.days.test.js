@@ -100,7 +100,9 @@ function seedPlan(startDate, endDate, nombres = ['Día 1', 'Día 2', 'Día 3']) 
 }
 
 const save = (extra) => trainingService.saveMesocycle({
-    customerId: 1, name: 'Plan', allowOverlap: true, ...extra,
+    customerId: 1, name: 'Plan', allowOverlap: true,
+    verificado: true, sinEntrenamientos: true, diasEntrenadosEstaSemana: [],
+    ...extra,
 });
 
 /** Lo que ve el editor al reabrir: nombre de cada dia, en orden. */

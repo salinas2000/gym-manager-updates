@@ -1,6 +1,7 @@
 const dbManager = require('../../db/database');
 const z = require('zod');
 const BaseService = require('../BaseService');
+const { corteDelDia, fechasValidas, ymdLocal } = require('./cortes');
 
 // Validation Schemas
 const exerciseSchema = z.object({
@@ -57,7 +58,21 @@ const mesocycleSchema = z.object({
     // entrenador ha estado editando. Permite detectar una vista desfasada
     // (cliente anterior a 2.3.12, editor abierto desde ayer) y no pisar lo
     // guardado después. Los clientes anteriores a 2.3.12 no lo mandan.
-    viewDay: z.string().optional().nullable()
+    viewDay: z.string().optional().nullable(),
+    // ── Lo que el editor averigua preguntando a la nube antes de guardar ────
+    // Los entrenamientos del cliente viven SOLO en la nube, así que el
+    // escritorio no puede saber por su cuenta si un día ya se entrenó. Lo
+    // consulta y lo manda aquí. Si no pudo (sin conexión), `verificado` llega
+    // en false y se va a lo seguro: no se borra nada y los cambios entran en la
+    // semana siguiente.
+    verificado: z.boolean().optional(),
+    /** Ids de los días con entrenamientos en la semana en curso del programa. */
+    diasEntrenadosEstaSemana: z.array(z.number()).optional(),
+    /** El programa no tiene NINGÚN entrenamiento registrado. */
+    sinEntrenamientos: z.boolean().optional(),
+    /** Primer y último día con entrenamiento, para validar las fechas. */
+    primerEntreno: z.string().optional().nullable(),
+    ultimoEntreno: z.string().optional().nullable(),
 });
 
 class TrainingService extends BaseService {
@@ -575,7 +590,12 @@ class TrainingService extends BaseService {
             // Solo la mandan las versiones anteriores a la 2.3.14; sirve para
             // reconstruir qué vista tenían.
             editWeek: data.editWeek,
-            viewDay: data.viewDay
+            viewDay: data.viewDay,
+            verificado: data.verificado === true,
+            diasEntrenadosEstaSemana: Array.isArray(data.diasEntrenadosEstaSemana) ? data.diasEntrenadosEstaSemana : [],
+            sinEntrenamientos: data.sinEntrenamientos === true,
+            primerEntreno: data.primerEntreno || null,
+            ultimoEntreno: data.ultimoEntreno || null,
         };
 
         const isTemplate = normalizedData.isTemplate;
@@ -591,6 +611,28 @@ class TrainingService extends BaseService {
         );
         if (!isTemplate && overlapCheck.hasOverlap && !allowOverlap) {
             throw new Error('Las fechas se solapan con otro mesociclo activo.');
+        }
+
+        // ── LAS FECHAS NO PUEDEN DEJAR FUERA LO YA ENTRENADO ────────────────
+        // Es la única condición, y vale para las dos fechas en los dos
+        // sentidos. Mover el inicio no descoloca nada por sí solo: como cada
+        // entrenamiento está clavado a su fecha real, la rejilla de semanas se
+        // desplaza por encima y caen en la semana que les toca. Lo que hace
+        // daño es dejar alguno fuera del programa, porque entonces desaparece
+        // de la vista por semanas del cliente.
+        //
+        // Aquí queda garantizado de verdad: la interfaz se puede saltar, esto
+        // no. Solo se comprueba si el editor pudo consultar la nube; si no,
+        // tampoco se habrá permitido tocar las fechas.
+        if (!isTemplate && normalizedData.verificado
+            && (normalizedData.primerEntreno || normalizedData.ultimoEntreno)) {
+            const v = fechasValidas({
+                inicio: normalizedData.startDate ? String(normalizedData.startDate).slice(0, 10) : null,
+                fin: normalizedData.endDate ? String(normalizedData.endDate).slice(0, 10) : null,
+                primerEntreno: normalizedData.primerEntreno,
+                ultimoEntreno: normalizedData.ultimoEntreno,
+            });
+            if (!v.ok) throw new Error(v.motivo);
         }
 
         // PREPARE STATEMENTS
@@ -638,6 +680,12 @@ class TrainingService extends BaseService {
         // borrarlo. Los registros de entrenamiento del cliente cuelgan de esta
         // fila y viven solo en la nube, así que el escritorio no puede saber si
         // hay pesos anotados: borrar sería destruir historial a ciegas.
+        // Retirar sin borrar y sin depender de ninguna fecha: el rango queda
+        // vacío (empieza después de terminar), así que no está vigente ningún
+        // día, ni aunque luego se muevan las fechas del programa.
+        const marcarRetirado = this.db.prepare(
+            "UPDATE routine_items SET effective_from = '9999-12-31', effective_to = '1900-01-01', synced = 0, updated_at = datetime('now') WHERE id = @id"
+        );
         const closeItemAt = this.db.prepare(
             "UPDATE routine_items SET effective_to = @effectiveTo, synced = 0, updated_at = datetime('now') WHERE id = @id"
         );
@@ -693,7 +741,7 @@ class TrainingService extends BaseService {
          *        vista de la que sale el payload. Si difiere del corte y entre
          *        ambos días cambia lo vigente, el payload no es fiable.
          */
-        const reconcileItems = (routineId, payloadItems, cutFrom = null, mesoStartDate = null, viewDay = null) => {
+        const reconcileItems = (routineId, payloadItems, cutFrom = null, mesoStartDate = null, viewDay = null, permitirBorrado = false) => {
             const allExisting = getExistingItems.all(routineId);
             // Editando una semana concreta solo se reconcilia contra lo VIGENTE
             // ese día; lo de otras fechas ni se toca ni se retira.
@@ -838,48 +886,59 @@ class TrainingService extends BaseService {
                 if (keptItemIds.has(oldItemId)) continue;
                 if (closeAt) {
                     closeItemAt.run({ id: oldItemId, effectiveTo: closeAt });
-                } else {
+                } else if (permitirBorrado) {
+                    // Consta que el programa no ha empezado y que no tiene ningún
+                    // entrenamiento: aquí no hay historial que preservar.
                     logDelete.run(gymId, 'routine_items', oldItemId);
                     deleteSingleItem.run(oldItemId);
+                } else {
+                    // No consta. Se retira de forma que no se vea NUNCA, pase lo
+                    // que pase después con las fechas del programa. Borrar sería
+                    // arriesgarse a dejar sin dueño los pesos del cliente.
+                    marcarRetirado.run({ id: oldItemId });
                 }
             }
         };
 
         // EXECUTE TRANSACTION
         const transaction = this.db.transaction((mesoData) => {
-            // ── UNA SOLA REGLA: lo que se guarda entra HOY ──────────────────
-            // Un programa YA EMPEZADO tiene entrenamientos que proteger, así que
-            // lo que se quita se cierra ayer (nunca se borra: los pesos del
-            // cliente cuelgan de esa fila) y lo que se añade empieza hoy.
-            // Un programa que aún no ha arrancado no tiene pasado: se edita
-            // entero, sin fechas, como antes de todo esto.
+            // ── CUÁNDO ENTRA UN CAMBIO (ver cortes.js) ─────────────────────
+            // Hoy, salvo en un día que el cliente ya haya entrenado esta semana:
+            // ese entra al empezar la semana siguiente, para no descuadrarle una
+            // sesión hecha. Se decide por DÍA, no por programa.
             //
-            // Hasta la 2.3.13 el corte lo elegía el entrenador semana a semana.
-            // Se retiró: en un gimnasio real los programas duran de 12 a 16
-            // semanas y están todos empezados, así que el selector aparecía
-            // siempre con diez u once semanas tachadas y solo estorbaba. La
-            // protección del historial, que era el motivo, se conserva entera.
-            const hoy = new Date();
-            const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
-            // "Sin empezar" es SOLO si arranca mañana o más tarde. El día en que
-            // arranca ya cuenta como empezado: el cliente puede haber entrenado
-            // esa misma mañana, y si el programa se tratara como virgen se
-            // permitiría borrar un día entero con sus registros dentro.
-            const planNoEmpezado = !mesoData.startDate || mesoData.startDate > hoyStr;
-            const cutSafe = planNoEmpezado ? null : hoyStr;
+            // Los entrenamientos viven solo en la nube, así que el editor los
+            // consulta antes de guardar y los manda. Si no pudo (sin conexión),
+            // `verificado` llega en false y se va a lo seguro: se tratan TODOS
+            // los días como entrenados y no se borra nada.
+            const hoyStr = ymdLocal(new Date());
+            const inicio = mesoData.startDate ? String(mesoData.startDate).slice(0, 10) : null;
+            const planNoEmpezado = !inicio || inicio > hoyStr;
+            const verificado = mesoData.verificado === true;
+            const entrenados = new Set((mesoData.diasEntrenadosEstaSemana || []).map(Number));
+            /** Corte de un día concreto del programa. */
+            const corteDe = (routineId) => {
+                if (planNoEmpezado) return null;
+                const yaEntrenado = verificado ? entrenados.has(Number(routineId)) : true;
+                return corteDelDia(yaEntrenado, inicio, hoyStr);
+            };
+            // Corte "por defecto", para lo que no cuelga de un día concreto.
+            const cutSafe = planNoEmpezado ? null : corteDelDia(!verificado, inicio, hoyStr);
             // Día para el que el cliente construyó su vista. Los clientes
             // anteriores a la 2.3.14 mandaban `editWeek` y miraban el primer día
             // de esa semana: se reconstruye para que la guardia de vista
             // desfasada siga protegiendo si alguno sigue instalado.
             const viewDay = (typeof mesoData.viewDay === 'string' && /^\d{4}-\d{2}-\d{2}/.test(mesoData.viewDay))
                 ? mesoData.viewDay.slice(0, 10)
-                : (mesoData.editWeek && mesoData.startDate)
-                    ? shiftDate(mesoData.startDate, (Math.max(1, Number(mesoData.editWeek) || 1) - 1) * 7)
+                : (mesoData.editWeek && inicio)
+                    ? shiftDate(inicio, (Math.max(1, Number(mesoData.editWeek) || 1) - 1) * 7)
                     : cutSafe;
-            // Eliminar un DÍA entero se lleva por delante todo su historial, así
-            // que solo se permite mientras el programa no haya empezado. Una vez
-            // en marcha, los ejercicios se retiran pero los días se quedan.
-            const wholePlan = planNoEmpezado;
+            // Borrar de verdad (días y ejercicios) SOLO cuando consta que no hay
+            // nada entrenado y se ha podido comprobar. En cualquier otro caso se
+            // retira, nunca se destruye: los pesos del cliente cuelgan de esas
+            // filas y el escritorio no los tiene.
+            const sePuedeBorrar = planNoEmpezado && verificado && mesoData.sinEntrenamientos === true;
+            const wholePlan = sePuedeBorrar;
             // Desde cuándo vale un DÍA nuevo añadido en este guardado. Añadir un
             // día a un programa en marcha sí se fecha: el cliente no lo entrenó
             // en lo que va de programa.
@@ -953,7 +1012,7 @@ class TrainingService extends BaseService {
                         keptRoutineIds.add(routineId);
                         // Reconcile items in place — preserves item local_ids
                         // so customer_workout_logs stay attached to their slots.
-                        reconcileItems(routineId, routine.items, cutSafe, mesoData.startDate, viewDay);
+                        reconcileItems(routineId, routine.items, corteDe(routine.id), mesoData.startDate, viewDay, sePuedeBorrar);
                     } else {
                         console.log('[saveMesocycle v2.2.0] INSERT new routine (payload id=', routine.id, 'not in existing set)');
                         // INSERT a new routine row
@@ -975,7 +1034,7 @@ class TrainingService extends BaseService {
                         // historial como si lo hubiera hecho.
                         // En un plan que aún no ha empezado no hay pasado que
                         // proteger: nacen sin fecha (vigentes desde siempre).
-                        reconcileItems(routineId, routine.items, nuevoDiaDesde, mesoData.startDate);
+                        reconcileItems(routineId, routine.items, nuevoDiaDesde, mesoData.startDate, null, sePuedeBorrar);
                     }
                 }
             }
