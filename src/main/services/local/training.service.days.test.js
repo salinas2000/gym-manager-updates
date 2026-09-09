@@ -278,8 +278,8 @@ describe('programa que aún no ha empezado: quitar y volver a poner', () => {
             id: mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO,
             routines: [{ id: d1.routineId, name: 'Día 1', dayGroup: 0, items: [] }],
         });
-        const retirado = itemsOf(d1.routineId).find((i) => i.id === d1.itemId);
-        expect(retirado.effective_to < START_FUTURO).toBe(true);   // invisible
+        // Antes de arrancar la fila se borra: no hay historial que preservar.
+        expect(itemsOf(d1.routineId).find((i) => i.id === d1.itemId)).toBeUndefined();
 
         // 2) Se vuelve a añadir en otro guardado.
         save({

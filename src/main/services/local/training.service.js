@@ -822,23 +822,23 @@ class TrainingService extends BaseService {
                     });
                 }
             }
-            // Lo que existía y el payload no conserva: se RETIRA, nunca se
-            // borra. Cerrarlo el día anterior al corte deja intacto todo lo ya
-            // entrenado (los registros cuelgan de esta misma fila y el
-            // escritorio no puede saber si los hay: viven solo en la nube).
+            // Lo que existía y el payload ya no conserva.
             //
-            // Editando el plan completo no hay corte, así que se cierra el día
-            // anterior al inicio del programa: el rango queda vacío y el
-            // ejercicio no aparece en ninguna semana — equivale a borrarlo de
-            // cara al usuario, pero sin destruir su historial.
-            const closeAt = shiftDate(cutFrom || mesoStartDate, -1);
+            // Con el programa EN MARCHA se retira, nunca se borra: se cierra el
+            // día anterior al corte. Los registros del cliente cuelgan de esta
+            // misma fila y el escritorio no puede saber si los hay (viven solo
+            // en la nube), así que borrar sería destruir historial a ciegas.
+            //
+            // Si el programa NO ha empezado, se borra y punto. No puede haber
+            // nada entrenado todavía, así que no hay nada que preservar, y
+            // dejar filas cerradas ahí solo genera basura: la misma que hacía
+            // que volver a añadir un ejercicio retirado saliera duplicado.
+            const closeAt = cutFrom ? shiftDate(cutFrom, -1) : null;
             for (const oldItemId of existingItemIds) {
                 if (keptItemIds.has(oldItemId)) continue;
                 if (closeAt) {
                     closeItemAt.run({ id: oldItemId, effectiveTo: closeAt });
                 } else {
-                    // Programa sin fecha de inicio: no hay forma de fechar el
-                    // corte, así que se mantiene el borrado clásico.
                     logDelete.run(gymId, 'routine_items', oldItemId);
                     deleteSingleItem.run(oldItemId);
                 }

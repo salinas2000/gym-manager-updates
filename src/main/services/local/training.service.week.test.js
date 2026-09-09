@@ -170,9 +170,11 @@ describe('saveMesocycle — vigencia por fechas', () => {
             routines: [{ id: routineId, name: 'Día 1', items: [{ id: remo, exerciseId: 11 }] }],
         });
 
-        const pressRow = itemsOf(routineId).find((i) => i.id === press);
-        // Se cierra el dia anterior al inicio: rango vacio, invisible siempre.
-        expect(pressRow.effective_to < START_FUTURO).toBe(true);
+        // Antes de arrancar no puede haber nada entrenado, asi que la fila se
+        // borra sin mas. Dejarla cerrada solo generaria basura, y era lo que
+        // hacia que volver a anadir ese ejercicio saliera duplicado.
+        expect(itemsOf(routineId).find((i) => i.id === press)).toBeUndefined();
+        expect(deletedItems()).toContain(press);
     });
 
     test('el dia entero solo se borra si el plan no ha empezado', () => {
