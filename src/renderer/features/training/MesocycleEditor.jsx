@@ -6,7 +6,7 @@ import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 // Vigencia por fechas (espejo de la regla de corte de saveMesocycle) y parseo
 // de fechas sin desfase UTC (nada de new Date('2026-07-01')).
-import { ymdLocal, parseIso, diaDeCorte, itemAppliesOn } from './vigencia';
+import { ymdLocal, parseIso, diaDeCorte, diaDeVista, itemAppliesOn } from './vigencia';
 
 // ── Helpers de semanas completas (lunes → domingo) ──────────────────────
 // Lunes de la semana en curso si hoy es lunes; si no, el próximo lunes.
@@ -58,7 +58,17 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
     // Mesociclo nuevo → arranca el lunes siguiente para trabajar por semanas
     // completas (lunes → domingo). Al editar, respeta la fecha guardada.
     const [startDate, setStartDate] = useState(initialData?.start_date?.split('T')[0] || nextMondayStr());
-    const [weeks, setWeeks] = useState(4);
+    // Duración en semanas. Al editar sale de las fechas reales del programa: si
+    // se quedara en 4, el desplegable diría "4 Semanas" en un programa de 12 y
+    // tocarlo sin querer lo recortaría a un mes.
+    const [weeks, setWeeks] = useState(() => {
+        const s = initialData?.start_date?.split('T')[0];
+        const e = initialData?.end_date?.split('T')[0];
+        if (!s || !e) return 4;
+        const dias = Math.round((parseIso(e) - parseIso(s)) / 86400000) + 1;
+        const n = Math.round(dias / 7);
+        return n >= 1 ? n : 4;
+    });
     const [endDate, setEndDate] = useState(initialData?.end_date?.split('T')[0] || '');
     const [isTemplate, setIsTemplate] = useState(templateMode || false);
 
@@ -122,10 +132,14 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
 
     const copyFromPreviousMesocycle = (meso) => {
         if (meso.routines && meso.routines.length > 0) {
+            // Se copia el estado FINAL del programa: los ejercicios que se
+            // retiraron por el camino no vuelven. Sin esto, copiar un programa
+            // en el que se sustituyó algo traería el viejo y el nuevo juntos.
+            const diaCopia = String(meso.end_date || meso.start_date || '').slice(0, 10) || null;
             const newDays = meso.routines.map(r => ({
                 id: Date.now() + Math.random(),
                 name: r.name,
-                items: (r.items || []).map(i => ({
+                items: (r.items || []).filter(i => itemAppliesOn(i, diaCopia)).map(i => ({
                     exerciseId: i.exercise_id,
                     _guiId: crypto.randomUUID(),
                     exercise_name: i.exercise_name,
@@ -167,13 +181,13 @@ export default function MesocycleEditor({ customerId, customerName, initialData,
 
     // Routine State (must be before daysPerWeek)
     const [days, setDays] = useState(() =>
-        buildDays(initialData?.routines, diaDeCorte(initialData?.start_date))
+        buildDays(initialData?.routines, diaDeVista(initialData?.start_date))
     );
     // Día para el que se construyó esta vista. Se manda al guardar para que el
     // proceso principal detecte una vista desfasada (el editor abierto desde
     // ayer, u otro equipo tocando lo mismo) y no pise cambios que no se han
     // visto en pantalla.
-    const [viewDay] = useState(() => diaDeCorte(initialData?.start_date));
+    const [viewDay] = useState(() => diaDeVista(initialData?.start_date));
     const [currentDayId, setCurrentDayId] = useState(days[0].id);
     const [daysPerWeek, setDaysPerWeek] = useState(initialData?.days_per_week || days.length);
 

@@ -700,8 +700,18 @@ class TrainingService extends BaseService {
             const appliesOn = (i, day) =>
                 (!i.effective_from || i.effective_from <= day) &&
                 (!i.effective_to || i.effective_to >= day);
-            const inScope = cutFrom
-                ? allExisting.filter(i => appliesOn(i, cutFrom))
+            // Día contra el que se reconcilia. Con el programa en marcha es el
+            // corte (hoy); si aún no ha empezado, su fecha de inicio.
+            //
+            // Usar la fecha de inicio y no "todo" importa: al retirar un
+            // ejercicio de un programa sin empezar, la fila no se borra, se
+            // cierra el día anterior al inicio (queda invisible). Si esas filas
+            // siguieran en juego, volver a añadir ese mismo ejercicio
+            // reaprovecharía la fila cerrada y el ejercicio entraría INVISIBLE:
+            // el entrenador lo pone, guarda, y no aparece.
+            const scopeDay = cutFrom || (mesoStartDate ? String(mesoStartDate).slice(0, 10) : null);
+            const inScope = scopeDay
+                ? allExisting.filter(i => appliesOn(i, scopeDay))
                 : allExisting;
 
             // GUARDIA CONTRA VISTA DESFASADA. El payload es "lo que el entrenador
@@ -714,7 +724,12 @@ class TrainingService extends BaseService {
             // silencio. Antes que eso, se rechaza el guardado con un aviso claro.
             // Solo se rechaza si de verdad hay diferencia: el primer cambio de
             // la semana (nada fechado aún) entra igual desde cualquier cliente.
-            if (cutFrom && viewDay && viewDay !== cutFrom) {
+            // Solo se comprueba una vista construida ANTES del corte (el editor
+            // abierto desde ayer, o una versión anterior mirando el lunes de la
+            // semana). Una vista POSTERIOR al corte significa que el programa
+            // aún no había empezado cuando se abrió y ahora sí: ahí no hay nada
+            // que pisar, y comparar daría un rechazo falso al corregir la fecha.
+            if (cutFrom && viewDay && viewDay < cutFrom) {
                 const firma = (rows) => rows.map(i => i.id).sort((a, b) => a - b).join(',');
                 const vistos = allExisting.filter(i => appliesOn(i, viewDay));
                 if (firma(vistos) !== firma(inScope)) {
@@ -846,7 +861,11 @@ class TrainingService extends BaseService {
             // protección del historial, que era el motivo, se conserva entera.
             const hoy = new Date();
             const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
-            const planNoEmpezado = !mesoData.startDate || mesoData.startDate >= hoyStr;
+            // "Sin empezar" es SOLO si arranca mañana o más tarde. El día en que
+            // arranca ya cuenta como empezado: el cliente puede haber entrenado
+            // esa misma mañana, y si el programa se tratara como virgen se
+            // permitiría borrar un día entero con sus registros dentro.
+            const planNoEmpezado = !mesoData.startDate || mesoData.startDate > hoyStr;
             const cutSafe = planNoEmpezado ? null : hoyStr;
             // Día para el que el cliente construyó su vista. Los clientes
             // anteriores a la 2.3.14 mandaban `editWeek` y miraban el primer día
@@ -861,10 +880,18 @@ class TrainingService extends BaseService {
             // que solo se permite mientras el programa no haya empezado. Una vez
             // en marcha, los ejercicios se retiran pero los días se quedan.
             const wholePlan = planNoEmpezado;
-            // Desde cuándo vale un DÍA nuevo añadido en este guardado. Con el
-            // programa en marcha, desde el corte: el cliente no entrenó ese día
-            // en las semanas ya pasadas. Si aún no ha empezado, sin fecha.
-            const nuevoDiaDesde = planNoEmpezado ? null : cutSafe;
+            // Desde cuándo vale un DÍA nuevo añadido en este guardado. Añadir un
+            // día a un programa en marcha sí se fecha: el cliente no lo entrenó
+            // en lo que va de programa.
+            //
+            // Pero un programa que se está CREANDO ahora no tiene pasado que
+            // proteger, aunque su fecha de inicio sea anterior a hoy: antes de
+            // este guardado no existía. Si se fechara, un programa creado con
+            // fecha de hace tres semanas (algo que pasa: el entrenador lo pasa a
+            // limpio más tarde) saldría VACÍO en las semanas anteriores en la
+            // app del cliente.
+            const esProgramaNuevo = !mesoData.id;
+            const nuevoDiaDesde = (planNoEmpezado || esProgramaNuevo) ? null : cutSafe;
             let mesoId = mesoData.id;
             let existingRoutineIds = new Set();
 

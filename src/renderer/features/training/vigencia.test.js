@@ -1,4 +1,4 @@
-const { diaDeCorte, itemAppliesOn, parseIso, ymdLocal } = require('./vigencia');
+const { diaDeCorte, diaDeVista, itemAppliesOn, parseIso, ymdLocal } = require('./vigencia');
 
 /**
  * La regla es una sola: lo que se guarda entra HOY, y solo si el programa ya
@@ -20,12 +20,14 @@ describe('diaDeCorte', () => {
         expect(diaDeCorte(INICIO, '2026-08-20')).toBeNull();
     });
 
-    test('el día en que arranca tampoco tiene pasado que proteger', () => {
-        expect(diaDeCorte(INICIO, INICIO)).toBeNull();
+    test('el día en que arranca YA cuenta como empezado', () => {
+        // El cliente puede haber entrenado esa misma mañana. Tratarlo como
+        // virgen permitiría borrar un día entero con sus registros dentro.
+        expect(diaDeCorte(INICIO, INICIO)).toBe(INICIO);
     });
 
-    test('al día siguiente de arrancar ya hay pasado', () => {
-        expect(diaDeCorte(INICIO, '2026-08-25')).toBe('2026-08-25');
+    test('la víspera todavía no', () => {
+        expect(diaDeCorte(INICIO, '2026-08-23')).toBeNull();
     });
 
     test('sin fecha de inicio no hay corte', () => {
@@ -85,5 +87,28 @@ describe('parseIso / ymdLocal', () => {
         expect(ymdLocal(parseIso('2026-09-09'))).toBe('2026-09-09');
         expect(ymdLocal(parseIso('2026-09-09T22:00:00.000Z'))).toBe('2026-09-09');
         expect(parseIso('no-es-fecha')).toBeNull();
+    });
+});
+
+describe('diaDeVista — lo que se ENSEÑA en el editor', () => {
+    test('programa en marcha: se ve lo vigente hoy', () => {
+        expect(diaDeVista(INICIO, '2026-09-09')).toBe('2026-09-09');
+    });
+
+    test('programa que aún no ha empezado: se ve lo vigente el día que arranca', () => {
+        // Importa: al retirar un ejercicio de un programa sin arrancar, su fila
+        // se cierra la víspera del inicio. Si la vista no filtrara, esas filas
+        // retiradas volverían a aparecer en pantalla como si nada.
+        expect(diaDeVista(INICIO, '2026-08-20')).toBe(INICIO);
+    });
+
+    test('sin fecha de inicio no se filtra nada', () => {
+        expect(diaDeVista(null, '2026-09-09')).toBeNull();
+    });
+
+    test('un ejercicio retirado de un programa sin empezar no se ve', () => {
+        const dia = diaDeVista(INICIO, '2026-08-20');
+        const retirado = { effective_from: null, effective_to: '2026-08-23' }; // víspera
+        expect(itemAppliesOn(retirado, dia)).toBe(false);
     });
 });

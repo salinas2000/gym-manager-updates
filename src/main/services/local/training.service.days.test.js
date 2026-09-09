@@ -262,3 +262,49 @@ describe('quitar un dia', () => {
         expect(db.prepare('SELECT count(*) n FROM routines WHERE mesocycle_id = ?').get(mesoId).n).toBe(1);
     });
 });
+
+describe('programa que aún no ha empezado: quitar y volver a poner', () => {
+    // Josema escribe los programas antes de que arranquen. Ahí no hay historial
+    // que proteger, pero el ejercicio retirado no se borra: se cierra el día
+    // anterior al inicio (rango vacío, invisible). Si al volver a añadirlo se
+    // reaprovecha esa fila cerrada, el ejercicio entra INVISIBLE: el entrenador
+    // lo pone, guarda, y no aparece por ninguna parte.
+    test('volver a añadir un ejercicio retirado lo deja visible', () => {
+        const { mesoId, dias } = seedPlan(START_FUTURO, FIN_FUTURO, ['Día 1']);
+        const [d1] = dias;
+
+        // 1) Se retira Press Banca (10).
+        save({
+            id: mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO,
+            routines: [{ id: d1.routineId, name: 'Día 1', dayGroup: 0, items: [] }],
+        });
+        const retirado = itemsOf(d1.routineId).find((i) => i.id === d1.itemId);
+        expect(retirado.effective_to < START_FUTURO).toBe(true);   // invisible
+
+        // 2) Se vuelve a añadir en otro guardado.
+        save({
+            id: mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO,
+            routines: [{ id: d1.routineId, name: 'Día 1', dayGroup: 0, items: [{ exerciseId: 10 }] }],
+        });
+
+        // Tiene que verse el día que arranca el programa.
+        const visibles = itemsOf(d1.routineId).filter(
+            (i) => (!i.effective_from || i.effective_from <= START_FUTURO)
+                && (!i.effective_to || i.effective_to >= START_FUTURO));
+        expect(visibles.map((i) => i.exercise_id)).toEqual([10]);
+    });
+
+    test('lo retirado no vuelve a aparecer al reabrir', () => {
+        const { mesoId, dias } = seedPlan(START_FUTURO, FIN_FUTURO, ['Día 1']);
+        const [d1] = dias;
+        save({
+            id: mesoId, startDate: START_FUTURO, endDate: FIN_FUTURO,
+            routines: [{ id: d1.routineId, name: 'Día 1', dayGroup: 0, items: [] }],
+        });
+        // La vista del editor para un plan sin empezar mira su fecha de inicio.
+        const visibles = itemsOf(d1.routineId).filter(
+            (i) => (!i.effective_from || i.effective_from <= START_FUTURO)
+                && (!i.effective_to || i.effective_to >= START_FUTURO));
+        expect(visibles).toHaveLength(0);
+    });
+});

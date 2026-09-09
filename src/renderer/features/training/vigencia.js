@@ -49,7 +49,27 @@ export function parseIso(iso) {
  */
 export function diaDeCorte(startIso, hoy = ymdLocal(new Date())) {
     if (!startIso) return null;
-    return String(startIso).slice(0, 10) < hoy ? hoy : null;
+    // El día en que arranca ya cuenta como empezado: el cliente puede haber
+    // entrenado esa misma mañana. Mismo criterio que saveMesocycle.
+    return String(startIso).slice(0, 10) <= hoy ? hoy : null;
+}
+
+/**
+ * Día por el que se filtra lo que se ENSEÑA en el editor.
+ *
+ * No es lo mismo que el corte. En un programa que aún no ha empezado no hay
+ * corte (se edita entero), pero la vista sí necesita una fecha: al retirar un
+ * ejercicio de un programa sin arrancar, su fila no se borra, se cierra el día
+ * anterior al inicio y queda invisible. Sin filtrar por la fecha de inicio,
+ * esas filas retiradas volverían a aparecer en pantalla como si nada.
+ *
+ * @param {string|null} startIso Fecha de inicio del programa.
+ * @param {string} hoy Día de referencia, 'YYYY-MM-DD'.
+ * @returns {string|null} null solo si el programa no tiene fecha de inicio.
+ */
+export function diaDeVista(startIso, hoy = ymdLocal(new Date())) {
+    if (!startIso) return null;
+    return diaDeCorte(startIso, hoy) || String(startIso).slice(0, 10);
 }
 
 /** ¿Está el ejercicio vigente ese día? Sin día → se muestra todo. */
